@@ -1,0 +1,46 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Testing / tooling caches
+.pytest_cache/
+.hypothesis/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# What a hunt writes: the default output folder of the settings file.
+break-runs/
+
+# Prove run stores a local check might leave behind.
+prove-runs/
+
+# Local working folders (scripts, run outputs). The sdist is built from this file, so a folder
+# left out only in .git/info/exclude would ship in it.
+.work/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Devlogs are kept outside the repository (docs/repo-hygiene.md, section 2.7)
+devlog.md
+
+# Local secrets. Never committed. Break reads no key, and nothing here needs one.
+.env
+.env.local
