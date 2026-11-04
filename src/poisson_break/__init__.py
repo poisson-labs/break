@@ -6,9 +6,11 @@ control. Break calls your tools for real: it runs against a test environment.
 
 This package holds the command (``poisson_break.cli``), the record every stored run carries
 (``poisson_break.records``), the four extension points a fault, a way in, a strategy or your
-own failure check is written against (``poisson_break.interfaces``), and the catalogue of what
+own failure check is written against (``poisson_break.interfaces``), the catalogue of what
 Break varies: the changes and conditions by name, the ten launch faults, the input operators and
-the conversation moves (``poisson_break.changes``).
+the conversation moves (``poisson_break.changes``), and the applier that puts a condition on
+one run: what each tool call comes back as, which tools it may touch and how, and the record of
+what was done (``poisson_break.apply``).
 """
 
 __version__ = "0.1.0.dev0"
