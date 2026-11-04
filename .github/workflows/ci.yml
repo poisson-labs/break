@@ -1,0 +1,75 @@
+# On every pull request and every push to main: ruff, mypy and the test suite on Python 3.11,
+# 3.12 and 3.13, then a clean install of the wheel built from the tree into a fresh environment
+# outside the checkout, where the command is run (scripts/clean_install.py).
+#
+# The suite itself runs under a guard that fails any connection the code under test makes
+# (tests/conftest.py), and carries the check that no statistic is computed locally
+# (tests/test_package.py). Prove comes from PyPI at its exact pin, so no job needs a token.
+#
+# A pull request's run is cancelled when a newer one starts for it; each push to main is a group
+# of its own. Third-party actions are pinned to a commit, with the release it is in beside it,
+# and the runner image is pinned too: ubuntu-24.04, not a label GitHub moves.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: ruff, mypy and the tests on ${{ matrix.python }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --quiet -e ".[dev]"
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+      - name: Prove is installed at its pin
+        run: python -c "import importlib.metadata as m; print('poisson-prove', m.version('poisson-prove'))"
+      - name: Ruff
+        run: ruff check .
+      - name: Mypy
+        run: mypy
+      - name: Tests
+        run: python -m pytest -q
+
+  clean-install:
+    name: clean install of the wheel
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Build the wheel
+        run: |
+          python -m pip install --quiet "hatchling>=1.27.0"
+          python -m hatchling build -t wheel -d dist
+      # A fresh environment in the runner's temporary folder, outside the checkout: the wheel
+      # installed with pip, its dependencies from PyPI, and the command run from an empty folder
+      # with its own HOME.
+      - name: Install the wheel in a fresh environment and run the command
+        run: python scripts/clean_install.py --wheel "$(ls dist/*.whl)" --work "$RUNNER_TEMP/clean-install"
