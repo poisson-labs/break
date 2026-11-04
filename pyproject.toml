@@ -1,0 +1,89 @@
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "poisson-break"
+dynamic = ["version"]
+description = "Finds where an AI agent fails: runs the agent you already have, many times, while changing what the user asks, how the tools behave and how the conversation goes, and keeps the conditions that fail more than a control."
+readme = "README.md"
+# An SPDX expression, so PyPI shows "MIT" and not the licence text; the two files ship under
+# dist-info/licenses/: LICENSE and the third-party NOTICE.
+license = "MIT"
+license-files = ["LICENSE", "NOTICE"]
+requires-python = ">=3.11"
+authors = [{ name = "Poisson Labs", email = "work@poissonlabs.ai" }]
+maintainers = [{ name = "Poisson Labs", email = "work@poissonlabs.ai" }]
+keywords = ["agents", "fault-injection", "robustness", "evaluation", "testing"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Testing",
+    "Typing :: Typed",
+]
+# Prove and Trace are real dependencies, each pinned to one exact version. Break's Prove is the
+# version Trace pins, so the three tools agree on one Prove; Break pins Trace exactly because it
+# reads a named JSON schema from Trace's command. Trace is not yet on PyPI (the `poisson-trace`
+# name there holds a 0.0.1 placeholder with no code and no Prove pin), so its pin cannot be
+# declared yet: the line is added, with nothing else changed, the day Trace is published. Until
+# then the two tests that read Trace's version and its pin are red (tests/test_command.py,
+# tests/test_dependencies.py).
+dependencies = [
+    "poisson-prove==0.1.2",
+]
+
+[project.optional-dependencies]
+# Floors, not pins: the suite, mypy --strict and the ruff rule set in this file are known green on
+# these versions, and nothing below them is claimed. hatchling is here because the wheel's own
+# test builds it from the working tree, and the clean-install script does the same.
+dev = [
+    "pytest>=9.1.1",
+    "mypy>=2.3.1",
+    "ruff>=0.16.7",
+    "hatchling>=1.27.0",
+]
+
+# The command: `poisson-break`, one script (`python -m poisson_break` is the same). `main` takes
+# `prog`, so a shared `poisson break` can come later without touching Break.
+[project.scripts]
+poisson-break = "poisson_break.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/poisson-labs/break"
+Repository = "https://github.com/poisson-labs/break"
+Issues = "https://github.com/poisson-labs/break/issues"
+
+# One version, declared once, in the package: `poisson_break.__version__`.
+[tool.hatch.version]
+path = "src/poisson_break/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/poisson_break"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["I", "E501", "E702", "E731", "B905"]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src"]
+strict = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# The tests import `tests.conftest`, which needs the repository root on the import path.
+# `python -m pytest` puts it there and a bare `pytest` does not; this does, for both.
+pythonpath = ["."]
