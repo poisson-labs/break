@@ -17,9 +17,10 @@ before 1.0.
 
 The types an interface passes that another module defines are named in each docstring and
 typed ``Any`` here: the call context and the two outcome forms belong to the catalogue
-(``poisson_break.changes``), the tool list, the session and the run result to the runs module
-(``poisson_break.hunt``), the search's view and the proposal to the search module
-(``poisson_break.search``), the run view to the failure check (``poisson_break.checks``).
+(``poisson_break.changes``); the session, the tool list's ``ToolInfo`` and the run result
+``RunResult`` to the applying module (``poisson_break.apply``), from which the runs module
+(``poisson_break.hunt``) hands them on; the search's view and the proposal to the search module
+(``poisson_break.search``); the run view to the failure check (``poisson_break.checks``).
 """
 
 from __future__ import annotations
@@ -57,16 +58,18 @@ CHECK_INTERFACE_VERSION = 1
 class Fault(Protocol):
     """A change to how a tool or the model behaves, registered from its own module.
 
-    ``name`` is the word after ``=`` in a condition name and is unique in the catalogue;
-    ``surface`` is ``tool`` or ``model``; ``description`` is one line in plain words;
+    ``name`` is the word after ``=`` in a condition name and is unique within its surface (five
+    words name both a tool fault and a model fault); ``surface`` is ``tool`` or ``model``;
+    ``description`` is one line in plain words;
     ``parameters`` names each parameter with its one default; ``real_runs`` says whether the
     real tool runs, as the catalogue's table does.
 
     ``apply(call, *, real, params, rng)`` returns the outcome the agent should see: a result or
     an error, each a frozen object the core turns into whatever the way in presents. ``call``
     is the frozen call context (the tool's name, its arguments, the call number, the condition,
-    the run's seed, the previous result of the same tool or none) and is all the fault is given;
-    ``real`` runs the real tool once, and ``apply`` calls it exactly as many times as
+    the run's seed, the previous result of the same tool or none, which is what the real tool
+    last returned, and the planted marker word or none) and is all the fault is given; ``real``
+    runs the real tool once, taking no arguments, and ``apply`` calls it exactly as many times as
     ``real_runs`` declares, zero or one, which the core counts; ``params`` are the parameters
     for this run; ``rng`` is seeded by the core so that the same inputs give the same outcome,
     byte for byte. The fault writes no record: the core does.
@@ -102,12 +105,19 @@ class Target(Protocol):
     versions the way in was checked against (empty for one that needs no framework).
     ``tools()`` lists the agent's tools before any run. ``capabilities()`` says which of the
     three it can do. ``run(case, session, *, seed, limits)`` runs the agent once, routing every
-    tool call through ``session.call(tool, args, real)``, applying model-call changes through
-    ``session.model_call(n, real)`` where it can, playing the case's turns where it can, and
-    returns a frozen run result: the reply, the outcome the target itself reports or none,
-    tokens in and out where it can see them, and how the run ended (returned, raised, hit its
-    own step or turn limit). The core enforces the wall-clock limit, decides failure and writes
-    the record; the way in decides nothing and never returns an outcome word of its own.
+    tool call through ``session.call(tool, args, real)``, playing the case's turns where it can,
+    and returns a frozen ``RunResult``: the reply, the outcome the target itself reports or
+    none, tokens in and out where it can see them, and how the run ended (``returned``,
+    ``raised``, or ``limit`` for its own step or turn limit). The core enforces the wall-clock
+    limit, decides failure and writes the record; the way in decides nothing and never returns
+    an outcome word of its own.
+
+    ``session`` is one run's ``poisson_break.apply.Session``. In ``session.call``, ``args`` is
+    the mapping of the call's arguments and ``real`` runs the real tool once and takes none. It
+    returns what the agent should see, or raises ``ToolFailure``, which the way in catches to
+    present in its own form. ``tools()`` lists each tool as a ``ToolInfo``. A way in that can
+    fault the model's own calls will apply those changes through ``session.model_call(n,
+    real)``; the core has no such method yet, and the first way in that needs it brings it.
     """
 
     kind: str

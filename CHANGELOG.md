@@ -2,10 +2,35 @@
 
 ## Unreleased
 
-The first two modules of Poisson Break: the repository, the package and its command, the record
-every stored run carries, the four extension points, and the catalogue of what Break varies with
-the ten launch faults. Nothing hunts yet.
+The first three modules of Poisson Break: the repository, the package and its command, the
+record every stored run carries, the four extension points, the catalogue of what Break varies
+with the ten launch faults, and the applier that puts a condition on one run's tool calls.
+Nothing hunts yet.
 
+- `poisson_break.apply`: `Session`, one run's applier. A way in routes every tool call through
+  `session.call(tool, args, real)`, which returns what the agent should see or raises
+  `ToolFailure` (a `TimeoutError` too when its kind is `timeout`). Calls are numbered per tool;
+  the first change in the condition's order that applies to a call lands on it, and any other
+  change on that call does nothing. Under the control the agent gets the tool's own object and
+  the tool's own exception. `session.calls` and `session.applied` are the two records a stored
+  run carries: every tool call with the change that landed and whether the real tool ran, and
+  every change with whether it applied and the first call it landed on. A fault's `previous` is
+  what the real tool last returned, held as a copy. Each tool is classed `read`, `write` or
+  `off`: a `write` tool must be `repeatable` or have a stand-in, `lost_reply` is taken only on a
+  tool safe to repeat, an `off` tool is never touched, a stand-in replaces its tool in every
+  run, and each refusal is `ToolRefused` naming the tool, when the session is made or, for a
+  tool with no line, on the call. Break's own failure, a fault's or a stand-in's is an
+  `InstrumentError` held in `session.stopped`, after which every call raises the same error and
+  runs nothing; the real tool's own exception passes to the agent untouched. The session sleeps
+  the delay a result states, and `run_seconds` is the run's wall-clock limit: past it,
+  `RunOutOfTime`, which an agent's `except Exception` does not catch. `session.case(case)` gives
+  the case with the condition's input operators and conversation moves applied. `wrap(tool_name,
+  fn)` is the one call a Prove target adds per tool, and `with session:` opens the run around
+  the agent; an `async def` tool is refused. `ToolInfo` and `RunResult` are what a way in hands
+  the core.
+- Five scripted agents for the tests, in `tests/agents/`: one retries, one gives up, one follows
+  planted text, one repeats a write, and one speaks only the way-in protocol. No model and no
+  framework.
 - `poisson_break.changes`: changes and conditions by name (`parse`, `name`), canonical and
   round-tripping, with a bad name refused and the nearest valid name offered when one is within
   two edits; whether a change applies to a call (`applies`): a schedule by the call number alone,
