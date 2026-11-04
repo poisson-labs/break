@@ -2,9 +2,23 @@
 
 ## Unreleased
 
-The first module of Poisson Break: the repository, the package and its command, the record every
-stored run carries, and the four extension points. Nothing hunts yet.
+The first two modules of Poisson Break: the repository, the package and its command, the record
+every stored run carries, the four extension points, and the catalogue of what Break varies with
+the ten launch faults. Nothing hunts yet.
 
+- `poisson_break.changes`: changes and conditions by name (`parse`, `name`), canonical and
+  round-tripping, with a bad name refused and the nearest valid name offered when one is within
+  two edits; whether a change applies to a call (`applies`): a schedule by the call number alone,
+  a rate by a keyed draw of the seed, the tool and the call; the five input operators and the four
+  conversation moves as pure functions of a case and a seed; the catalogue (`CATALOG`) of the ten
+  tool faults, five input operators, four conversation moves and five model faults, each with a
+  one-line description and its defaults (`delay` 5 s, `wait` 30 s, `length` 200 characters,
+  `typos` share 5%); the ten launch faults, each a `Fault` that is given a frozen `CallContext`
+  and returns a `Result` or a `ToolError`; `register` for a fault written outside the package;
+  `run_fault`, which counts the real tool's calls against the fault's declaration and turns a
+  fault's mistake into an `InstrumentError`; `check_capabilities`, which refuses before any run a
+  condition that asks of a way in something it cannot do (`NeedsAdapter`); and `marker`, the
+  planted word derived from the hunt and the case.
 - The package `poisson-break`, importing as `poisson_break`, with the command `poisson-break`
   (`python -m poisson_break` is the same). `--version` prints one line with the versions of
   Break, Prove, Trace and Python; `--help` gives a description and an example; a mistake on the
