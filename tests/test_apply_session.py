@@ -10,9 +10,8 @@ Invariants pinned here (Break — Plan, the applying module):
 - BK2.9  Replay. Two runs of a scripted agent with the same case, condition and seed produce identical
          records.
 - BK2.13, the context half: `previous` and `marker` are filled in. Which "previous" a call gets once an
-         earlier call was faulted is an open point, brought to Taylor, and no test here rests on it:
-         every earlier call in these tests is clean, so what the tool returned and what the agent saw
-         are the same thing.
+         earlier call was faulted is `tests/test_apply_previous.py`: every earlier call in these tests is
+         clean, so what the tool returned and what the agent saw are the same thing.
 
 The shape of the two records is ruling 2. `Session(...)` is ruling 1. A snapshot of the previous result
 is ruling 14.
