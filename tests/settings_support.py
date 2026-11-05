@@ -92,7 +92,8 @@ ON_DEMAND_KINDS = ("openai-agents", "langgraph", "crewai", "mcp", "command")
 # What each key defaults to, where §9.4 prints it on an uncommented line, as (table, key, the default as TOML,
 # another value as TOML, the other value as read back).
 #
-# 400, 5, 4, 8, 5, 0.20, 0.05 and 3 are plan ruling 19. 120 is spec §4 and `screen` is §5.3. The rest are §9.4's.
+# 400, 5, 4, 8, 5, 0.20, 0.05 and 3 are plan ruling 19. 120 is spec §4 and `screen` is §5.3. `retry_storm_after` is §4's 5,
+# under the key the failure check's ruling 6 gives it, which §9.4 does not print yet. The rest are §9.4's.
 FAULTS_TOML = ('["error", "timeout", "slow", "rate_limited", "empty", "cut_off", "malformed", "stale", '
                '"lost_reply", "planted_instruction"]')
 OPERATORS_TOML = '["typos", "reordered", "padded", "cut_short", "variant"]'
@@ -100,6 +101,7 @@ CHECKS_TOML = '["crashed", "hung", "ran_out", "forbidden_call", "followed_plant"
 DEFAULTS = (
     ("fails", "checks", CHECKS_TOML, '["crashed"]', ["crashed"]),
     ("fails", "run_seconds", "120", "60", 60),
+    ("fails", "retry_storm_after", "5", "7", 7),
     ("vary", "tools", FAULTS_TOML, '["error", "timeout"]', ["error", "timeout"]),
     ("vary", "inputs", OPERATORS_TOML, '["typos"]', ["typos"]),
     ("vary", "max_call", "3", "7", 7),
@@ -123,6 +125,8 @@ OPTIONAL = (
     ("fails", "own", '"my_app.checks:refund_ok"', "my_app.checks:refund_ok"),
     ("fails", "also", '["gave_up"]', ["gave_up"]),
     ("fails", "never_call", '["delete_account"]', ["delete_account"]),
+    ("fails", "max_tool_calls", "40", 40),
+    ("fails", "max_tokens", "20000", 20000),
     ("vary", "conversation", '["repeats", "interrupts", "goes_quiet", "presses"]',
      ["repeats", "interrupts", "goes_quiet", "presses"]),
     ("vary", "model", '["error", "timeout", "rate_limited", "empty", "cut_off"]',

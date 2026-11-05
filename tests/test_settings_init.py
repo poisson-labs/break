@@ -27,10 +27,11 @@ from tests.conftest import PROGS
 from tests.settings_support import DEFAULTS, OPTIONAL, assert_one_line, doc, settings
 from tests.test_settings_read import EVERYTHING, ROUND_TRIPS
 
-# §9.4's keys with a fixed name, every one of them.
+# §9.4's keys with a fixed name, every one of them, and the three the failure check's ruling 6 adds to its list.
 KEYS = frozenset({
     "target.kind", "target.entry", "target.cases",
     "fails.checks", "fails.outcomes", "fails.own", "fails.also", "fails.never_call", "fails.run_seconds",
+    "fails.retry_storm_after", "fails.max_tool_calls", "fails.max_tokens",
     "vary.tools", "vary.inputs", "vary.conversation", "vary.model", "vary.max_call",
     "search.strategy", "search.runs", "search.control_repeats", "search.cases_per_condition", "search.seed",
     "confirm.candidates", "confirm.repeats", "confirm.max_difference", "confirm.q",

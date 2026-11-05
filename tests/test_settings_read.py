@@ -75,6 +75,7 @@ def test_an_empty_list_turns_the_list_off_and_does_not_read_as_the_default(key: 
 
 
 @pytest.mark.parametrize("table, key", [("fails", "outcomes"), ("fails", "own"), ("fails", "also"), ("fails", "never_call"),
+                                        ("fails", "max_tool_calls"), ("fails", "max_tokens"),
                                         ("vary", "conversation"), ("vary", "model"), ("limits", "dollars"),
                                         ("limits", "input_per_million"), ("limits", "output_per_million")])
 def test_what_the_spec_prints_commented_out_is_off_unless_asked_for(table: str, key: str) -> None:
@@ -120,7 +121,7 @@ def test_settings_of_ones_own_come_back_under_their_names() -> None:
 EVERYTHING = doc(
     kind="langgraph",
     tools=f'lookup_order = "read"\ncheck_policy = "off"\nissue_refund = {{ class = "write", stand_in = "{STAND_IN}" }}\nupdate_notes = {{ class = "write", repeatable = true }}',
-    fails='checks = ["hung", "wrong"]\noutcomes = ["unresolved", "escalated"]\nown = "my_app.checks:refund_ok"\nalso = ["retry_storm"]\nnever_call = ["delete_account"]\nrun_seconds = 61',
+    fails='checks = ["hung", "wrong"]\noutcomes = ["unresolved", "escalated"]\nown = "my_app.checks:refund_ok"\nalso = ["retry_storm"]\nnever_call = ["delete_account"]\nrun_seconds = 61\nretry_storm_after = 8\nmax_tool_calls = 41\nmax_tokens = 20001',
     vary='tools = ["slow", "stale"]\ninputs = ["padded"]\nconversation = ["presses"]\nmodel = ["cut_off"]\nmax_call = 2',
     vary__env='inventory = ["full", "empty"]\nretries = [3, 5]',
     search='strategy = "my_app.search:Mine"\nruns = 402\ncontrol_repeats = 7\ncases_per_condition = 2\nseed = 11',
@@ -141,7 +142,8 @@ def test_every_key_set_at_once_comes_back_under_its_own_key() -> None:
     assert tools["issue_refund"]["class"] == "write" and tools["issue_refund"]["stand_in"] == STAND_IN
     assert tools["update_notes"]["class"] == "write" and tools["update_notes"]["repeatable"] is True
     assert got["fails"] == {"checks": ["hung", "wrong"], "outcomes": ["unresolved", "escalated"], "own": "my_app.checks:refund_ok",
-                            "also": ["retry_storm"], "never_call": ["delete_account"], "run_seconds": 61}
+                            "also": ["retry_storm"], "never_call": ["delete_account"], "run_seconds": 61,
+                            "retry_storm_after": 8, "max_tool_calls": 41, "max_tokens": 20001}
     assert got["vary"] == {"tools": ["slow", "stale"], "inputs": ["padded"], "conversation": ["presses"], "model": ["cut_off"],
                            "max_call": 2, "env": {"inventory": ["full", "empty"], "retries": [3, 5]}}
     assert got["search"] == {"strategy": "my_app.search:Mine", "runs": 402, "control_repeats": 7, "cases_per_condition": 2, "seed": 11}

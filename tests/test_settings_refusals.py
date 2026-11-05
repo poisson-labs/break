@@ -40,6 +40,7 @@ MISSPELT = [
     ("target", "knd", "kind"), ("target", "entri", "entry"), ("target", "case", "cases"),
     ("fails", "check", "checks"), ("fails", "outcome", "outcomes"), ("fails", "owne", "own"), ("fails", "als", "also"),
     ("fails", "never_cal", "never_call"), ("fails", "run_second", "run_seconds"),
+    ("fails", "retry_storm_afte", "retry_storm_after"), ("fails", "max_tool_call", "max_tool_calls"), ("fails", "max_token", "max_tokens"),
     ("vary", "tool", "tools"), ("vary", "input", "inputs"), ("vary", "conversations", "conversation"),
     ("vary", "modle", "model"), ("vary", "max_calls", "max_call"),
     ("search", "strategie", "strategy"), ("search", "runz", "runs"), ("search", "control_repeat", "control_repeats"),
@@ -254,7 +255,7 @@ NOT_IN_CATALOGUE = [
     ("vary", "inputs", "typo"), ("vary", "inputs", "error"), ("vary", "inputs", "presses"),
     ("vary", "conversation", "repeat"), ("vary", "conversation", "typos"), ("vary", "conversation", "error"),
     ("vary", "model", "errors"), ("vary", "model", "slow"), ("vary", "model", "stale"), ("vary", "model", "typos"),
-    ("fails", "checks", "crashd"), ("fails", "checks", "error"), ("fails", "also", "gave_upp"), ("fails", "also", "crashd"),
+    ("fails", "checks", "failed"), ("fails", "checks", "crashd"), ("fails", "checks", "error"), ("fails", "also", "gave_upp"), ("fails", "also", "crashd"),
 ]
 
 
@@ -343,6 +344,18 @@ def test_a_count_below_one_or_not_a_whole_number_is_refused(table: str, key: str
 @pytest.mark.parametrize("table, key", AT_LEAST_ONE, ids=[f"{t}.{k}" for t, k in AT_LEAST_ONE])
 def test_a_count_of_one_is_taken(table: str, key: str) -> None:
     settings().loads(doc(**{table: f"{key} = 1"}))
+
+
+@pytest.mark.parametrize("key", ["retry_storm_after", "max_tool_calls", "max_tokens"])
+@pytest.mark.parametrize("value", ["-1", "1.5", "4.0", "true", '"4"', "[4]", "nan", "inf"])
+def test_a_line_or_an_allowance_that_is_no_whole_number_is_refused(key: str, value: str) -> None:
+    """The failure check's ruling 6: the three keys `[fails]` gained. Zero is left to the build: no such line is ruled."""
+    refused_at(doc(fails=f"{key} = {value}"), f"fails.{key}", f"{key} =")
+
+
+@pytest.mark.parametrize("key", ["retry_storm_after", "max_tool_calls", "max_tokens"])
+def test_a_line_or_an_allowance_of_one_is_taken(key: str) -> None:
+    settings().loads(doc(fails=f"{key} = 1"))
 
 
 # ---------------------------------------------------------------------------
