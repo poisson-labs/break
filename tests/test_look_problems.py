@@ -414,3 +414,45 @@ def test_the_runner_leaves_the_process_as_it_found_it(capsys: pytest.CaptureFixt
     assert _no_escape(err)
 
 
+# ---------- as ruled: --debug, and a log that cannot be written ----------
+
+
+@pytest.mark.parametrize("streams", [PIPED, TERMINALS], ids=["piped", "terminal"])
+@pytest.mark.parametrize("words", [["--debug"], ["hunt", "--debug"]], ids=["before", "after"])
+def test_debug_puts_the_traceback_on_stderr_as_well_as_in_the_log(tmp_path: Path, streams: Streams, words: list[str]) -> None:
+    env = home_env(tmp_path)
+    ran = run_body(FAILING, words, streams=streams, env=env)
+    assert ran.exit == CODES["stopped"], ran
+    err = strip(ran.err)
+    assert LINE.match(err.splitlines()[0]), ran
+    assert "Traceback (most recent call last)" in err and "raw library text" in err, ran
+    assert "Traceback (most recent call last)" in _log(env).read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("words", [[], ["--debugger"]], ids=["none", "another-word"])
+def test_only_the_flag_itself_prints_the_traceback(tmp_path: Path, words: list[str]) -> None:
+    ran = run_body(FAILING, words, env=home_env(tmp_path))
+    assert ran.exit == CODES["stopped"], ran
+    assert "Traceback" not in ran.err and "raw library text" not in ran.err, ran
+
+
+def test_debug_changes_nothing_for_a_refusal(tmp_path: Path) -> None:
+    ran = run_body('raise look.Refused("a sentence")', ["--debug"], env=home_env(tmp_path))
+    assert ran.exit == CODES["refused"], ran
+    assert ran.err == "error: a sentence\n"
+
+
+@pytest.mark.parametrize("streams", [PIPED, TERMINALS], ids=["piped", "terminal"])
+def test_a_log_that_cannot_be_written_gives_one_line_and_the_traceback_on_stderr(tmp_path: Path, streams: Streams) -> None:
+    env = home_env(tmp_path)
+    home = Path(env["HOME"])
+    home.chmod(0o500)
+    try:
+        ran = run_body(FAILING, streams=streams, env=env)
+    finally:
+        home.chmod(0o700)
+    assert ran.exit == CODES["stopped"], ran
+    first, *rest = strip(ran.err).splitlines()
+    assert first.startswith("error: an unexpected failure inside poisson-break (ValueError)"), ran
+    assert "the details are in" not in first, "the log was not written, so the line cannot say it was"
+    assert "Traceback (most recent call last)" in "\n".join(rest) and "raw library text" in "\n".join(rest), ran

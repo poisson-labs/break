@@ -11,8 +11,8 @@ system's answer. Then the same conditions end to end, in a child that prints thr
 Two readings the copies of the standard agree on, written down because each is an easy mistake: `CI` set to
 anything, empty included, is set; `TERM` unset is not `dumb`.
 
-Not here until ruled, because the copies of the standard disagree: `NO_COLOR` set and empty, and stdout on a
-terminal with stderr not (`open-points.md` in the session's evidence).
+Two the copies disagreed on, ruled: `NO_COLOR` set and empty counts as unset, and both streams must be terminals.
+And one the spec did not decide, ruled: `mode_for` stops reading flags at `--`, since a word after it is an argument.
 """
 
 from __future__ import annotations
@@ -248,3 +248,39 @@ def test_no_color_is_the_whole_rendering_not_only_its_colour(name: str, env: dic
     ran = run_result("found", streams=TERMINALS, env=pretty_env(**env))
     plain = run_result("found", ["--plain"], streams=TERMINALS)
     assert (ran.exit, ran.out, ran.err) == (0, plain.out, plain.err), ran
+
+
+# ---------- as ruled ----------
+
+
+def test_no_color_set_and_empty_counts_as_unset(streams: Open) -> None:
+    assert look().mode_for(streams.terminal(), streams.terminal(), {**HOLDS, "NO_COLOR": ""}, []) == "pretty"
+
+
+def test_end_to_end_no_color_set_and_empty_is_pretty() -> None:
+    ran = run_result("found", streams=TERMINALS, env=pretty_env(NO_COLOR=""))
+    assert ran.exit == 0, ran
+    assert "\x1b[" in ran.out, ran
+
+
+@pytest.mark.parametrize("kind", ["pipe", "file"])
+def test_stderr_that_is_no_terminal_is_plain(streams: Open, kind: str) -> None:
+    assert look().mode_for(streams.terminal(), getattr(streams, kind)(), HOLDS, []) == "plain"
+
+
+def test_end_to_end_stderr_piped_with_stdout_on_a_terminal_is_plain_on_both() -> None:
+    body = 'show(look_results.RESULTS["found"]())\nlook.note("a warning")'
+    ran = run_body(body, streams=Streams(out="pty", err="pipe"))
+    assert ran.exit == 0, ran
+    assert "\x1b" not in ran.out + ran.err, ran
+    assert ran.out == run_body(body, ["--plain"], streams=Streams(out="pty", err="pty")).out
+
+
+@pytest.mark.parametrize("flag", ["--plain", "--json"])
+def test_a_flag_after_two_dashes_is_an_argument(streams: Open, flag: str) -> None:
+    assert look().mode_for(streams.terminal(), streams.terminal(), HOLDS, ["hunt", "--", flag]) == "pretty"
+
+
+@pytest.mark.parametrize("flag", ["--plain", "--json"])
+def test_a_flag_before_two_dashes_still_counts(streams: Open, flag: str) -> None:
+    assert look().mode_for(streams.terminal(), streams.terminal(), HOLDS, [flag, "--", "hunt"]) == "plain"

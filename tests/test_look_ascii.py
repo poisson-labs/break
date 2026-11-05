@@ -6,8 +6,7 @@ Invariant pinned here (Break — Plan, the look layer):
 The tests write to real encoded streams and ask that nothing fails, that nothing outside the stream's reach is
 written, and that the words and numbers are the same. They do not pin which ASCII stands in for which glyph.
 
-Left to its ruling: how a character in a name the user chose (`café`) reads on such a stream. Only that it does not fail
-is pinned here, and that the rest of the line survives.
+As ruled, a character of a name the user chose (`café`) is written as its escape, so it never reads as another name.
 """
 
 from __future__ import annotations
@@ -113,7 +112,15 @@ def test_a_question_on_such_a_stream_is_asked_all_the_same() -> None:
 
 
 def test_a_character_of_a_users_name_does_not_stop_the_line() -> None:
-    """How it reads is left to its ruling. That it reaches the stream, and the rest of the line with it, is not."""
     written = _written(result("ok", "the run café has 3 cases"), "ascii")
     assert written.isascii()
     assert "the run" in written and "has 3 cases" in written
+
+
+def test_a_character_of_a_users_name_is_written_as_its_escape() -> None:
+    assert r"the run caf\xe9 has 3 cases" in _written(result("ok", "the run café has 3 cases"), "ascii")
+
+
+def test_two_names_never_read_as_one() -> None:
+    one, other = (_written(result("ok", f"the run {name}"), "ascii") for name in ("café", "cafè"))
+    assert one != other

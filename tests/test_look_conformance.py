@@ -13,13 +13,15 @@ Invariants pinned here (Break — Plan, the look layer):
 
 The second half runs each check against a small program, written here, that does nothing but break the
 rule: a check that cannot fail would hold every later verb to nothing. Those programs use no look, so that
-half is green before the look is built, and pins the checks, not the build. So are the entries for the
-command's `--help`, `--version` and bad flags, which hold what the repo module built against whatever the
-look's build changes.
+half is green before the look is built, and pins the checks, not the build.
+
+The last part is as ruled: the command as it stands goes through the look, and takes `--plain` and `--debug`.
+`--help` and `--version` are held to their own shape, and not to a verdict line.
 """
 
 from __future__ import annotations
 
+import re
 import sys
 from collections.abc import Iterator
 from dataclasses import replace
@@ -29,6 +31,7 @@ import pytest
 
 from tests import look_conformance as conformance
 from tests.look_corpus import CORPUS, Invocation
+from tests.look_support import PIPED, RED, TERMINALS, Ran, Streams, cells_of, launch, pretty_env, strip
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -176,6 +179,9 @@ BROKEN = [
     ("no-leaks", "a path as Python prints it", _edit('print("  label  value")', 'import pathlib\nprint("  label  " + repr(pathlib.PosixPath("a")))')),
     ("no-leaks", "a module id", _edit('print("  label  value")', 'print("  label  see BK12")')),
     ("no-leaks", "a rule number", _edit('print("  label  value")', 'print("  label  under L16")')),
+    ("no-leaks", "a project name", _edit('print("  label  value")', 'print("  label  from Monte")')),
+    ("no-leaks", "the instrument's old name", _edit('print("  label  value")', 'print("  label  from proofload")')),
+    ("no-leaks", "the engine's old name", _edit('print("  label  value")', 'print("  label  from momus")')),
     # a hash to paste
     ("no-hash-to-paste", "a hash in a next line", _edit('print("next: tool again")', 'print("next: tool show 1a2b3c4d")')),
     ("no-hash-to-paste", "a hash in a note", _edit('print("note: this one is fine", file=sys.stderr)', 'print("note: see 1a2b3c4d", file=sys.stderr)')),
@@ -240,3 +246,60 @@ def test_a_later_module_only_adds_to_the_corpus(tmp_path: Path) -> None:
     inv = replace(_inv(tmp_path, GOOD), program=(sys.executable, str(script)), setup=setup, name="a-later-verb")
     assert all(check(inv) == [] for check in conformance.CHECKS.values())
     assert seen, "the invocation's setup did not run"
+
+
+# ---------- as ruled: the command itself goes through the look ----------
+
+
+def _command(*words: str, streams: Streams = PIPED, env: dict[str, str] | None = None) -> Ran:
+    return launch([sys.executable, "-m", "poisson_break", *words], env or pretty_env(), streams)
+
+
+@pytest.mark.parametrize("words", [("--plain", "--version"), ("--version", "--plain"), ("--debug", "--version"), ("--version", "--debug")],
+                         ids=["plain-before", "plain-after", "debug-before", "debug-after"])
+def test_the_command_takes_plain_and_debug_on_either_side(words: tuple[str, ...]) -> None:
+    ran = _command(*words)
+    without = _command(*(word for word in words if word not in ("--plain", "--debug")))
+    assert ran.exit == 0 and ran.err == "", ran
+    assert ran.out == without.out, ran
+
+
+@pytest.mark.parametrize("flag", ["--plain", "--debug"])
+def test_the_flags_are_in_the_help(flag: str) -> None:
+    assert re.search(rf"^\s*{flag}\b", _command("--help").out, re.M)
+
+
+def test_a_mistake_on_the_command_line_is_drawn_by_the_look() -> None:
+    ran = _command("--bogus", streams=TERMINALS)
+    assert ran.exit == 2, ran
+    assert all(cell.fg in RED for cell in cells_of(ran.err, "error:")), repr(ran.err)
+    plain = _command("--bogus", "--plain", streams=TERMINALS)
+    assert plain.exit == 2 and "\x1b" not in plain.err, plain
+    assert strip(ran.err) == plain.err
+
+
+BROKEN_COMMAND = (
+    "import sys\n"
+    "from poisson_break import cli\n"
+    "def broken():\n"
+    "    raise ValueError('raw library text')\n"
+    "cli.version_line = broken\n"
+    "sys.exit(cli.main(['--version', *sys.argv[1:]]))\n"
+)
+
+
+def test_a_failure_inside_the_command_is_the_looks_one_line(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    ran = launch([sys.executable, "-c", BROKEN_COMMAND], pretty_env(HOME=str(home)))
+    assert ran.exit == 3, ran
+    assert re.fullmatch(r"error: an unexpected failure inside poisson-break \(ValueError\); the details are in \S.*\n", ran.err), ran
+    assert ran.out == ""
+
+
+def test_debug_on_the_command_prints_the_traceback(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    ran = launch([sys.executable, "-c", BROKEN_COMMAND, "--debug"], pretty_env(HOME=str(home)))
+    assert ran.exit == 3, ran
+    assert ran.err.startswith("error: an unexpected failure") and "Traceback (most recent call last)" in ran.err, ran

@@ -53,11 +53,11 @@ def _child(*argv: str) -> tuple[str, ...]:
 
 CORPUS: list[Invocation] = [
     # the command as it stands, before its verbs: the front door itself
-    Invocation("command-help", ("--help",), kind="help", takes_plain=False),
-    Invocation("command-version", ("--version",), kind="version", takes_plain=False),
-    Invocation("command-unknown-flag", ("--bogus",), kind="bad", code=2, takes_plain=False),
-    Invocation("command-unknown-verb", ("bogus",), kind="bad", code=2, takes_plain=False),
-    Invocation("command-abbreviated", ("--vers",), kind="bad", code=2, takes_plain=False),
+    Invocation("command-help", ("--help",), kind="help"),
+    Invocation("command-version", ("--version",), kind="version"),
+    Invocation("command-unknown-flag", ("--bogus",), kind="bad", code=2),
+    Invocation("command-unknown-verb", ("bogus",), kind="bad", code=2),
+    Invocation("command-abbreviated", ("--vers",), kind="bad", code=2),
     # every result of the corpus, printed as a verb prints it
     *[Invocation(f"result-{name}", (), program=_child("result", name), has_json=True)
       for name in RESULTS],

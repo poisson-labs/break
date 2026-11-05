@@ -9,7 +9,7 @@ Invariants pinned here (Break — Plan, the look layer):
 Nothing here pins where a line breaks or how wide a column is. The tests ask whether a line passes the width,
 whether the words are still there in their order, and whether what must stay whole did.
 
-Left to its ruling: whether plain's verdict line itself wraps on a terminal.
+As ruled, plain's verdict line is never wrapped, on a terminal either, so the first line always carries the whole sentence.
 """
 
 from __future__ import annotations
@@ -297,3 +297,9 @@ def test_a_folded_tables_numbers_are_not_coloured() -> None:
     ran = run_body(_table_body(UNIT_TABLE), streams=narrow(WIDE))
     assert ran.exit == 0, ran
     assert all(cell.fg is None for cell in cells(ran.out) if cell.char.isdigit()), repr(ran.out)
+
+
+def test_plains_verdict_line_is_never_wrapped_on_a_terminal() -> None:
+    ran = run_body(f'show(look.Result("ok", {LONG!r}))', ["--plain"], streams=narrow(40))
+    assert ran.exit == 0, ran
+    assert ran.out == f"ok  {LONG}\n"

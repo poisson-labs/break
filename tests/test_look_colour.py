@@ -9,8 +9,8 @@ Each test reads a real pseudo-terminal's bytes and walks the escape sequences to
 so the tests do not care how a build spells them. Normal and bright count as the same colour: the user's theme
 decides the shade.
 
-Only the words the standard names are pinned here. Which colour each of Break's own verdict words takes (`found`,
-`failed`, `confirmed` and the rest) is not written anywhere, and waits on its ruling.
+The words the standard names, then Break's own as ruled: `found` is green because the command did what was asked, and
+`failed` is red because it reports a failed run. A word on no list is bold with no colour.
 """
 
 from __future__ import annotations
@@ -160,3 +160,30 @@ def test_secondary_text_is_dim_and_never_coloured() -> None:
         for cell in cells_of(ran.out, text):
             assert cell.fg is None, (text, cell)
     assert any(cell.dim for cell in cells(ran.out)), "nothing is dim: secondary text must be"
+
+
+# ---------- Break's own words, as ruled ----------
+
+
+@pytest.mark.parametrize("word", ["wrote", "ready", "found", "confirmed", "rechecked", "fails less"])
+def test_breaks_own_word_for_done_is_green(word: str) -> None:
+    for cell in cells_of(_verdict(word), word):
+        assert cell.fg in GREEN, (word, cell)
+
+
+@pytest.mark.parametrize("word", ["nothing found", "nothing confirmed", "not confirmed", "no significant difference", "did not fail"])
+def test_breaks_own_word_for_stopped_short_is_yellow(word: str) -> None:
+    for cell in cells_of(_verdict(word), word):
+        assert cell.fg in YELLOW, (word, cell)
+
+
+@pytest.mark.parametrize("word", ["failed", "fails more"])
+def test_breaks_own_word_for_a_failure_is_red(word: str) -> None:
+    for cell in cells_of(_verdict(word), word):
+        assert cell.fg in RED, (word, cell)
+
+
+@pytest.mark.parametrize("word", ["listed nowhere", "unheard"])
+def test_a_word_on_no_list_is_bold_with_no_colour(word: str) -> None:
+    for cell in cells_of(_verdict(word), word):
+        assert cell.fg is None and cell.bold, (word, cell)

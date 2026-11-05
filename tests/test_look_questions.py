@@ -8,11 +8,14 @@ And the rule these rest on: a question that spends money asks with `[y/N]`, and 
 without `--yes`, refuses. `ask` is on a terminal driven by key presses, through a pseudo-terminal of its own, in
 both renderings; the menus the settings dialogue asks are questionary's in the pretty rendering.
 
-Left to their rulings: what other answers than `y`, `n` and an empty line do, how a plain menu is answered, and what
-a stage's finished line leaves behind.
+As ruled: `y`, `yes`, `n` and `no` in any case answer, anything else asks again, and a stdin that ends without an answer
+is refused; a plain menu is numbered, and takes a number or the choice's own word. What a stage's finished line leaves
+behind is the commands module's.
 """
 
 from __future__ import annotations
+
+import re
 
 import pytest
 
@@ -253,3 +256,47 @@ def test_progress_that_goes_past_its_total_is_no_crash() -> None:
     ran = run_body('with look.Progress("more than promised", 2) as progress:\n    progress.advance(5)', streams=TERMINALS)
     assert ran.exit == 0, ran
     assert "error:" not in strip(ran.err)
+
+
+# ---------- as ruled ----------
+
+
+@pytest.mark.parametrize("words", MODES)
+@pytest.mark.parametrize("typed, wanted", [(b"yes\r", True), (b"YES\r", True), (b"Y\r", True), (b"Yes\r", True), (b"no\r", False), (b"NO\r", False), (b"N\r", False)],
+                         ids=["yes", "YES", "Y", "Yes", "no", "NO", "N"])
+def test_a_yes_no_answer_in_any_case(words: list[str], typed: bytes, wanted: bool) -> None:
+    ran = run_body('print("answer", repr(look.ask("start?", not ' + str(wanted) + ')))', words, streams=on_terminal(typed))
+    assert ran.exit == 0, ran
+    assert f"answer {wanted!r}" in strip(ran.out), ran
+
+
+@pytest.mark.parametrize("words", MODES)
+def test_anything_else_asks_again(words: list[str]) -> None:
+    ran = run_body(ASK_YES_NO, words, streams=on_terminal(b"maybe\r", b"y\r"))
+    assert ran.exit == 0, ran
+    assert "answer True" in strip(ran.out), ran
+    assert strip(ran.err).count("start?") == 2, repr(ran.err)
+
+
+@pytest.mark.parametrize("words", MODES)
+@pytest.mark.parametrize("ask", [ASK_YES_NO, ASK_LINE], ids=["yes-no", "line"])
+def test_a_stdin_that_ends_without_an_answer_is_refused(words: list[str], ask: str) -> None:
+    ran = run_body(ask, words, streams=on_terminal(b"\x04"))
+    assert ran.exit == 1, ran
+    assert "answer" not in strip(ran.out), ran
+    assert "error: " in strip(ran.err) and "Traceback" not in ran.err, ran
+
+
+def test_a_plain_menu_is_numbered_in_order() -> None:
+    ran = run_body(MENU, ["--plain"], streams=on_terminal(b"\r"))
+    assert ran.exit == 0, ran
+    for number, choice in enumerate(("openai-agents", "langgraph", "crewai"), 1):
+        assert re.search(rf"^\W*{number}\b.*\b{choice}\b", ran.err, re.M), ran
+
+
+@pytest.mark.parametrize("typed, wanted", [(b"3\r", "crewai"), (b"1\r", "openai-agents"), (b"crewai\r", "crewai")],
+                         ids=["a-number", "the-first", "a-word"])
+def test_a_plain_menu_takes_a_number_or_the_word(typed: bytes, wanted: str) -> None:
+    ran = run_body(MENU, ["--plain"], streams=on_terminal(typed))
+    assert ran.exit == 0, ran
+    assert f"answer {wanted!r}" in ran.out, ran

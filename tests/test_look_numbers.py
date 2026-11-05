@@ -5,9 +5,9 @@ Invariant pinned here (Break — Plan, the look layer):
           digits below $0.10, counts with thousands separators, durations as `1 min 40 s`, times in UTC with `Z`,
           hashes at 12 characters in text and in full in JSON.
 
-Every expected value is the standard's own example, or follows from it with no further choice. Where the standard is
-silent (a duration of exactly one minute, no dollars at all, a time with no zone) nothing is pinned, and the answer
-waits on its ruling. So does `$0.004`, which the spec's example writes against the standard's rule.
+Every expected value is the standard's own example, what follows from it with no further choice, or as ruled: the
+edges of a duration, no dollars at all, `$0.0040`, a difference signed to three decimals, a value that is no rate, and
+a time with no zone.
 
 And `word` and `command`: a word as a shell reads it back, and a command line that pastes as one.
 """
@@ -121,3 +121,47 @@ def test_a_command_can_stand_wherever_text_can() -> None:
     made = look().command("tool", "again")
     assert isinstance(made, str)
     assert f"{made}" == "tool again"
+
+
+# ---------- as ruled ----------
+
+
+@pytest.mark.parametrize("value, text", [(0.004, "$0.0040"), (0.0999, "$0.10"), (0, "$0.00")])
+def test_the_edges_of_dollars(value: float, text: str) -> None:
+    assert look().fmt_dollars(value) == text
+
+
+@pytest.mark.parametrize("seconds, text", [(45, "45 s"), (60, "1 min 0 s"), (3600, "1 h 0 min")])
+def test_the_edges_of_a_duration(seconds: float, text: str) -> None:
+    assert look().fmt_duration(seconds) == text
+
+
+@pytest.mark.parametrize("value, text", [(0.87, "+0.870"), (0.5, "+0.500"), (-0.2, "-0.200"), (-0.073, "-0.073"), (1.0, "+1.000"), (-1.0, "-1.000")])
+def test_a_difference_is_signed_to_three_decimals(value: float, text: str) -> None:
+    assert look().fmt_rate(value, signed=True) == text
+
+
+def test_a_difference_reads_with_its_interval() -> None:
+    fmt_rate = look().fmt_rate
+    assert f"{fmt_rate(0.87, signed=True)} ({fmt_rate(0.78)} to {fmt_rate(0.94)})" == "+0.870 (0.780 to 0.940)"
+
+
+def test_a_rate_is_not_signed_unless_asked() -> None:
+    assert look().fmt_rate(0.87, signed=False) == look().fmt_rate(0.87) == "0.870"
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), -0.1, 1.1], ids=["nan", "inf", "below", "above"])
+@pytest.mark.parametrize("name", ["fmt_rate", "fmt_p"])
+def test_what_is_no_rate_or_p_value_is_refused(name: str, value: float) -> None:
+    with pytest.raises(ValueError):
+        getattr(look(), name)(value)
+
+
+def test_a_difference_that_is_not_a_number_is_refused() -> None:
+    with pytest.raises(ValueError):
+        look().fmt_rate(float("nan"), signed=True)
+
+
+def test_a_time_with_no_zone_is_refused() -> None:
+    with pytest.raises(ValueError):
+        look().fmt_time(datetime(2026, 11, 4, 12, 0, 0))

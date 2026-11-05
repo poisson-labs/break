@@ -307,3 +307,38 @@ def test_an_escape_in_a_value_acts_on_nothing(mode_words: list[str]) -> None:
     assert ran.exit == 0, ran
     assert "\x1b[35m" not in ran.out and "\x1b]0" not in ran.out, repr(ran.out)
     assert "\x07" not in ran.out, repr(ran.out)
+
+
+# ---------- as ruled ----------
+
+
+@pytest.mark.parametrize("verdict", ["Done", "a  b", "", " ok", "ok!", "1ok", "a\nb"],
+                         ids=["capital", "two-spaces", "empty", "leading-space", "mark", "digit", "line-break"])
+def test_a_verdict_that_could_not_make_the_line_is_refused_when_made(verdict: str) -> None:
+    with pytest.raises(ValueError):
+        result(verdict, "a sentence")
+
+
+@pytest.mark.parametrize("sentence", ["", "   "], ids=["empty", "blank"])
+def test_a_sentence_that_could_not_make_the_line_is_refused_when_made(sentence: str) -> None:
+    with pytest.raises(ValueError):
+        result("ok", sentence)
+
+
+def test_a_verdict_of_several_words_is_made() -> None:
+    assert result("too small to tell", "a sentence").verdict == "too small to tell"
+
+
+NOTED_PLAN = ('show(look.Plan("a hunt of 12 cases", estimate="400 runs", source="the settings", detail=(look.Row("cost", "not known"),)))\n'
+              'look.note("Break calls your tools for real")')
+
+
+@pytest.mark.parametrize("words", [[], ["--plain"]], ids=["pretty", "plain"])
+def test_a_plans_note_is_unindented_and_on_stderr_after_its_detail(words: list[str]) -> None:
+    ran = run_body(NOTED_PLAN, words, streams=TERMINALS)
+    assert ran.exit == 0, ran
+    assert "note:" not in strip(ran.out), ran
+    assert strip(ran.err) == "note: Break calls your tools for real\n", ran
+    together = strip(run_body(NOTED_PLAN, words, streams=Streams(together=True)).out).splitlines()
+    assert together[-1] == "note: Break calls your tools for real", together
+    assert any("not known" in text for text in together[:-1]), together

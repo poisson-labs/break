@@ -62,6 +62,9 @@ INTERNAL = re.compile(r"\b(?:BK|TF|PF|FD|LST|PT|CAL)\d+\b|\bL1?\d\b|\b[Rr]uling 
 #: A run of hex that reads as a hash: eight or more characters, holding a digit and a letter.
 HEX = re.compile(r"\b(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{8,}\b")
 
+#: A name of ours that means nothing to a user.
+PROJECT = re.compile(r"\b(?:monte|proofload|momus)\b", re.I)
+
 _kept: dict[tuple[str, str], Ran] = {}
 _folders: dict[str, Path] = {}
 
@@ -229,7 +232,7 @@ def no_leaks(inv: Invocation) -> list[str]:
     for way in ("piped", "terminal"):
         ran = run_way(inv, way)
         text = strip(ran.out) + strip(ran.err)
-        for pattern, what in ((REPR, "a Python value or a traceback"), (INTERNAL, "an internal reference")):
+        for pattern, what in ((REPR, "a Python value or a traceback"), (INTERNAL, "an internal reference"), (PROJECT, "a project name")):
             found = pattern.search(text)
             if found:
                 wrong.append(f"{way}: {what}: {found.group(0)!r} in {text!r}")
