@@ -2,12 +2,13 @@
 
 ## Unreleased
 
-The first seven modules of Poisson Break: the repository, the package and its command, the
+The first eight modules of Poisson Break: the repository, the package and its command, the
 record every stored run carries, the four extension points, the catalogue of what Break varies
 with the ten launch faults, the applier that puts a condition on one run's tool calls, the
 failure check that decides whether a run failed, the settings file with the plan shown before
-spending, the look everything Break prints goes through, and the search a hunt runs after its
-control. Nothing hunts yet: the module that runs an agent and stores each run comes next.
+spending, the look everything Break prints goes through, the runs themselves, stored on Prove,
+and the search a hunt runs after its control. A hunt's stages run from Python; the confirm stage
+and the `hunt` command come next.
 
 - `poisson_break.search`: the search without learning, and the door every strategy comes
   through. A strategy is anything with `propose(seen, budget, *, rng)` that returns a list of
@@ -63,6 +64,64 @@ control. Nothing hunts yet: the module that runs an agent and stores each run co
   refused the same way.
 - `poisson_break.interfaces`: a strategy's `propose` is typed as returning a list, which is what
   the stage holds it to.
+- `poisson_break.hunt`: runs stored on Prove. `open_hunt(settings, target=, cases=, name=None,
+  existing=False)` makes a hunt's folder and its `hunt.json`, or opens one that is there, and
+  runs nothing. A `Hunt` is read-only: `name`, `folder`, `store`, `proposals`, `settings`,
+  `cases`, `target`, `plan`, `reserve` and `budget()`. `latest_hunt(settings)` names the hunt
+  made last.
+- A hunt is named as given, if the name is letters, digits, `.`, `_` and `-`, starts with a
+  letter or a digit and is at most 64 characters; one that is not, or is taken, is refused and
+  never swapped for a number. With no name it is numbered from the last part of the target's
+  entry, one above the highest number there.
+- Refused when a hunt is opened, before anything is made: a control stage that does not fit
+  (`SettingsError`), a tool the way in lists with no line in `[tools]` and a check that cannot be
+  loaded or called (`HuntError`), a `[vary]` entry the way in cannot make (`NeedsAdapter`,
+  naming the change), a stand-in that cannot be loaded (`ToolRefused`).
+- `run_arm(hunt, arm, cases, condition, repeats=)` runs one condition on its cases as the Prove
+  run `<hunt>-<arm>`; the arm's first word is its stage (`control`, `confirm`, `reference`,
+  `recheck`). `run_search(hunt, entries, stage="search")` runs what a search hands over, each
+  entry's condition on its own cases, into `<hunt>-search` or, for `stage="shrink"`,
+  `<hunt>-shrink`. Each hands back one `RunRow` per run: `condition`, `case`, `seed`, `outcome`
+  (`ok`, `failed`, `not counted`) and `kind`. `on_progress(done, total)` is told after each run.
+- `control(hunt)` runs every case `control_repeats` times with no change and returns a
+  `ControlSummary` read from the store: `runs`, `failed`, `not_counted`, `rate`, `per_case`,
+  `calls` (for each case, each tool with the most calls of it in one run), `set_aside` (the
+  cases that fail every counted run), `high_base_rate`, `dollars_per_run`, `seconds_per_run` and
+  `rows`.
+- Break decides every row. A row's outcome is `ok` or `failed`; an agent that raises and a run
+  past its limit are `failed` rows with their kind, and only a run that could not be counted has
+  no outcome, with one line of error. Every row carries its record under `poisson_break`, a run
+  not counted included, beside `case_id` and nothing of the target's own. A tool that never
+  returns is cut off at `run_seconds`, on the main thread of a program on macOS or Linux.
+- An arm's cell is `{"case": <id>}`, so arms line up case for case; a search or shrink row's is
+  the case and the condition's name. Seeds are Prove's, from a salt of `[search] seed` and the
+  arm's own word: no two arms share one, and the same settings give the same seeds under any
+  hunt name. An arm's rows carry the settings' strategy at probability 1, a search row the
+  selection of the entry that produced it, and a shrink row the entry's strategy at
+  probability 1.
+- `Budget` (`runs`, `runs_spent`, `runs_left`, `dollars`, `dollars_spent`, `hours`,
+  `seconds_spent`) is read from the store. `runs` counts the control, search and shrink rows.
+  With prices, the next run is priced at the dearest run stored and a stage stops before a run
+  that could pass `dollars`; the first run of a hunt always runs. `hours` is the stored runs'
+  seconds, summed. `Hunt.reserve` is the number of runs a search leaves unspent for shrinking.
+- `HuntStopped` is a stage that stopped short with every finished run stored: `reason` (`runs`,
+  `dollars`, `hours`, `not counted`, `refused`, `tools`), `arm`, `kept`, `count`, `cause` and
+  `tools`. More than a tenth of an arm's runs not counted stops it, judged after every run once
+  ten are stored. A tool nobody classed stops it and that run is not stored. A tool the control
+  saw called that the way in did not list stops the hunt after the control. Ctrl-C passes
+  through as it is. `HuntError` is the module's own refusal before any run.
+- A run is stored the moment it finishes, and a cell is run once in an arm: asked for again,
+  its stored row is handed back. A hunt opened again with `existing=True`, under its own seed
+  and cases, runs exactly what is missing on the same calls, under the settings handed in.
+- `hunt.json` holds `schema` (`poisson_break.hunt/1`), `name`, `created`, `settings` as
+  resolved, `cases`, `stages` and `arms`, each arm with its `stage`, `condition`, `cases` and
+  `repeats`. It is rewritten whole when an arm starts.
+- `RolloutTarget(fn, tools=)` is the way in for a plain Prove target, and `load_target(settings)`
+  makes one from `target.entry`. It reads `reply`, `tokens_in`, `tokens_out` and `ended` from
+  the episode's `meta`, each optional. `Limits(run_seconds)` is what a way in is handed.
+  `Target`, `ToolInfo`, `RunResult` and `TARGET_INTERFACE_VERSION` are re-exported.
+- Prove's planner gives the seeds and its store takes the rows, one row as each run finishes.
+  Prove's runner is not used, and nothing is taken from a private module of Prove.
 
 - `poisson_break.look`: one result, two renderings. A verb builds a `Result` (a verdict word,
   its sentence, the detail as `Row`, `Line` and `Table`, the commands to run next) or a `Plan`
