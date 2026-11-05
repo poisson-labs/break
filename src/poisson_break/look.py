@@ -539,7 +539,8 @@ def _wrap(line: str, width: int, hang: int) -> list[str]:
     """``line`` as rows no wider than ``width`` where its words allow. It is broken only at
     spaces, a word is never broken, and the spaces inside a row are kept. The first row keeps the
     line's own indent and each row after it is indented ``hang``, deeper than the line, so the
-    rows read as one fact. A line that fits is itself."""
+    rows read as one fact. A word too long for any row stays whole on the row it follows, beside
+    its label, for the terminal to fold. A line that fits is itself."""
     if len(line) <= width:
         return [line]
     indent = len(line) - len(line.lstrip(" "))
@@ -548,7 +549,8 @@ def _wrap(line: str, width: int, hang: int) -> list[str]:
     rows: list[str] = []
     row, holds_a_word = " " * indent, False
     for piece in re.findall(r"[^ ]+ *", line[indent:]):
-        if holds_a_word and len(row) + len(piece.rstrip(" ")) > width:
+        word = len(piece.rstrip(" "))
+        if holds_a_word and len(row) + word > width and hang + word <= width:
             rows.append(row.rstrip(" "))
             row = " " * hang
         row += piece
