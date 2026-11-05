@@ -6,7 +6,7 @@
 - BK6.13  The selection: what `run` is handed carries the strategy and the probability (the stored record's end-to-end test
   waits for the runs module's names, ruling 29).
 - §11.3 invariant 7: a strategy's exception stops the stage with what was kept.
-- Rulings 4, 5, 17, 18, 19, 20, 21, 24 and 25 of `evidence/bk6/open-points.md`.
+- Rulings 4, 5, 17, 18, 19, 20, 21, 24, 25, 30 and 33 of `evidence/bk6/open-points.md`.
 
 `run` is a callable handed in, so the runs module goes behind it later. No refusal test here reads a message's words, except
 that a refusal of a change names the change, which is a fact it carries.
@@ -669,6 +669,111 @@ def test_ctrl_c_in_a_strategy_passes_through() -> None:
 
 def test_a_stage_that_ended_of_itself_has_no_stop() -> None:
     assert stage(Fixed([proposal(A1)])).stopped is None
+
+
+# ---------------------------------------------------------------------------
+# ruling 30  a change the settings allow and the map does not reach
+# ---------------------------------------------------------------------------
+
+NOWHERE = "tool:w#1=error"
+NO_W = {"c1": {"a": 2}, "c2": {"a": 1}}
+
+
+def test_a_call_the_control_never_saw_runs_on_the_cases_that_call_the_tool() -> None:
+    """Ruling 19 allows it, since a fault can reach a call the control did not, and ruling 30 gives it somewhere to run."""
+    run = Scripted()
+    result = stage(Fixed([proposal("tool:a#3=error")]), _allowing(control={"c1": {"a": 1, "w": 1}, "c2": {"w": 1}}), run=run)
+    assert result.stopped is None
+    assert logged(result) == [("tool:a#3=error", "run")]
+    assert tuple(run.batches[0][0].cases) == ("c1",)
+
+
+def test_a_change_no_case_can_take_is_logged_not_run_and_spends_nothing() -> None:
+    run = Scripted()
+    start = _allowing(control=NO_W)
+    result = stage(Fixed([proposal(NOWHERE, reason="r", probability=0.25)]), start, run=run)
+    assert result.stopped is None
+    assert logged(result) == [(NOWHERE, "not run")]
+    assert (result.log[0].reason, result.log[0].probability, tuple(result.log[0].cases)) == ("r", 0.25, ())
+    assert run.batches == []
+    assert result.seen.budget == start.budget
+
+
+def test_a_change_no_case_can_take_does_not_end_the_stage() -> None:
+    run = Scripted()
+    result = stage(Fixed([proposal(NOWHERE)], [proposal(A1)]), _allowing(control=NO_W), run=run)
+    assert logged(result) == [(NOWHERE, "not run"), (A1, "run")]
+    assert run.ran == [A1]
+
+
+def test_a_change_no_case_can_take_does_not_stop_what_follows_it_in_its_batch() -> None:
+    run = Scripted()
+    result = stage(Fixed([proposal(NOWHERE), proposal(A1)]), _allowing(control=NO_W), run=run)
+    assert logged(result) == [(NOWHERE, "not run"), (A1, "run")]
+    assert run.ran == [A1]
+
+
+def test_proposed_again_in_its_batch_it_is_dropped() -> None:
+    result = stage(Fixed([proposal(NOWHERE), proposal(NOWHERE), proposal(A1)]), _allowing(control=NO_W))
+    assert logged(result) == [(NOWHERE, "not run"), (NOWHERE, "dropped"), (A1, "run")]
+
+
+def test_proposed_again_later_it_is_dropped_so_a_strategy_cannot_loop_on_it() -> None:
+    """The second batch holds nothing new, which ends the stage (ruling 17), so the third is never asked for."""
+    strategy = Fixed([proposal(NOWHERE)], [proposal(NOWHERE)], [proposal(A1)])
+    run = Scripted()
+    result = stage(strategy, _allowing(control=NO_W), run=run)
+    assert result.stopped is None
+    assert logged(result) == [(NOWHERE, "not run"), (NOWHERE, "dropped")]
+    assert run.ran == []
+    assert len(strategy.shown) == 2
+
+
+# ---------------------------------------------------------------------------
+# ruling 33  an exception from `run` is the runs module's
+# ---------------------------------------------------------------------------
+
+
+def _raising(wrong: BaseException, *, on_batch: int = 1) -> Any:
+    asked = []
+
+    def during(_entries: Any) -> None:
+        asked.append(1)
+        if len(asked) == on_batch:
+            raise wrong
+
+    return Scripted(during=during)
+
+
+@pytest.mark.parametrize("wrong", [RuntimeError("the runner broke"), ValueError("a bad row"), KeyError("a"), KeyboardInterrupt(), SystemExit(3)])
+def test_an_exception_from_run_passes_through_untouched(wrong: BaseException) -> None:
+    with pytest.raises(type(wrong)) as got:
+        stage(Fixed([proposal(A1)]), run=_raising(wrong))
+    assert got.value is wrong
+
+
+def test_an_instrument_error_or_a_refusal_from_run_passes_through_too() -> None:
+    """Both are kinds the stage itself puts in `Stage.stopped`. From `run` they are still the runs module's to decide on."""
+    for wrong in (changes().InstrumentError("past a tenth of the stage"), search().SearchError("from below")):
+        with pytest.raises(type(wrong)) as got:
+            stage(Fixed([proposal(A1)]), run=_raising(wrong))
+        assert got.value is wrong
+
+
+def test_what_run_was_handed_is_on_disk_when_it_raises(tmp_path: Path) -> None:
+    path = tmp_path / "proposals.jsonl"
+    with pytest.raises(RuntimeError):
+        stage(Fixed([proposal(A1)], [proposal(A2)]), seen(budget=100, cases_per_condition=2), run=_raising(RuntimeError("no"), on_batch=2), log=path)
+    assert [(text_of(e.condition), e.state) for e in search().read_log(path)] == [(A1, "run"), (A2, "run")]
+
+
+def test_after_run_raises_nothing_is_asked_again() -> None:
+    strategy = Fixed([proposal(A1)], [proposal(A2)])
+    run = _raising(RuntimeError("no"))
+    with pytest.raises(RuntimeError):
+        stage(strategy, seen(budget=100, cases_per_condition=2), run=run)
+    assert len(run.batches) == 1
+    assert len(strategy.shown) == 1
 
 
 # ---------------------------------------------------------------------------

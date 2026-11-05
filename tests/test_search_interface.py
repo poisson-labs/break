@@ -307,6 +307,13 @@ def test_a_seen_run_takes_the_three_outcomes(outcome: str) -> None:
     assert row("", "c1", outcome).outcome == outcome
 
 
+@pytest.mark.parametrize("outcome", ["passed", "FAILED", "Ok", "not_counted", "", " ok", None, 1, True])
+def test_a_seen_run_with_any_other_outcome_is_refused_when_made(outcome: Any) -> None:
+    """Ruling 32: or a misspelt word from the runs module would silently score as not failed."""
+    with pytest.raises(search().SearchError):
+        row("", "c1", outcome)
+
+
 # ---------------------------------------------------------------------------
 # BK6.12  ... and sufficient: screen and random are written against it and nothing else
 # ---------------------------------------------------------------------------

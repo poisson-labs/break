@@ -1,5 +1,5 @@
 """BK6.7: the score (spec §5.3, ruling 8 of `evidence/bk6/open-points.md`), and `cases_for`, which decides what a score is over
-(§5.3, ruling 11).
+(§5.3, rulings 11 and 30).
 
 The score is the failure share on the condition's cases less the control's failure share on the same cases. Every figure is
 worked by hand in the test. A condition scored on a case set aside is refused: a refusal is its type and a control beside it.
@@ -157,6 +157,57 @@ def test_it_picks_as_many_as_the_stage_asks_for_or_as_fit(c: int, n: int) -> Non
     picked = _for("tool:a#1=error", c=c)
     assert len(picked) == n
     assert len(set(picked)) == n
+
+
+# ---------------------------------------------------------------------------
+# ruling 30  where no case fits by the map
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("text, call_it", [
+    ("tool:a#4=error", {"c1", "c2", "c3", "c5"}),                               # no case calls a four times: all that call a
+    ("tool:b#3=error", {"c1", "c3", "c4", "c5"}),
+    ("tool:a#4-5=error", {"c1", "c2", "c3", "c5"}),
+    ("tool:a#4=error + tool:b#1=error", {"c1", "c3", "c5"}),                    # all that call each tool named
+    ("tool:a#3=error + tool:b#2=error", {"c1", "c3", "c5"}),                    # each lands somewhere, no one case takes both
+    ("tool:a#4=error + input:typos", {"c1", "c2", "c3", "c5"}),                 # an operator names no tool
+])
+def test_where_no_case_fits_by_the_map_it_falls_back_to_the_cases_that_call_each_tool(text: str, call_it: set[str]) -> None:
+    assert _over_seeds(text, c=4) == call_it
+
+
+def test_the_fallback_never_picks_a_case_set_aside() -> None:
+    assert _over_seeds("tool:a#4=error", c=4, set_aside=("c1", "c3")) == {"c2", "c5"}
+
+
+def test_no_case_fits_is_judged_with_the_set_aside_cases_gone() -> None:
+    """c1 alone calls `a` three times. Set aside, it fits nothing, so the other cases that call `a` are what is left."""
+    assert _over_seeds("tool:a#3=error", c=4, set_aside=("c1",)) == {"c2", "c3", "c5"}
+
+
+def test_the_fallback_draws_over_all_of_them_and_no_more_than_the_stage_asks() -> None:
+    assert _over_seeds("tool:a#4=error", c=2) == {"c1", "c2", "c3", "c5"}
+    picked = _for("tool:a#4=error", c=2)
+    assert len(picked) == 2
+    assert len(set(picked)) == 2
+
+
+@pytest.mark.parametrize("text, set_aside", [
+    ("tool:z#1=error", ()),                                                     # no case calls z
+    ("tool:z#*=error", ()),
+    ("tool:z~0.5=error", ()),
+    ("tool:a#1=error + tool:z#1=error", ()),                                    # one tool of two is not enough
+    ("tool:a#4=error + tool:z#1=error", ()),
+    ("tool:z#1=error + input:typos", ()),
+    ("tool:b#1=error", ("c1", "c3", "c4", "c5")),                               # all that call b are set aside
+])
+def test_what_still_has_no_case_gets_none(text: str, set_aside: tuple[str, ...]) -> None:
+    assert _for(text, set_aside=set_aside) == ()
+
+
+def test_two_tools_no_case_calls_together_get_no_case() -> None:
+    start = seen(control={"c1": {"a": 1}, "c2": {"b": 1}})
+    assert tuple(search().cases_for(start, condition("tool:a#1=error + tool:b#1=error"), rng=rng())) == ()
 
 
 def test_it_draws_over_all_that_can_land_so_a_search_gets_past_the_first_cases() -> None:

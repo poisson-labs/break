@@ -215,6 +215,21 @@ def test_a_pair_that_meets_on_every_call_is_not_in_the_count() -> None:
     assert (made.singles_untried, made.pairs_untried) == (7, 16)
 
 
+def test_a_pair_no_one_case_can_hold_is_not_in_the_count() -> None:
+    """Ruling 31. By hand: a#1 by two faults and w#1 by three, five singles. Every pair is one tool at one call or a with w, which
+    no one case holds, so none is left to try, and `random`'s 1/N says the same."""
+    start = _start(control={"c1": {"a": 1}, "c2": {"w": 1}})
+    made = search().coverage(start)
+    assert (made.singles_untried, made.pairs_untried) == (5, 0)
+    assert search().Random().propose(start, 40000, rng=rng(1))[0].probability == 1 / 5
+
+
+def test_a_pair_one_case_holds_is_in_the_count_and_one_only_a_case_set_aside_holds_is_not() -> None:
+    control = {"c1": {"a": 1, "w": 1}, "c2": {"a": 1}, "c3": {"w": 1}}
+    assert search().coverage(_start(control=control)).pairs_untried == 6
+    assert search().coverage(_start(control=control, set_aside=("c1",))).pairs_untried == 0
+
+
 # ---------------------------------------------------------------------------
 # coverage against what the strategies actually propose
 # ---------------------------------------------------------------------------

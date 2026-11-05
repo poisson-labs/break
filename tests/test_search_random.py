@@ -2,7 +2,7 @@
 
 - BK6.5  `random` is uniform over the declared space within a stated band, and its draws come from the search seed only.
 - BK6.6  It logs the base distribution's probability of the condition.
-- Ruling 15 (the space and its probability) and ruling 16 (a pair that meets on every call), `evidence/bk6/open-points.md`.
+- Ruling 15 (the space and its probability), ruling 16 (a pair that meets on every call) and ruling 31 (a pair no one case can hold), `evidence/bk6/open-points.md`.
 
 The band, stated: over `DRAWS` first proposals, each condition's count is within five standard deviations of the mean of a
 fair draw. The space has eleven conditions or so, so a fair `random` falls outside it about once in a hundred thousand runs of
@@ -22,6 +22,7 @@ from tests.search_support import (
     ENV,
     INPUTS,
     Scripted,
+    by_state,
     catalogue,
     condition,
     control_rows,
@@ -83,6 +84,45 @@ def test_both_singles_and_pairs_turn_up_early() -> None:
     first = drawn[:12]
     assert any(" + " in t for t in first)
     assert any(" + " not in t for t in first)
+
+
+# Ruling 31. c1 calls only a and c2 only b. By hand: a#1 and b#1 by two faults and one operator, five singles. Of the ten pairs,
+# four are a with b, which no one case holds, and two are one tool at one call. The four with the operator are left: nine in all.
+APART = {"c1": {"a": 1}, "c2": {"b": 1}}
+
+
+def test_a_pair_no_one_case_can_hold_is_not_in_the_space() -> None:
+    drawn = _drain(_small(control=APART))
+    assert len(drawn) == len(set(drawn)) == 9
+    assert not [t for t in drawn if "tool:a" in t and "tool:b" in t]
+
+
+def test_the_probability_counts_only_what_could_be_drawn() -> None:
+    start = _small(control=APART)
+    assert {p.probability for p in search().Random().propose(start, 40000, rng=rng())} == {1 / 9}
+
+
+def test_everything_it_draws_has_a_case_to_run_on() -> None:
+    result = stage(search().Random(), _small(control=APART), generator=rng(1))
+    assert by_state(result, "not run") == []
+    assert all(e.cases for e in result.log)
+
+
+def test_a_pair_one_case_can_hold_is_in_the_space_though_another_case_cannot_hold_it() -> None:
+    """c1 calls a twice and c2 calls a and b: a#1 with a#2 fits c1, a#1 with b#1 fits c2, and a#2 with b#1 fits neither."""
+    start = _small(control={"c1": {"a": 2}, "c2": {"a": 1, "b": 1}}, cat=catalogue(("error",)))
+    assert {t for t in _drain(start) if " + " in t} == {"tool:a#1=error + tool:a#2=error", "tool:a#1=error + tool:b#1=error"}
+
+
+def test_a_pair_only_a_case_set_aside_could_hold_is_not_in_the_space() -> None:
+    control = {"c1": {"a": 1, "b": 1}, "c2": {"a": 1}, "c3": {"b": 1}}
+    both = "tool:a#1=error + tool:b#1=error"
+    cat = catalogue(("error",))
+    assert both in _drain(_small(control=control, cat=cat))
+    aside = _small(control=control, cat=cat, set_aside=("c1",))
+    assert logged(stage(search().Random(), aside, generator=rng(1))) == [(t, "run") for t in _drain(aside)]
+    assert both not in _drain(aside)
+    assert search().Random().propose(aside, 40000, rng=rng(1))[0].probability == 1 / 2
 
 
 def test_a_pair_across_two_calls_of_one_tool_is_in_the_space() -> None:
