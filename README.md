@@ -16,9 +16,11 @@ Break is being built and is not released. The `poisson-break` name on PyPI holds
 placeholder with no code. This tree has the command, the record every stored run carries, the
 four extension points, the catalogue of changes with the ten launch faults, the applier that
 puts a condition on one run's tool calls, the failure check that decides whether a run failed,
-the settings file with the plan a hunt shows before it spends, and the look everything Break
-prints goes through, pretty on a terminal and plain anywhere else; the hunt itself comes in the
-modules after it.
+the settings file with the plan a hunt shows before it spends, the look everything Break
+prints goes through, pretty on a terminal and plain anywhere else, and the runs themselves,
+stored on Prove: a hunt's folder, its control stage, its caps and resuming it. Those stages are
+run from Python today. The search, the confirm stage and the `hunt` command that runs them for
+you come in the modules after it.
 
 ## Install, from this tree
 
@@ -344,6 +346,90 @@ more than the hunt that found the candidates, and the plan says so before anythi
 control stage that leaves no room for one condition is refused, naming the smallest `runs` that
 fits: 100 cases at 5 repeats against 400 runs asks for 504.
 
+## A hunt's runs, stored on Prove
+
+A hunt is a folder. Every run in it is a row of a Prove run, so Prove's `report`, `diff` and
+`inspect` read a hunt as they read any run, and so does Trace's `fix-check`.
+
+```
+break-runs/
+  refund-agent-1/              the hunt, named by you or numbered from the target's name
+    hunt.json                  the settings as resolved, the stages run, which run is which arm
+    proposals.jsonl            what a search proposed (written by the search, not here)
+    store/                     a Prove store
+      refund-agent-1-control/
+      refund-agent-1-search/
+      refund-agent-1-shrink/
+      refund-agent-1-confirm-control/
+      refund-agent-1-confirm-1/
+```
+
+```python
+from poisson_break import hunt
+from poisson_break.changes import parse
+from poisson_break.settings import load, read_cases
+
+settings = load("break.toml")
+target = hunt.load_target(settings)                  # your Prove target, made and not run
+h = hunt.open_hunt(settings, target=target, cases=read_cases(settings.target.cases))
+
+h.name, h.folder, h.plan                             # refund-agent-1, where it is kept, the run counts
+summary = hunt.control(h)                            # every case, control_repeats times, no change
+summary.rate, summary.calls, summary.set_aside       # the base rate, where a fault can land, cases that always fail
+rows = hunt.run_arm(h, "confirm-1", ["1", "2"], parse("tool:lookup_order#1=timeout"), repeats=5)
+h.budget()                                           # what the hunt may spend, and what it has spent
+```
+
+**Opening a hunt runs nothing, and refuses what could not work.** `open_hunt` makes the folder
+and writes `hunt.json`. Before it makes anything it refuses, in one line each: a control stage
+that leaves no room for one condition, a name that is not safe or is taken, a tool your agent
+has that `[tools]` does not class, something in `[vary]` your way in cannot do, a check of your
+own that cannot be loaded, and a stand-in that cannot be loaded. A name is letters, digits, `.`,
+`_` and `-`, starting with a letter or a digit, at most 64 characters, and is used as given. With
+none, hunts are numbered from the last part of the target's entry: `refund-agent-1`, then
+`refund-agent-2`. `latest_hunt(settings)` names the hunt made last.
+
+**Break decides every row.** Each run goes through the applier and the failure check. Its row's
+outcome is `ok` or `failed`: an agent that raises is a `failed` row with the kind `crashed`, and
+a run past `run_seconds` is `failed` with `hung`, so neither is lost as a row with no outcome.
+Only a run Break could not count has none, and it carries one line saying why. A tool that never
+returns is cut off at the run's limit, when the hunt runs on the main thread of a program on
+macOS or Linux; from another thread a run past its limit is still `hung`, by its session's clock
+and the measured time, once it comes back.
+
+**What a row holds.** The cell is the case, `{"case": "<id>"}`, so two arms line up case for
+case whatever their conditions; a search or shrink row's cell is the case and the condition's
+name. The row's extra facts hold the run's record under `poisson_break` and `case_id`, and
+nothing of your target's own: no prompt, no reply, no tool result. The seed is Prove's, from the
+arm's salt and the cell. The salt is `[search] seed` and the arm's own word, so no two arms of a
+hunt share a seed, and the same settings give the same seeds under any hunt name. A value of
+`[vary.env]` is added to the case your target is handed, under the setting's own name.
+
+**The three caps.** `[search] runs` counts the control, search and shrink rows, runs not counted
+among them. With prices in `[limits]`, the next run is priced at the dearest run the hunt has
+stored, and a stage stops before a run that could pass `dollars`; the first run of a hunt always
+runs. `hours` is the stored runs' seconds, summed, so opening a hunt again does not start the
+clock again. A stage that stops short raises `HuntStopped`, which says why (`runs`, `dollars`,
+`hours`, `not counted`, `refused` or `tools`), in which arm, and how many rows the arm keeps.
+It also stops when more than a tenth of an arm's runs could not be counted, judged after every
+run once ten are stored, and when the agent calls a tool `[tools]` does not class: that run is
+not stored, so that it is made once the tool has a line.
+
+**Stopping loses nothing, and the same calls go on.** A run is stored the moment it finishes, so
+Ctrl-C, a cap or a killed process loses nothing finished. Open the hunt again with
+`open_hunt(..., name="refund-agent-1", existing=True)` and make the same calls: a run the arm
+already holds is not made again and its stored row is handed back, so exactly what is missing
+runs, on the seeds it would have had. The settings handed in apply from then on, so a raised
+cap lets a stopped hunt go on; the seed and the cases must be the hunt's own.
+
+**Your agent, as a plain Prove target.** `RolloutTarget(fn, tools=[...])` drives a function
+`fn(cfg, seed) -> Episode` whose tools are wrapped with `wrap`, and `load_target(settings)` makes
+one from `target.entry`. `cfg` is the case's own mapping, with none of Break's keys. The
+episode's `outcome` is your target's own outcome, kept beside Break's verdict, and its `meta` may
+say more, each optional: `reply`, `tokens_in`, `tokens_out`, and `ended = "limit"` for the
+agent's own step limit. Any other way in is an object with the same four members, handed to
+`open_hunt` already made.
+
 ## How Break prints
 
 Everything a command prints goes through `poisson_break.look`. A verb builds one result: a
@@ -458,7 +544,9 @@ text and never acted on.
 
 Prove (`poisson-prove`) and Trace (`poisson-trace`), each pinned to one exact version. Break's
 Prove is the version Trace pins, so the three tools agree on one Prove. Trace is not yet on
-PyPI; its pin is declared the day it is.
+PyPI; its pin is declared the day it is. Break takes Prove's store and its planner from Prove's
+own modules and nothing from its private ones: the planner gives each run its seed and the store
+takes each row.
 
 Rich, questionary and prompt_toolkit draw the pretty rendering and its menus. They are ordinary
 dependencies, so a plain `pip install` is pretty on a terminal, and a plain run never loads

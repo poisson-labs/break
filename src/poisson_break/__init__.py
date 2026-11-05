@@ -14,10 +14,13 @@ was done (``poisson_break.apply``), the failure check that decides, from what th
 whether a run is ok, failed with one kind, or not counted, counts the three signals beside it,
 and runs your own check on a read-only view of the run (``poisson_break.checks``), the
 settings file ``break.toml``: reading and writing it, the case file, ``init``'s flags, and the
-run counts of the plan a hunt shows before it spends (``poisson_break.settings``), and the look
+run counts of the plan a hunt shows before it spends (``poisson_break.settings``), the look
 everything Break prints goes through: one result printed pretty on a terminal and plain anywhere
 else, problems as one line on stderr, the exit codes, questions, progress and the way numbers
-read (``poisson_break.look``).
+read (``poisson_break.look``), and the runs themselves, stored on Prove: a hunt's folder and its
+name, each arm a Prove run whose every row Break decided and wrote a record for, the control
+stage and what it measures, the caps on runs, dollars and hours, resuming a stopped hunt, and
+the way in for a plain Prove target (``poisson_break.hunt``).
 """
 
 __version__ = "0.1.0.dev0"
