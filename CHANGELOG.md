@@ -2,11 +2,76 @@
 
 ## Unreleased
 
-The first three modules of Poisson Break: the repository, the package and its command, the
+The first five modules of Poisson Break: the repository, the package and its command, the
 record every stored run carries, the four extension points, the catalogue of what Break varies
-with the ten launch faults, and the applier that puts a condition on one run's tool calls.
-Nothing hunts yet.
+with the ten launch faults, the applier that puts a condition on one run's tool calls, the
+failure check that decides whether a run failed, and the settings file with the plan shown
+before spending. Nothing hunts yet.
 
+- `poisson_break.settings`: the settings file `break.toml`. `loads` reads its text and `load` a
+  file into a frozen `Settings`, compared by what it holds; `dump` writes the file `init` writes,
+  with every setting that has a value on its own line and each one that is off commented out,
+  and `loads(dump(s)) == s`. Only `version`, `target.kind` and `target.entry` must be given; the
+  defaults are 400 runs, 5 control repeats, 4 cases per condition, 8 candidates, 5 confirm
+  repeats, a difference of 0.20, `q` 0.05, the first 3 calls, 120 seconds a run, 2 hours, the
+  ten tool faults and five input operators on, the conversation and model calls off.
+- The file is strict. An unknown key or table is refused with its dotted path, its line and the
+  nearest known key within two edits. So is a value that means nothing: a kind, fault, operator,
+  move, check or signal that is not one, read from the live catalogue so a fault registered from
+  outside is taken; a count below 1 or not a whole number; a share outside 0 to 1; a `write`
+  tool whose line does not say how it is made safe; a stand-in, a check of your own or a strategy
+  not written `module:name`; a cap in dollars without both prices, or one price alone; `hours =
+  inf` with no cap; a file with no `version` or one from a newer Break. Every refusal is a
+  `SettingsError`, one line, with `.key`, `.line` and `.suggestion`. Two prices with no cap read
+  as a cap of $5.00.
+- Reading, checking and writing settings run nobody's code: no framework is imported, and
+  neither is the target, the strategy, a stand-in or your own check. Nothing here asks what a
+  way in can do; that is refused before any run by what holds the target.
+- A `kind` whose way in is an optional extra (`openai-agents`, `langgraph`, `crewai`, `mcp`,
+  `command`) parses with `loads`, and `load` refuses it in one line naming the install command
+  until its module is there, found without importing it. The `adaptive` strategy parses and is
+  refused by `load` the same way.
+- `read_cases`: the case file, JSON Lines. A case needs only `input`, non-empty text; it may
+  carry an `id`, an `expect` table (`reply_contains`, `calls`, `never_calls`), `variants` and
+  `turns`, and any key of your target's own, which is kept. A case with no `id` takes its place
+  among the cases, counted from 1, as text. A blank line is skipped and still counted. A line
+  that is refused is named by its number.
+- `INIT_FLAGS`, `settings_from_init_args` and `equivalent_init_command`: every setting has one
+  flag, with `--tool` and `--env` repeating for a tool's line and a setting of your own, and the
+  one command a shell can run that writes the same file byte for byte. Flags are written whole.
+- `plan_hunt` and `plan_confirm`: the run counts a spending command shows before it starts, as
+  frozen results. A hunt on 12 cases with the defaults is 60 control runs and up to 340 for
+  search and shrink; confirming is 540 runs and up to 480 more for reference. A control stage
+  that leaves no room for one condition is refused, naming the smallest `runs` that fits.
+- `poisson_break.checks`: deciding whether a run failed, from what the agent did. No model
+  grades a run. `watch(run_agent, *, case, session, fails=None)` runs the target once, catches
+  what escapes it (an exception is a crash, an agent's `SystemExit` among them; running out of
+  time is a timeout; `KeyboardInterrupt` passes through), measures the seconds and hands back a
+  frozen `FinishedRun`. `judge(run)` returns a `Verdict`: `ok`, `failed` with one kind, or
+  `not counted`, with the outcome a stored run carries (`ok` or `failed`), who judged it and,
+  for a run not counted, one line saying why. The kinds, the first that applies: `crashed`,
+  `hung` (120 seconds by default), `ran_out`, `forbidden_call`, `followed_plant`,
+  `duplicate_write`, `failed` (an outcome of the target's that `outcomes` lists), `wrong` (the
+  case's `reply_contains`, `calls`, `never_calls`), then a promoted signal's own word, then
+  `own:<word>` from your check. `checks` in the settings turns any of the seven words of
+  `CHECKS` off and nothing else. `signals(run)` counts `gave_up`, `retry_storm` (more than
+  `retry_storm_after` calls of one tool in a row, 5 by default) and `over_budget`
+  (`max_tool_calls`, `max_tokens`); a signal is a failure only when `also` names it. A run the
+  session stopped for an instrument error or a refused tool is not counted, whatever else it
+  met.
+- Your own check, named in `own` by its import path, is called with one read-only `RunView` and
+  nothing else, only on a run everything before it found ok. It returns `None` for ok or a
+  failure kind, a word of ASCII letters, digits, `_` and `-`. Anything else it returns or
+  raises makes the run not counted, never failed. The view shows the case as the run saw it,
+  the condition and whether each change applied, every tool call with its arguments, what the
+  agent saw and whether the real tool ran, the reply, the target's outcome, tokens, seconds, and
+  the kinds Break's checks give with every one on. What it holds is a private copy, so a check
+  cannot change a run.
+- `poisson_break.apply`: `Session.seen` keeps each call's arguments and what the agent was
+  handed back, apart from the two records, which still hold no content; `Session.tools` is each
+  tool's line as given.
+- `poisson_break.records`: a `Failure`'s kind may be a signal's own word, for one the settings
+  promote.
 - `poisson_break.apply`: `Session`, one run's applier. A way in routes every tool call through
   `session.call(tool, args, real)`, which returns what the agent should see or raises
   `ToolFailure` (a `TimeoutError` too when its kind is `timeout`). Calls are numbered per tool;
