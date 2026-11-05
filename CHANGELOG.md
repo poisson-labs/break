@@ -2,11 +2,40 @@
 
 ## Unreleased
 
-The first three modules of Poisson Break: the repository, the package and its command, the
+The first four modules of Poisson Break: the repository, the package and its command, the
 record every stored run carries, the four extension points, the catalogue of what Break varies
-with the ten launch faults, and the applier that puts a condition on one run's tool calls.
-Nothing hunts yet.
+with the ten launch faults, the applier that puts a condition on one run's tool calls, and the
+failure check that decides whether a run failed. Nothing hunts yet.
 
+- `poisson_break.checks`: deciding whether a run failed, from what the agent did. No model
+  grades a run. `watch(run_agent, *, case, session, fails=None)` runs the target once, catches
+  what escapes it (an exception is a crash, an agent's `SystemExit` among them; running out of
+  time is a timeout; `KeyboardInterrupt` passes through), measures the seconds and hands back a
+  frozen `FinishedRun`. `judge(run)` returns a `Verdict`: `ok`, `failed` with one kind, or
+  `not counted`, with the outcome a stored run carries (`ok` or `failed`), who judged it and,
+  for a run not counted, one line saying why. The kinds, the first that applies: `crashed`,
+  `hung` (120 seconds by default), `ran_out`, `forbidden_call`, `followed_plant`,
+  `duplicate_write`, `failed` (an outcome of the target's that `outcomes` lists), `wrong` (the
+  case's `reply_contains`, `calls`, `never_calls`), then a promoted signal's own word, then
+  `own:<word>` from your check. `checks` in the settings turns any of the seven words of
+  `CHECKS` off and nothing else. `signals(run)` counts `gave_up`, `retry_storm` (more than
+  `retry_storm_after` calls of one tool in a row, 5 by default) and `over_budget`
+  (`max_tool_calls`, `max_tokens`); a signal is a failure only when `also` names it. A run the
+  session stopped for an instrument error or a refused tool is not counted, whatever else it
+  met.
+- Your own check, named in `own` by its import path, is called with one read-only `RunView` and
+  nothing else, only on a run everything before it found ok. It returns `None` for ok or a
+  failure kind, a word of ASCII letters, digits, `_` and `-`. Anything else it returns or
+  raises makes the run not counted, never failed. The view shows the case as the run saw it,
+  the condition and whether each change applied, every tool call with its arguments, what the
+  agent saw and whether the real tool ran, the reply, the target's outcome, tokens, seconds, and
+  the kinds Break's checks give with every one on. What it holds is a private copy, so a check
+  cannot change a run.
+- `poisson_break.apply`: `Session.seen` keeps each call's arguments and what the agent was
+  handed back, apart from the two records, which still hold no content; `Session.tools` is each
+  tool's line as given.
+- `poisson_break.records`: a `Failure`'s kind may be a signal's own word, for one the settings
+  promote.
 - `poisson_break.apply`: `Session`, one run's applier. A way in routes every tool call through
   `session.call(tool, args, real)`, which returns what the agent should see or raises
   `ToolFailure` (a `TimeoutError` too when its kind is `timeout`). Calls are numbered per tool;

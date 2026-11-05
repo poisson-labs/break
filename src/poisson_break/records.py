@@ -22,7 +22,7 @@ The record in full::
     case            the case's id
     condition       name: the canonical condition name, "" for the control
                     changes: one Applied per change
-    failure         kind: a failure kind, or None when the run is ok
+    failure         kind: a failure kind, a promoted signal's word, or None when the run is ok
                     signals: gave_up, retry_storm, over_budget, each a count
     selection       strategy: the strategy's name or import path
                     probability: the probability the strategy gave the condition, in (0, 1]
@@ -78,13 +78,15 @@ STAGES = ("control", "search", "shrink", "confirm", "reference", "recheck")
 KINDS = ("crashed", "hung", "ran_out", "forbidden_call", "followed_plant", "duplicate_write",
          "failed", "wrong")
 """The failure kinds Break itself decides, in the order the first one that applies is taken.
-The user's own check adds ``own:<name>`` (``OWN_PREFIX``)."""
+A signal the user promoted adds its own word (``SIGNALS``), and the user's own check adds
+``own:<name>`` (``OWN_PREFIX``)."""
 
 OWN_PREFIX = "own:"
-"""A failure kind from the user's own check: the prefix and the check's name."""
+"""A failure kind from the user's own check: the prefix and the word the check returned."""
 
 SIGNALS = ("gave_up", "retry_storm", "over_budget")
-"""The three signals, counted beside every run and not failures unless promoted."""
+"""The three signals, counted beside every run and not failures unless promoted. Promoted, a
+signal's own word is the run's failure kind."""
 
 SURFACES = ("tool", "input", "user", "model", "env")
 """Where a change acts: tool behaviour, the inputs, the conversation, the model's own calls,
@@ -255,7 +257,9 @@ class Signals(_Record):
 
 @dataclass(frozen=True, kw_only=True)
 class Failure(_Record):
-    """How the run failed, or ``None`` when it did not, and the signals counted beside it."""
+    """How the run failed, or ``None`` when it did not, and the signals counted beside it. The
+    kind is one of Break's own (``KINDS``), a signal's own word for one the user promoted
+    (``SIGNALS``), or ``own:<name>`` from the user's check."""
 
     _nested: ClassVar[dict[str, type[_Record]]] = {"signals": Signals}
 
@@ -267,9 +271,9 @@ class Failure(_Record):
         if kind is not None:
             own = (isinstance(kind, str) and kind.startswith(OWN_PREFIX)
                    and len(kind) > len(OWN_PREFIX))
-            if not own and (not isinstance(kind, str) or kind not in KINDS):
+            if not own and (not isinstance(kind, str) or kind not in KINDS + SIGNALS):
                 raise RecordError(
-                    f"kind is {_shown(kind)}, not one of {_listed(KINDS)}, "
+                    f"kind is {_shown(kind)}, not one of {_listed(KINDS + SIGNALS)}, "
                     f"{OWN_PREFIX}<name> or None")
         if not isinstance(self.signals, Signals):
             raise RecordError(f"signals is {_shown(self.signals)}, not Signals")

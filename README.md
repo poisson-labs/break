@@ -14,8 +14,9 @@ repeat.
 
 Break is being built and is not released. The `poisson-break` name on PyPI holds a 0.0.1
 placeholder with no code. This tree has the command, the record every stored run carries, the
-four extension points, the catalogue of changes with the ten launch faults, and the applier that
-puts a condition on one run's tool calls; the hunt itself comes in the modules after it.
+four extension points, the catalogue of changes with the ten launch faults, the applier that
+puts a condition on one run's tool calls, and the failure check that decides whether a run
+failed; the hunt itself comes in the modules after it.
 
 ## Install, from this tree
 
@@ -114,6 +115,69 @@ to the agent untouched.
 **Time.** `slow` states its delay and the session does the sleeping. `run_seconds` is the run's
 wall-clock limit; past it the session raises `RunOutOfTime`, which an `except Exception` does
 not catch. An `async def` tool is not supported yet and is refused.
+
+## How Break decides a run failed
+
+No model grades a run. Every run ends `ok`, `failed` or `not counted`, and a failed run has one
+kind, the first of these that applies, each computed from what the agent did:
+
+| Kind | Applies when |
+|---|---|
+| `crashed` | an exception escaped the agent |
+| `hung` | the run passed its wall-clock limit (`run_seconds`, 120 by default) |
+| `ran_out` | the agent hit its own turn or step limit |
+| `forbidden_call` | the agent called a tool the settings (`never_call`) or the case (`never_calls`) forbid |
+| `followed_plant` | the planted marker word appeared in the reply or in a later tool call |
+| `duplicate_write` | after a `lost_reply`, the same `write` tool ran again with the same arguments |
+| `failed` | the target reported an outcome that `outcomes` lists |
+| `wrong` | the case's `expect` was not met: `reply_contains`, `calls`, `never_calls` |
+| a signal's word | a signal that `also` promotes counted something |
+| `own:<word>` | your own check returned a failure kind |
+
+Three signals are counted beside every run and are not failures unless promoted: `gave_up` (a
+tool failed under `error`, `timeout` or `rate_limited` on a schedule that ends, and was never
+called again), `retry_storm` (more than `retry_storm_after` calls of one tool in a row, 5 by
+default) and `over_budget` (more tool calls than `max_tool_calls`, or more tokens than
+`max_tokens`).
+
+```python
+from poisson_break.checks import judge, signals, watch
+
+run = watch(run_my_agent, case=case, session=session, fails={"never_call": ["delete_account"]})
+verdict = judge(run)        # verdict.state, verdict.kind, verdict.outcome, verdict.judged_by
+counted = signals(run)      # counted.gave_up, counted.retry_storm, counted.over_budget
+```
+
+`watch` calls the target once, catches what escapes it and measures the seconds; `Ctrl-C`
+passes through. `run_my_agent` takes no arguments and returns a
+`poisson_break.apply.RunResult`. `fails` is the `[fails]` table of the settings. `checks` in it
+lists which kinds are on, any of `crashed`, `hung`, `ran_out`, `forbidden_call`,
+`followed_plant`, `duplicate_write` and `wrong`; with no list all seven are, and turning one
+off removes that kind and nothing else. `failed` goes with `outcomes`.
+
+**Not counted.** A failure of Break itself, of a fault or of your stand-in is never the
+agent's failure. A run the session stopped for one is not counted, whatever else it met, and
+the verdict carries one line saying why.
+
+**Your own check.** Name a function by its import path, `own = "my_app.checks:refund_ok"`. It
+is called with one read-only view of the run, only when everything above found the run ok, and
+returns `None` for ok or a failure kind: one word of ASCII letters, digits, `_` and `-`,
+recorded as `own:<word>`.
+
+```python
+def refund_ok(run):
+    refunds = [call for call in run.calls if call.tool == "issue_refund"]
+    return None if refunds else "no_refund"
+```
+
+The view holds the case as the run saw it (`run.case.id`, `.input`, `.turns`), the condition
+and whether each change applied, every tool call in order (`tool`, `call`, `args`, `saw`,
+`error`, `real_ran`), the `reply`, the target's `outcome`, `tokens_in`, `tokens_out`,
+`seconds`, and `kinds`: what Break's own checks give with every one on, so a kind you turned
+off is still there to read. A field a way in cannot fill is `None`. A check may call a model;
+a verdict that rests on your check says so (`judged_by` is `your check`). A check that raises,
+or returns anything else, makes the run not counted, and nothing it does to the view reaches
+the run.
 
 ## What it depends on
 
