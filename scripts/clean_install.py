@@ -9,11 +9,16 @@ from PyPI), and checks, from an empty folder with its own HOME:
 
   * every file under src/poisson_break that is not bytecode is in the wheel, by the same path,
     and every file the wheel carries under the package is installed;
+  * Rich, questionary and prompt_toolkit, which draw the command on a terminal, were installed
+    as the wheel's own dependencies;
   * `poisson-break --version` exits 0 and prints one line that starts with the version this
     tree declares;
   * `python -m poisson_break --version` prints the same line;
   * `poisson-break --help` exits 0 and names the command;
   * `poisson-break hunt` exits 2 with one `error:` line on stderr and nothing on stdout;
+  * `poisson-break --plain --version` prints the same line as `--version`;
+  * on a terminal `poisson-break hunt` draws the same `error:` line with colour, and with
+    `--plain` draws it as text;
   * the package is imported from the fresh environment, not from the checkout;
   * none of the above writes a file into the folder it runs in.
 
@@ -26,7 +31,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import pty
 import re
+import select
 import subprocess
 import sys
 import tempfile
@@ -99,6 +106,15 @@ def main() -> int:
                           capture_output=True, text=True, env=fresh_env(work))
     check(done.returncode == 0,
           f"poisson_break is imported from the fresh environment ({done.stdout.strip()})")
+    done = subprocess.run([str(py), "-c", "import importlib.metadata as m, json; "
+                           "print(json.dumps({n: m.version(n) "
+                           "for n in ('rich', 'questionary', 'prompt_toolkit')}))"],
+                          capture_output=True, text=True, env=fresh_env(work))
+    drawn_with = json.loads(done.stdout) if done.returncode == 0 else {}
+    check(len(drawn_with) == 3,
+          "Rich, questionary and prompt_toolkit came with the wheel"
+          + (f" ({', '.join(f'{n} {v}' for n, v in drawn_with.items())})" if drawn_with
+             else f"\n{done.stderr}"))
 
     # 4. the command, from an empty folder with its own HOME
     bin_ = venv / "bin" / "poisson-break"
@@ -120,6 +136,16 @@ def main() -> int:
     check(done.returncode == 2 and done.stdout == "" and len(err) >= 1
           and err[0].startswith("error: ") and sum(e.startswith("error:") for e in err) == 1,
           "poisson-break hunt exits 2 with one error: line and nothing on stdout")
+    said = done.stderr
+    done = run([str(bin_), "--plain", "--version"], folder, env)
+    check(done.returncode == 0 and done.stdout.strip() == line and done.stderr == "",
+          "poisson-break --plain --version prints the same line")
+    code, drawn = on_a_terminal([str(bin_), "hunt"], folder, env)
+    check(code == 2 and "\x1b[" in drawn and ESCAPE.sub("", drawn) == said,
+          "on a terminal poisson-break hunt draws the same error: line, with colour")
+    code, drawn = on_a_terminal([str(bin_), "hunt", "--plain"], folder, env)
+    check(code == 2 and drawn == said,
+          "on a terminal poisson-break hunt --plain draws it as text")
     check(not any(folder.iterdir()), "nothing was written into the folder the command ran in")
     return finish(work, results)
 
@@ -143,6 +169,35 @@ def fresh_folder(work: Path) -> tuple[Path, dict[str, str]]:
 def run(argv: list[str], cwd: Path, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL, capture_output=True,
                           text=True, timeout=120)
+
+
+ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def on_a_terminal(argv: list[str], cwd: Path, env: dict[str, str]) -> tuple[int, str]:
+    """Run `argv` with stdout and stderr each on a pseudo-terminal of its own, with nothing in
+    the environment that turns the pretty rendering off, and return the exit code and what
+    stderr drew, its line ends read as a terminal writes them."""
+    env = {k: v for k, v in env.items() if k not in ("NO_COLOR", "CI", "COLUMNS", "LINES")}
+    env["TERM"] = "xterm-256color"
+    out_master, out_slave = pty.openpty()
+    err_master, err_slave = pty.openpty()
+    drawn = b""
+    try:
+        process = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+                                   stdout=out_slave, stderr=err_slave)
+        code = process.wait(timeout=120)
+        # this process still holds the terminals open, so what the command wrote is all there
+        # to read; a read that finds nothing for a moment has read it all
+        while select.select([err_master], [], [], 0.5)[0]:
+            chunk = os.read(err_master, 65536)
+            if not chunk:
+                break
+            drawn += chunk
+    finally:
+        for fd in (out_master, out_slave, err_master, err_slave):
+            os.close(fd)
+    return code, re.sub(r"\r+\n", "\n", drawn.decode("utf-8", "replace"))
 
 
 def finish(work: Path, results: list[dict[str, object]]) -> int:

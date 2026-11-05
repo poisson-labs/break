@@ -20,6 +20,106 @@ Trace's code. Trace is not yet on PyPI, so it is not yet declared in pyproject.t
 declared, pinned to one exact version, the day it is published.
 
 --------------------------------------------------------------------------------
-This package uses the Python standard library and no other third-party package directly. The
-packages Prove installs (NumPy, pandas, pyarrow, SciPy, Rich, Textual, threadpoolctl) are
-Prove's dependencies and are documented in Prove's own NOTICE.
+Rich
+https://github.com/Textualize/rich/blob/master/LICENSE
+Distributed on PyPI as the rich distribution; licence read from rich 15.0.0
+Licence: MIT
+
+Rich draws the pretty rendering of what Break prints on a terminal (docs/cli-look.md, rule 16):
+the four meanings' colours, bold and dim, the tables and the progress bar. Off a terminal the
+plain rendering is printed with the standard library alone, and a Break that cannot import Rich
+prints plain. No Rich code is included.
+
+Copyright (c) 2020 Will McGugan
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------------------
+questionary
+https://github.com/tmbo/questionary/blob/master/LICENSE
+Distributed on PyPI as the questionary distribution; licence read from questionary 2.1.1
+Licence: MIT
+
+questionary asks a menu in the pretty rendering, moved with the arrow keys. In the plain
+rendering, and where questionary cannot be imported, the menu is a numbered list read with the
+standard library. No questionary code is included.
+
+Copyright 2020 Tom Bocklisch and contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+of the Software, and to permit persons to whom the Software is furnished to do
+so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------------------
+prompt_toolkit
+https://github.com/prompt-toolkit/python-prompt-toolkit/blob/main/LICENSE
+Distributed on PyPI as the prompt_toolkit distribution; licence read from prompt_toolkit 3.0.53
+Licence: BSD 3-Clause
+
+questionary is built on prompt_toolkit, and Break calls it directly for one thing: to put a
+menu on stderr, so that stdout holds the result and nothing else. No prompt_toolkit code is
+included.
+
+Copyright (c) 2014, Jonathan Slenders
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice, this
+  list of conditions and the following disclaimer in the documentation and/or
+  other materials provided with the distribution.
+
+* Neither the name of the {organization} nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+--------------------------------------------------------------------------------
+Beyond these, this package uses the Python standard library and no other third-party package
+directly. The packages Prove installs (NumPy, pandas, pyarrow, SciPy, Rich, Textual,
+threadpoolctl) are Prove's dependencies and are documented in Prove's own NOTICE; the packages
+Rich and prompt_toolkit install (markdown-it-py, mdurl, Pygments, wcwidth) are theirs.

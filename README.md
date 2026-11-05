@@ -15,8 +15,10 @@ repeat.
 Break is being built and is not released. The `poisson-break` name on PyPI holds a 0.0.1
 placeholder with no code. This tree has the command, the record every stored run carries, the
 four extension points, the catalogue of changes with the ten launch faults, the applier that
-puts a condition on one run's tool calls, and the failure check that decides whether a run
-failed; the hunt itself comes in the modules after it.
+puts a condition on one run's tool calls, the failure check that decides whether a run failed,
+the settings file with the plan a hunt shows before it spends, and the look everything Break
+prints goes through, pretty on a terminal and plain anywhere else; the hunt itself comes in the
+modules after it.
 
 ## Install, from this tree
 
@@ -38,8 +40,12 @@ poisson-break --help
 ```
 
 `--version` prints one line with the versions of Break, Prove, Trace and Python. A mistake on
-the command line is one `error:` line on stderr and exit 2. The look every Poisson Labs command
-shares is written down in [docs/cli-look.md](docs/cli-look.md).
+the command line is one `error:` line on stderr and exit 2. A failure inside the command is one
+line that names the log its details went to, and exit 3. Two options are the tool's own and go
+before or after a verb: `--plain` prints plain text on a terminal too, and `--debug` prints the
+details of such a failure as well as logging them. The look every Poisson Labs command shares
+is written down in [docs/cli-look.md](docs/cli-look.md), and [How Break prints](#how-break-prints)
+is Break's build of it.
 
 ## What Break varies
 
@@ -179,11 +185,284 @@ a verdict that rests on your check says so (`judged_by` is `your check`). A chec
 or returns anything else, makes the run not counted, and nothing it does to the view reaches
 the run.
 
+## The settings file
+
+`break.toml` says what to hunt, what may change, and when to stop. `init` will write it; this is
+the whole file, and every line that is commented out is a setting that is off.
+
+```toml
+# Poisson Break: what to hunt, what may change, and when to stop.
+# Written by `poisson-break init`. Edit it freely; `poisson-break doctor` checks it.
+version = 1
+
+[target]
+kind = "rollout"                    # rollout | openai-agents | langgraph | crewai | mcp | command
+entry = "my_app.agents:refund_agent"
+cases = "cases.jsonl"
+
+[tools]
+lookup_order = "read"
+check_policy = "read"
+issue_refund = { class = "write", stand_in = "my_app.fakes:refund" }
+# update_notes = { class = "write", repeatable = true }   # the test environment absorbs repeats
+# send_email = "off"                # Break never touches it
+
+[fails]
+checks = ["crashed", "hung", "ran_out", "forbidden_call", "followed_plant", "duplicate_write", "wrong"]
+# outcomes = ["unresolved"]         # outcomes your agent reports that count as failures
+# own = "my_app.checks:refund_ok"   # your own check
+# also = ["gave_up"]                # promote a signal to a failure
+# never_call = ["delete_account"]
+# retry_storm_after = 5             # how many calls of one tool in a row are not yet a retry storm
+# max_tool_calls = 40               # over this, a run is counted as over budget
+# max_tokens = 200000
+run_seconds = 120
+
+[vary]
+tools = ["error", "timeout", "slow", "rate_limited", "empty", "cut_off", "malformed", "stale",
+         "lost_reply", "planted_instruction"]
+inputs = ["typos", "reordered", "padded", "cut_short", "variant"]
+# conversation = ["repeats", "interrupts", "goes_quiet", "presses"]
+# model = ["error", "timeout", "rate_limited", "empty", "cut_off"]
+max_call = 3                        # the latest call to a tool that a fault may land on
+
+# [vary.env]
+# inventory = ["full", "empty"]
+
+[search]
+strategy = "screen"                 # screen | random | adaptive | module:Name (a strategy of your own)
+runs = 400
+control_repeats = 5
+cases_per_condition = 4
+seed = 20261005
+
+[confirm]
+candidates = 8
+repeats = 5                         # runs of each case in each arm
+max_difference = 0.20               # the difference Trace is asked whether it could have seen
+q = 0.05
+
+[limits]
+# dollars = 5.00
+# input_per_million = 0.05
+# output_per_million = 0.40
+hours = 2
+
+[output]
+folder = "break-runs"
+```
+
+Only `version`, `kind` and `entry` must be there. Any other key left out reads as the value
+printed above, and a commented line as off.
+
+```python
+from poisson_break.settings import dump, load, loads
+
+settings = load("break.toml")       # frozen, and compared by what it holds
+settings.search.runs                # 400
+loads(dump(settings)) == settings   # True: dump writes the file above
+```
+
+**The file is strict.** A key or a table Break does not know is refused in one line, with the
+key's path, its line and the nearest known key within two edits:
+
+```
+search.runz on line 41 is not a setting of [search]; the nearest is search.runs
+```
+
+A value that could not mean anything is refused the same way: a count below 1 or written as a
+fraction, a share outside 0 to 1, a fault or a check that is not one, a `write` tool whose line
+does not say how it is made safe, a cap in dollars without both prices, `hours = inf` with no
+cap. Each refusal is a `SettingsError` with `.key`, `.line` and `.suggestion`.
+
+**Reading runs nobody's code.** Reading, checking and writing settings import no framework and
+none of your modules: not the target, the strategy, a stand-in or your own check. An import path
+is checked for its form, `module:name`, and whether the module is there is asked by what loads
+it, before any run.
+
+**A way in that is not installed.** Five of the six kinds are optional extras and none is built
+yet. A file that names one reads with `loads`, so it can be written today, and `load` refuses
+it in one line naming the install command, such as `pip install "poisson-break[openai-agents]"`.
+The `adaptive` strategy is treated the same way.
+
+**Prices and the cap.** Without prices Break caps runs and time and shows no dollars. With both
+prices and no `dollars`, the cap is $5.00. A cap needs both prices, since it is counted from
+them.
+
+### Cases
+
+The case file is JSON Lines, one case a line. A case needs only `input`:
+
+```json
+{"input": "Where is order 7?"}
+{"id": "refund-late", "input": "Refund order 9.", "expect": {"calls": ["lookup_order", "issue_refund"], "never_calls": ["delete_account"], "reply_contains": "refunded"}}
+{"input": "Hi", "turns": ["Hi", "Where is order 7?", "Thanks"], "variants": ["Hello"], "customer_tier": "gold"}
+```
+
+`read_cases(path)` hands each case over as the mapping of its line. A case with no `id` takes its
+place among the cases, counted from 1, as text (`"1"`, `"3"` above). An `id` is non-empty text
+and unique. `expect` holds only `reply_contains` (one string), `calls` and `never_calls` (lists
+of tools' names); `variants` and `turns` are lists of text. Any other key is your target's own
+and is kept. A blank line is skipped. A line that is refused is named by its number.
+
+### `init`'s flags, and the command that writes the same file
+
+Every setting has one flag, `--tool` repeats for each line of `[tools]`, and `--env` for each
+setting of `[vary.env]`. `INIT_FLAGS` maps each flag to its key.
+
+```python
+from poisson_break.settings import equivalent_init_command, settings_from_init_args
+
+equivalent_init_command(settings, prog="poisson-break")
+# poisson-break init --kind rollout --entry my_app.agents:refund_agent --cases cases.jsonl
+#     --tool 'lookup_order = "read"' --tool 'check_policy = "read"'
+#     --tool 'issue_refund = { class = "write", stand_in = "my_app.fakes:refund" }'      (one line)
+
+settings_from_init_args(["--kind", "rollout", "--entry", "my_app.agents:refund_agent", "--runs", "800"])
+```
+
+The command states the target and whatever differs from the defaults, since a flag left out
+reads as its default, and running it gives the same file byte for byte. A value is written
+plainly where that is safe (`--checks crashed,hung`, `--folder break-runs`) and as TOML where it
+is not (`--folder '"--odd name"'`, `--outcomes '["a, b"]'`); a tool's line and a setting of your
+own are written as the file writes them. Flags are written whole.
+
+### The plan a hunt shows before it spends
+
+```python
+from poisson_break.settings import plan_confirm, plan_hunt
+
+plan_hunt(settings, cases=12)       # control_runs=60, search_runs=340, runs=400
+plan_confirm(settings, cases=12)    # confirm_runs=540, reference_runs=480, reference_per_finding=60, runs=1020
+plan_confirm(settings, cases=11, candidates=4)   # 275, then up to 220, 55 for each finding
+```
+
+The control stage runs every case `control_repeats` times, and search and shrink get the rest of
+`runs`. Confirming runs one arm with no change and one for each candidate, every case `repeats`
+times in each, and then one more arm for each finding as its reference; on the defaults that is
+more than the hunt that found the candidates, and the plan says so before anything runs. A
+control stage that leaves no room for one condition is refused, naming the smallest `runs` that
+fits: 100 cases at 5 repeats against 400 runs asks for 504.
+
+## How Break prints
+
+Everything a command prints goes through `poisson_break.look`. A verb builds one result: a
+verdict word, its sentence, the detail and the commands to run next. The look prints it one of
+two ways.
+
+```python
+import os, sys
+from poisson_break import look
+
+result = look.Result(
+    "found", f"4 candidates in {look.fmt_count(400)} runs ({look.fmt_dollars(1.60)})",
+    detail=(
+        look.Row("control", f"60 runs · 9 failed ({look.fmt_rate(0.15)}) · {look.fmt_dollars(0.004)} a run"),
+        look.Table(("", "condition", "failed", "kind"), (
+            ("1", "tool:lookup_order#1=timeout", "4 of 4", "ran_out"),
+            ("2", "input:cut_short", "2 of 4", "wrong"),
+        )),
+        look.Line("these are candidates, not findings: a few runs each, chosen for having failed"),
+    ),
+    nexts=(look.command("poisson-break", "confirm"),),
+)
+mode = look.mode_for(sys.stdout, sys.stderr, os.environ, sys.argv[1:])
+look.render(result, stream=sys.stdout, mode=mode)
+```
+
+```
+found  4 candidates in 400 runs ($1.60)
+  control  60 runs · 9 failed (0.150) · $0.0040 a run
+     condition                    failed  kind
+  1  tool:lookup_order#1=timeout  4 of 4  ran_out
+  2  input:cut_short              2 of 4  wrong
+  these are candidates, not findings: a few runs each, chosen for having failed
+next: poisson-break confirm
+```
+
+**Plain is the contract.** That is the plain rendering: text only, no colour code and no box
+character, written with the standard library alone. It is what a pipe, a file and CI get, and
+what tests and docs pin. Piped, every fact is one line however long. On a terminal a long line
+is wrapped at the terminal's width with a hanging indent and no word is broken. The verdict
+line is never wrapped, and neither is a command printed for you to copy.
+
+**Pretty carries the same facts in the same order,** drawn with Rich: the verdict word in its
+colour, labels dim, a table under a rule. It runs only when stdout and stderr are both
+terminals, `NO_COLOR` is unset or empty, `CI` is unset, `TERM` is not `dumb`, stdout is UTF-8
+and neither `--json` nor `--plain` was given. Anywhere else, and wherever Rich cannot be
+imported, plain runs, byte for byte, and nothing is said about it. A table too wide for the
+terminal folds: a unit every cell of a column repeats moves into the header (`took (ms)`), and
+past that each row is printed as a record, one `column  value` a line. Nothing is cut or
+dropped.
+
+**Colour has four meanings and no others.** Green: the command did what was asked (`found`,
+`confirmed`, `wrote`, `ready`). Yellow: it stopped short or cannot say (`stopped`,
+`nothing found`, `too small to tell`, `note:`). Red: an error or a failed check (`error:`,
+`not ready`, `failed`). Dim: secondary text. A word that is neither good nor bad, `plan` among
+them, is bold with no colour. A number is never coloured, and only the terminal's sixteen named
+colours are used, so your theme decides the shades.
+
+**Problems go to stderr, one line each.**
+
+```
+error: the tool issue_refund changes things outside and has no stand-in
+  next: poisson-break doctor
+note: Break calls your tools for real.
+```
+
+`look.run(tool, argv, body)` runs a command under the look and returns its exit code. A body
+raises `look.Refused` (exit 1, nothing was spent or written), `look.Usage` (exit 2) or
+`look.Stopped(result)` (the result on stdout, exit 3), or returns a code of `look.EXIT`: 0 done,
+1 refused, 2 usage, 3 stopped, 4 a check you asked for did not pass, 130 interrupted. Ctrl-C
+prints `stopped  interrupted: ...` and exits 130. Anything unexpected is one line,
+`error: an unexpected failure inside poisson-break (ValueError); the details are in
+~/.cache/poisson-break/errors.log`, with the traceback in that file, and on stderr too under
+`--debug`.
+
+**Questions and progress stay on stderr,** so stdout holds the result and nothing else.
+`look.ask("start?", False)` asks `[y/N]`; a text default asks `[default]`; with `choices` it is
+a menu, moved with the arrow keys in pretty and a numbered list in plain. `--yes` answers
+without asking. Without it, a stdin that is not a terminal refuses the question: a piped `y` is
+not an answer. `look.Progress(label, total)` shows work as one line that is removed when the
+work ends.
+
+**`--json`** is one strict document from `look.as_json(result)`: `schema`, `verdict` and
+`sentence` first, then the result's data. It never holds `NaN`.
+
+**Numbers read the same everywhere.**
+
+| | |
+|---|---|
+| `fmt_rate(0.15)`, `fmt_rate(0.87, signed=True)` | `0.150`, `+0.870` |
+| `fmt_p(0.049)`, `fmt_p(2.3e-08)` | `0.049`, `2.3e-08` |
+| `fmt_dollars(1.6)`, `fmt_dollars(0.0052)`, `fmt_dollars(0.004)` | `$1.60`, `$0.0052`, `$0.0040` |
+| `fmt_count(4200)` | `4,200` |
+| `fmt_duration(100)`, `fmt_duration(5760)` | `1 min 40 s`, `1 h 36 min` |
+| `fmt_time(when)` | `2026-11-04T18:00:05Z`, always UTC |
+| `fmt_hash(digest)` | its first 12 characters; `--json` carries it whole |
+
+A rate or a p-value outside 0 to 1, anything that is not a number, and a time with no zone are
+refused with `ValueError`. No line Break prints asks you to paste a hash: a hunt, a finding and
+a change each have a name.
+
+**Commands that paste.** `look.word(text)` writes a value as one word a shell reads back
+exactly, bare where that is safe (`refund-agent-1`) and quoted where it is not
+(`'late refunds'`). `look.command(*words)` joins them into a line no rendering ever wraps.
+
+**Where the terminal cannot show a character.** `·`, `–` and `×` become `-`, `-` and `x`. Any
+other character the stream cannot encode is written as its escape (`caf\xe9`), so two names
+never read as one. A control character in a name, an escape sequence among them, is shown as
+text and never acted on.
+
 ## What it depends on
 
 Prove (`poisson-prove`) and Trace (`poisson-trace`), each pinned to one exact version. Break's
 Prove is the version Trace pins, so the three tools agree on one Prove. Trace is not yet on
 PyPI; its pin is declared the day it is.
+
+Rich, questionary and prompt_toolkit draw the pretty rendering and its menus. They are ordinary
+dependencies, so a plain `pip install` is pretty on a terminal, and a plain run never loads
+them.
 
 ## Developing
 
@@ -198,7 +477,10 @@ The suite runs under a guard that fails any connection: open-source Break opens 
 its own and sends nothing anywhere. A second check reads the source for a test or an interval
 computed locally and fails on one: every statistic Break reports is Trace's or Prove's.
 `scripts/clean_install.py` builds the wheel, installs it into a fresh environment outside the
-checkout and runs the command, as CI does. The tests stand on five scripted agents in
+checkout and runs the command, piped and on a terminal, as CI does. The look's tests run small
+programs on real pipes and pseudo-terminals and read back what a terminal would show; every
+command a later module adds joins the corpus in `tests/look_corpus.py` and is held to the same
+checks, both ways. The tests stand on five scripted agents in
 `tests/agents/`, small programs with no model and no framework: one retries, one gives up, one
 follows planted text, one repeats a write, and one speaks only the way-in protocol. The repository follows
 [docs/repo-hygiene.md](docs/repo-hygiene.md).

@@ -9,9 +9,12 @@ default) and returns its exit code. ``prog`` is the command's name as the user t
 every command named in any output is rendered from it, never from a literal, so the same code
 can run as ``poisson break`` later without a change here.
 
-A mistake on the command line is one ``error:`` line on stderr, in plain words, with the
-command to run next under it, and exit 2. Abbreviated options are refused. Nothing here reads
-a key, opens a socket or imports a framework.
+The command goes through the look (``poisson_break.look``): it is pretty on a terminal and
+plain anywhere else, and ``--plain`` and ``--debug`` are the tool's own options. A mistake on
+the command line is one ``error:`` line on stderr, in plain words, with the command to run next
+under it, and exit 2. A failure inside the command is one line naming the log its details went
+to, and exit 3; ``--debug`` prints the details as well. Abbreviated options are refused. Nothing
+here reads a key, opens a socket or imports a framework.
 """
 
 from __future__ import annotations
@@ -20,12 +23,14 @@ import argparse
 import sys
 from collections.abc import Sequence
 
+from poisson_break import look
+
 __all__ = ["main", "build_parser", "version_line"]
 
 DEFAULT_PROG = "poisson-break"
 
-EXIT_DONE = 0
-EXIT_USAGE = 2
+EXIT_DONE = look.EXIT["done"]
+EXIT_USAGE = look.EXIT["usage"]
 
 _DESCRIPTION = (
     "Poisson Break finds where an AI agent fails. It runs the agent you already have, many "
@@ -63,15 +68,19 @@ class _Formatter(argparse.HelpFormatter):
 
 class _Parser(argparse.ArgumentParser):
     """A command-line mistake raises ``_Usage``; leaving raises ``_Exit``; nothing here calls
-    ``sys.exit``, so ``main`` always returns a code."""
+    ``sys.exit``, so ``main`` always returns a code. What argparse prints goes through the look."""
 
     def error(self, message: str) -> None:  # type: ignore[override]
         raise _Usage(_plain_words(message))
 
     def exit(self, status: int = 0, message: str | None = None) -> None:  # type: ignore[override]
         if message:
-            sys.stderr.write(message)
+            look.err(message)
         raise _Exit(status)
+
+    def _print_message(self, message: str, file: object = None) -> None:
+        if message:
+            (look.err if file is sys.stderr else look.out)(message)
 
 
 def _plain_words(message: str) -> str:
@@ -82,8 +91,9 @@ def _plain_words(message: str) -> str:
         first = words[0] if words else ""
         what = "an option" if first.startswith("-") else "a command"
         return f'"{first}" is not {what} this command knows'
-    if message.startswith("argument --version: ignored explicit argument"):
-        return "--version takes no value"
+    for flag in ("--version", "--plain", "--debug"):
+        if message.startswith(f"argument {flag}: ignored explicit argument"):
+            return f"{flag} takes no value"
     return message
 
 
@@ -99,7 +109,8 @@ def build_parser(prog: str) -> argparse.ArgumentParser:
             "\n"
             "exit codes:\n"
             "  0  done\n"
-            "  2  the command line is wrong"
+            "  2  the command line is wrong\n"
+            "  3  an unexpected failure"
         ),
         formatter_class=_Formatter,
         allow_abbrev=False,
@@ -107,6 +118,14 @@ def build_parser(prog: str) -> argparse.ArgumentParser:
     parser.add_argument(
         "--version", action="store_true",
         help="print the versions of Break, Prove, Trace and Python on one line, and exit",
+    )
+    parser.add_argument(
+        "--plain", action="store_true",
+        help="print plain text, with no colour, on a terminal too",
+    )
+    parser.add_argument(
+        "--debug", action="store_true",
+        help="print the details of an unexpected failure as well as writing them to the log",
     )
     return parser
 
@@ -128,30 +147,26 @@ def version_line() -> str:
             f"poisson-trace {installed('poisson-trace')}, Python {platform.python_version()})")
 
 
-def _error(message: str, nexts: Sequence[str]) -> None:
-    sys.stderr.write(f"error: {message}\n")
-    for command in nexts:
-        sys.stderr.write(f"  next: {command}\n")
-    sys.stderr.flush()
-
-
 def main(argv: Sequence[str] | None = None, *, prog: str | None = None) -> int:
     """Run the command on ``argv`` and return its exit code; ``prog`` is the command's name as
     the user typed it."""
     prog = prog or DEFAULT_PROG
     words = list(sys.argv[1:] if argv is None else argv)
+    return look.run(prog, words, lambda: _command(prog, words))
+
+
+def _command(prog: str, words: Sequence[str]) -> int:
+    """What the command does, under the look: a mistake on the command line is the look's
+    ``Usage``, and anything unexpected is the look's one line."""
     parser = build_parser(prog)
     try:
-        args = parser.parse_args(words)
+        args = parser.parse_args(list(words))
     except _Usage as wrong:
-        _error(wrong.message, [f"{prog} --help"])
-        return EXIT_USAGE
+        raise look.Usage(wrong.message, nexts=(look.command(prog, "--help"),)) from None
     except _Exit as left:
         return left.code
     if args.version:
-        sys.stdout.write(version_line() + "\n")
-        sys.stdout.flush()
+        look.out(version_line() + "\n")
         return EXIT_DONE
-    parser.print_help()
-    sys.stdout.flush()
+    look.out(parser.format_help())
     return EXIT_DONE

@@ -2,11 +2,94 @@
 
 ## Unreleased
 
-The first four modules of Poisson Break: the repository, the package and its command, the
+The first six modules of Poisson Break: the repository, the package and its command, the
 record every stored run carries, the four extension points, the catalogue of what Break varies
-with the ten launch faults, the applier that puts a condition on one run's tool calls, and the
-failure check that decides whether a run failed. Nothing hunts yet.
+with the ten launch faults, the applier that puts a condition on one run's tool calls, the
+failure check that decides whether a run failed, the settings file with the plan shown before
+spending, and the look everything Break prints goes through. Nothing hunts yet.
 
+- `poisson_break.look`: one result, two renderings. A verb builds a `Result` (a verdict word,
+  its sentence, the detail as `Row`, `Line` and `Table`, the commands to run next) or a `Plan`
+  (a result whose verdict is `plan`, with an estimate and its source), and `render` prints it
+  plain or pretty. Plain is text only, with no colour code and no box character, and needs
+  nothing but the standard library: one line per fact on a pipe, wrapped at the terminal's width
+  with a hanging indent on a terminal, the verdict line and a command never wrapped. Pretty
+  carries the same facts in the same order, drawn with Rich.
+- `mode_for` chooses: pretty only when stdout and stderr are both terminals, `NO_COLOR` is
+  unset or empty, `CI` is unset, `TERM` is not `dumb`, stdout is UTF-8, and neither `--json` nor
+  `--plain` stands before a `--`. Anywhere else, and wherever Rich cannot be imported, plain
+  runs, byte for byte, and nothing is said about it.
+- Colour has four meanings: green for a command that did what was asked (`found`, `confirmed`,
+  `wrote`, `ready`, `rechecked`, `fails less`), yellow for one that stopped short or cannot say
+  (`stopped`, `nothing found`, `not confirmed`, `too small to tell`, `did not fail`, `note:`),
+  red for an error or a failed check (`error:`, `not ready`, `failed`, `fails more`), dim for
+  secondary text. Any other verdict word is bold with no colour. A number is never coloured,
+  and only the terminal's sixteen named colours, bold and dim are used.
+- A table too wide for the terminal folds in pretty: a unit every cell of a column repeats
+  moves into the header, and past that each row is printed as a record. Nothing is cut.
+- `run(tool, argv, body)` runs a command under the look and returns its exit code, from `EXIT`:
+  0 done, 1 refused, 2 usage, 3 stopped, 4 a check did not pass, 130 interrupted. `Refused` and
+  `Usage` are one `error:` line on stderr with their `next:` commands under it; `Stopped`
+  prints the result it carries; Ctrl-C prints `stopped  interrupted: ...`; anything unexpected
+  is one line naming `~/.cache/poisson-break/errors.log`, where the traceback is appended, and
+  `--debug` prints the traceback too. `error`, `note`, `out` and `err` write the lines.
+- `ask(question, default, choices=None)` asks on stderr: `[y/N]` for a yes or no, `[default]`
+  for text, a menu for `choices` (questionary's in pretty, a numbered list in plain). `--yes`
+  answers without asking, and without it a stdin that is not a terminal refuses the question.
+  `Progress(label, total)` shows work on stderr as one line, removed when the work ends.
+- `as_json(result)`: the `--json` document, `schema`, `verdict` and `sentence` first, never a
+  `NaN`.
+- Numbers read the same everywhere: `fmt_rate` (`0.150`, and `+0.870` for a difference),
+  `fmt_p` (`0.049`, `2.3e-08`), `fmt_dollars` (`$1.60`, `$0.0052`), `fmt_count` (`4,200`),
+  `fmt_duration` (`1 min 40 s`, `1 h 36 min`), `fmt_time` (UTC with `Z`) and `fmt_hash` (12
+  characters). `word` quotes a value for a shell and `command` joins a line that is never
+  wrapped.
+- A stream that cannot encode `·`, `–` or `×` gets `-`, `-` and `x`, and any other character it
+  cannot encode is written as its escape, so two names never read as one. A control character
+  in a value is shown as text and never acted on.
+- The command goes through the look. It takes `--plain` and `--debug`, a mistake on the command
+  line is drawn in the terminal's red on a terminal, and a failure inside the command is one
+  line and exit 3.
+- Rich (14.2.0 or later), questionary (2.1.1 or later) and prompt_toolkit (3.0.53 or later) are
+  ordinary dependencies. A plain run loads none of them.
+- The clean-install check also confirms that the three came with the wheel, and runs the
+  command on a terminal, with colour and with `--plain`.
+
+- `poisson_break.settings`: the settings file `break.toml`. `loads` reads its text and `load` a
+  file into a frozen `Settings`, compared by what it holds; `dump` writes the file `init` writes,
+  with every setting that has a value on its own line and each one that is off commented out,
+  and `loads(dump(s)) == s`. Only `version`, `target.kind` and `target.entry` must be given; the
+  defaults are 400 runs, 5 control repeats, 4 cases per condition, 8 candidates, 5 confirm
+  repeats, a difference of 0.20, `q` 0.05, the first 3 calls, 120 seconds a run, 2 hours, the
+  ten tool faults and five input operators on, the conversation and model calls off.
+- The file is strict. An unknown key or table is refused with its dotted path, its line and the
+  nearest known key within two edits. So is a value that means nothing: a kind, fault, operator,
+  move, check or signal that is not one, read from the live catalogue so a fault registered from
+  outside is taken; a count below 1 or not a whole number; a share outside 0 to 1; a `write`
+  tool whose line does not say how it is made safe; a stand-in, a check of your own or a strategy
+  not written `module:name`; a cap in dollars without both prices, or one price alone; `hours =
+  inf` with no cap; a file with no `version` or one from a newer Break. Every refusal is a
+  `SettingsError`, one line, with `.key`, `.line` and `.suggestion`. Two prices with no cap read
+  as a cap of $5.00.
+- Reading, checking and writing settings run nobody's code: no framework is imported, and
+  neither is the target, the strategy, a stand-in or your own check. Nothing here asks what a
+  way in can do; that is refused before any run by what holds the target.
+- A `kind` whose way in is an optional extra (`openai-agents`, `langgraph`, `crewai`, `mcp`,
+  `command`) parses with `loads`, and `load` refuses it in one line naming the install command
+  until its module is there, found without importing it. The `adaptive` strategy parses and is
+  refused by `load` the same way.
+- `read_cases`: the case file, JSON Lines. A case needs only `input`, non-empty text; it may
+  carry an `id`, an `expect` table (`reply_contains`, `calls`, `never_calls`), `variants` and
+  `turns`, and any key of your target's own, which is kept. A case with no `id` takes its place
+  among the cases, counted from 1, as text. A blank line is skipped and still counted. A line
+  that is refused is named by its number.
+- `INIT_FLAGS`, `settings_from_init_args` and `equivalent_init_command`: every setting has one
+  flag, with `--tool` and `--env` repeating for a tool's line and a setting of your own, and the
+  one command a shell can run that writes the same file byte for byte. Flags are written whole.
+- `plan_hunt` and `plan_confirm`: the run counts a spending command shows before it starts, as
+  frozen results. A hunt on 12 cases with the defaults is 60 control runs and up to 340 for
+  search and shrink; confirming is 540 runs and up to 480 more for reference. A control stage
+  that leaves no room for one condition is refused, naming the smallest `runs` that fits.
 - `poisson_break.checks`: deciding whether a run failed, from what the agent did. No model
   grades a run. `watch(run_agent, *, case, session, fails=None)` runs the target once, catches
   what escapes it (an exception is a crash, an agent's `SystemExit` among them; running out of
