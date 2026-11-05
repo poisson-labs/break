@@ -14,10 +14,14 @@ was done (``poisson_break.apply``), the failure check that decides, from what th
 whether a run is ok, failed with one kind, or not counted, counts the three signals beside it,
 and runs your own check on a read-only view of the run (``poisson_break.checks``), the
 settings file ``break.toml``: reading and writing it, the case file, ``init``'s flags, and the
-run counts of the plan a hunt shows before it spends (``poisson_break.settings``), and the look
+run counts of the plan a hunt shows before it spends (``poisson_break.settings``), the look
 everything Break prints goes through: one result printed pretty on a terminal and plain anywhere
 else, problems as one line on stderr, the exit codes, questions, progress and the way numbers
-read (``poisson_break.look``).
+read (``poisson_break.look``), and the search a hunt runs after its control: the two strategies
+that learn nothing, the stage that runs any strategy and holds it to no condition twice and a
+logged probability on every proposal, the score, shrinking a candidate to the smallest change
+that still fails, what a hunt did not look at, and loading a strategy of your own by its import
+path (``poisson_break.search``).
 """
 
 __version__ = "0.1.0.dev0"

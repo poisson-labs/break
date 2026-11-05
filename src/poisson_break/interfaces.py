@@ -132,19 +132,20 @@ class Target(Protocol):
 
 @runtime_checkable
 class Strategy(Protocol):
-    """A search strategy: ``propose(seen, budget, *, rng)`` returns the next proposals.
+    """A search strategy: ``propose(seen, budget, *, rng)`` returns the next proposals, a list.
 
     ``seen`` is the read-only view of the hunt so far: the control map, every run so far with
     its condition, case, seed and outcome, every proposal so far with its probability, the
-    budget left and the catalogue the settings allow. ``budget`` is the number of runs the stage
-    may still spend. ``rng`` is the search seed's generator, separate from every run seed. Each
-    proposal carries the condition, the reason in one line and the probability the strategy gave
-    that condition, in (0, 1]; a proposal without one is refused before any run. The core drops
-    a repeated condition itself and spends no run on it; a strategy is not trusted to hold that.
-    A strategy carries no state from one hunt to the next through Break.
+    budget left, the catalogue the settings allow, the cases set aside and how many cases a
+    condition runs on. ``budget`` is the number of runs the stage may still spend. ``rng`` is
+    the search seed's generator, separate from every run seed. Each proposal carries the
+    condition, the reason in one line and the probability the strategy gave that condition, in
+    (0, 1]; a proposal without one is refused before any run. The core drops a repeated
+    condition itself and spends no run on it; a strategy is not trusted to hold that. A strategy
+    carries no state from one hunt to the next through Break.
     """
 
-    def propose(self, seen: Any, budget: int, *, rng: Any) -> Sequence[Any]: ...
+    def propose(self, seen: Any, budget: int, *, rng: Any) -> list[Any]: ...
 
 
 @runtime_checkable

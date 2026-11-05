@@ -16,9 +16,10 @@ Break is being built and is not released. The `poisson-break` name on PyPI holds
 placeholder with no code. This tree has the command, the record every stored run carries, the
 four extension points, the catalogue of changes with the ten launch faults, the applier that
 puts a condition on one run's tool calls, the failure check that decides whether a run failed,
-the settings file with the plan a hunt shows before it spends, and the look everything Break
-prints goes through, pretty on a terminal and plain anywhere else; the hunt itself comes in the
-modules after it.
+the settings file with the plan a hunt shows before it spends, the look everything Break
+prints goes through, pretty on a terminal and plain anywhere else, and the search a hunt runs
+after its control, with the two strategies that learn nothing; the module that runs an agent and
+stores each run, and the commands, come after it.
 
 ## Install, from this tree
 
@@ -343,6 +344,113 @@ times in each, and then one more arm for each finding as its reference; on the d
 more than the hunt that found the candidates, and the plan says so before anything runs. A
 control stage that leaves no room for one condition is refused, naming the smallest `runs` that
 fits: 100 cases at 5 repeats against 400 runs asks for 504.
+
+## How Break searches
+
+After the control, a hunt asks a strategy what to try. `poisson_break.search` holds the two
+strategies that learn nothing, the stage that runs any strategy and holds it to the same rules,
+and what a hunt then does with what came back. Nothing in it runs an agent or stores a run: the
+runs go behind a callable it is handed.
+
+```python
+import random
+from poisson_break.search import Seen, allowed, coverage, load_strategy, score, search_stage
+
+catalogue = allowed(vary={"tools": ["error", "timeout", "lost_reply"], "inputs": ["typos"], "max_call": 3},
+                    tools={"lookup_order": "read", "issue_refund": {"class": "write", "repeatable": True}},
+                    capabilities=target.capabilities())
+seen = Seen(control={"c1": {"lookup_order": 2, "issue_refund": 1}, "c2": {"lookup_order": 1}},
+            runs=control_rows, proposals=(), budget=340, catalogue=catalogue,
+            set_aside=(), cases_per_condition=4)
+
+stage = search_stage(load_strategy("screen"), name="screen", seen=seen,
+                     rng=random.Random(20261005), run=run, log="proposals.jsonl")
+stage.log                          # every proposal in order, and what became of it
+stage.stopped                      # None, or why the stage was stopped
+score(stage.seen, condition)       # its share of failed runs, less the control's on the same cases
+coverage(stage.seen)               # what was tried, and what was not looked at
+```
+
+`Seen` is all a strategy is shown, and it is read-only: the control's map (for each case, each
+tool and the most calls of it in one control run), every run so far with its condition, case,
+seed and outcome (`ok`, `failed` or `not counted`), every proposal so far, the runs left, what the
+settings allow, the cases set aside for failing every control run, and how many cases a condition
+runs on. `allowed` works out what the settings allow by asking a real session, so `lost_reply` is
+offered only on a tool that is safe to repeat and an `off` tool is not offered at all. `run` takes
+the entries to run, each with its `condition`, its `cases` and its `selection`, and returns one
+`SeenRun` for each run.
+
+| Strategy | What it proposes | Probability |
+|---|---|---|
+| `screen` | every single change the control's map makes reachable, each once, in a fixed order: every tool and every fault once, as early as that can be done; every input operator and every listed value of a setting; the rest of the first call of each tool; then the second call, and so on up to `max_call` | 1 |
+| `random` | single changes and pairs of them, as one set, drawn uniformly and never twice | 1 over the size of the set |
+
+Neither looks at an outcome, and neither proposes a rate, a fault on every call, or a change to
+the conversation or the model's own calls. A change is reachable when a case that is not set
+aside calls that tool that many times. `random` leaves out a pair that could not be drawn to any
+purpose: two changes on one call of one tool, two values of one setting, and a pair no one case
+can hold.
+
+**What the stage holds every strategy to.**
+
+- No condition runs twice. A condition is written canonically before it is compared, so a second
+  spelling is a repeat, and the empty condition is a repeat of the control. A repeat is logged
+  `dropped` and costs no run, and a batch with nothing new ends the stage.
+- Every proposal is logged before its run with the strategy's name, its reason and the
+  probability it gave the condition, above 0 and at most 1. A run picked by a search is not a
+  random sample, and the probability is what lets a rate be counted from searched runs later; it
+  goes into each run's record. With `log` given, each proposal is one JSON line in that file, and
+  `read_log` reads the file back as the same entries.
+- A bad proposal refuses its whole batch before any of it runs: no probability or one outside
+  (0, 1], a reason that is not one line of text, a return that is not a list, a condition the
+  catalogue could not have written, or a change outside what the settings allow, which the
+  refusal names. The batch is logged `refused` and the stage stops with what it had, in
+  `stage.stopped`.
+- A strategy that raises stops the stage with what it had. Ctrl-C passes through, and so does
+  anything `run` raises.
+- A condition runs whole or not at all, on `cases_for` it: cases not set aside on which the map
+  says every tool change can land, drawn with the stage's generator, fewer when fewer fit. What
+  the runs left cannot pay for is logged `not run` and ends the stage. What no case can take is
+  logged `not run`, spends nothing and does not end it. `reserve` holds runs back for shrinking.
+
+**A strategy of your own** is any object with `propose(seen, budget, *, rng)` that returns a list
+of `Proposal`. It is named in the settings by its import path, loaded by `load_strategy` before
+anything runs, and goes through the same door as the two above:
+
+```python
+from poisson_break.changes import parse
+from poisson_break.search import Proposal
+
+class FirstCalls:
+    def propose(self, seen, budget, *, rng):
+        tools = sorted({tool for reach in seen.control.values() for tool in reach})
+        return [Proposal(condition=parse(f"tool:{tool}#1=error"), reason="every first call",
+                         probability=1.0) for tool in tools if not seen.proposals]
+```
+
+```toml
+[search]
+strategy = "my_app.search:FirstCalls"
+```
+
+A path that cannot be loaded is one line, whatever went wrong: a module or a name that is not
+there, an import that raises, a class that needs arguments, a thing with no `propose`. A strategy
+declares no version; one that cares compares `STRATEGY_INTERFACE_VERSION`, which is 1.
+
+**Shrinking.** `shrink(condition, failures=..., calls=...)` makes a candidate smaller.
+`failures(condition)` runs a condition on the candidate's cases and returns how many of those runs
+failed. Each change is taken out in turn, and the smaller condition is kept when it fails at least
+as often as the candidate did, less one run. The line stays at the candidate's own count, so a
+run lost at each step cannot add up. A fault on every call (`#*`) is tried as each single call the
+tool reaches, and the first that holds the line replaces it. `tries` caps the calls of `failures`.
+A candidate of one change that is not on every call costs no run.
+
+**Coverage.** `coverage(seen)` says what a hunt looked at and what it did not, as data: the
+reachable single changes tried and untried for each tool and each fault, the tools no case
+called, the tools called more often than `max_call`, the faults the settings turn off, the cases
+set aside, and how many reachable single changes and pairs have no run. Tried means it has a run:
+a proposal that was dropped, refused or not run does not count, and a pair is not a try of either
+of its changes.
 
 ## How Break prints
 
