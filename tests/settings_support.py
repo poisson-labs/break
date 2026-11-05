@@ -116,8 +116,8 @@ DEFAULTS = (
     ("output", "folder", '"break-runs"', '"elsewhere"', "elsewhere"),
 )
 
-# Keys §9.4 prints commented out, each with a value to set it to. They default to nothing being on, and are set
-# in groups: the prices and the dollar cap go together, since a cap with no prices is a ruling not yet made.
+# Keys §9.4 prints commented out, each with a value to set it to. They default to nothing being on. The cap and the
+# two prices are set together (yes/no 6), and are in `PRICES`.
 OPTIONAL = (
     ("fails", "outcomes", '["unresolved"]', ["unresolved"]),
     ("fails", "own", '"my_app.checks:refund_ok"', "my_app.checks:refund_ok"),

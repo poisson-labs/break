@@ -5,8 +5,8 @@ Invariant pinned here (Break — Plan, the settings module):
         numbered; an `expect` key not offered is refused. `read_cases` hands a case over as a mapping, which is all
         `Session.case` takes (BK2.13). The catalogue's ruling 9 left this open; plan BK4.5 closed it.
 
-Open and held by no test here, each brought as a ruling: how a numbered id is spelt, a case carrying keys the spec
-does not list, blank lines, an empty file, and an `input` that is not text.
+And yes/nos 8, 9 and 10 (Taylor, 2026-11-04, `evidence/bk4/open-points.md`): a case's other keys are kept; a number is the case's place,
+as text; a blank line is skipped and counted; an empty file and an `input` that is not non-empty text are refused.
 """
 
 from __future__ import annotations
@@ -75,6 +75,15 @@ def test_every_field_the_spec_lists_comes_through_as_written(tmp_path: Path, fie
     assert case["input"] == "x"
 
 
+@pytest.mark.parametrize("key, value", [("customer_tier", "gold"), ("expct", {"calls": ["a"]}), ("nested", {"a": [1, {"b": None}]}), ("count", 3)])
+def test_a_key_the_spec_does_not_list_is_kept_and_handed_over(tmp_path: Path, key: str, value: Any) -> None:
+    """Yes/no 8: §7.1 gives a `rollout` target "the case's own mapping as `cfg`", so a target's own keys have to get through, and
+    through the applier too. Only inside `expect` are unknown keys refused. A misspelt `expect` is such a key: nothing here can tell."""
+    [case] = read(tmp_path, [json.dumps({"input": "x", key: value})])
+    assert case[key] == value
+    assert session().case(case)[key] == value
+
+
 def test_text_beyond_plain_ascii_comes_through(tmp_path: Path) -> None:
     [case] = read(tmp_path, [json.dumps({"input": "Où est ma commande? 注文"}, ensure_ascii=False)])
     assert case["input"] == "Où est ma commande? 注文"
@@ -141,15 +150,32 @@ def test_a_line_without_input_is_refused_with_its_line_number(tmp_path: Path, li
     refused_line(tmp_path, lines, line)
 
 
-def test_a_line_number_counts_every_line_of_the_file(tmp_path: Path) -> None:
-    """Whether a blank line is taken is a ruling not yet made. If it is, it still counts as a line: an editor would
-    otherwise be sent to the wrong one."""
-    try:
-        read(tmp_path, [GOOD, "", GOOD])
-    except settings().SettingsError as refused_it:
-        assert refused_it.line == 2
-        return
-    refused_line(tmp_path, [GOOD, "", "{}"], 3)
+@pytest.mark.parametrize("blank", ["", "   ", "\t"])
+def test_a_blank_line_is_skipped(tmp_path: Path, blank: str) -> None:
+    got = read(tmp_path, [json.dumps({"input": "a"}), blank, json.dumps({"input": "b"}), blank])
+    assert [c["input"] for c in got] == ["a", "b"]
+
+
+@pytest.mark.parametrize("lines, line", [([GOOD, "", "{}"], 3), (["", "", "{}"], 3), ([GOOD, "", GOOD, "   ", "nope"], 5)])
+def test_a_blank_line_still_counts_in_a_line_number(tmp_path: Path, lines: list[str], line: int) -> None:
+    """An editor would otherwise be sent to the wrong line."""
+    refused_line(tmp_path, lines, line)
+
+
+@pytest.mark.parametrize("text", ["", "\n", "\n   \n\n"])
+def test_a_file_with_no_cases_is_refused(tmp_path: Path, text: str) -> None:
+    s = settings()
+    path = tmp_path / "cases.jsonl"
+    path.write_text(text, encoding="utf-8")
+    with pytest.raises(s.SettingsError) as caught:
+        list(s.read_cases(path))
+    assert_one_line(caught.value)
+
+
+@pytest.mark.parametrize("value", ["7", "null", "true", '["a"]', '{"a": 1}', '""', "1.5"])
+def test_an_input_that_is_not_text_is_refused_with_its_line_number(tmp_path: Path, value: str) -> None:
+    """Yes/no 10: the operators read text, and turning a number into a string would hide the mistake."""
+    refused_line(tmp_path, [GOOD, f'{{"input": {value}}}'], 2)
 
 
 @pytest.mark.parametrize("bad", ["not json", "{", '{"input": "x"', '{"input": "x"} trailing', "'single quotes'"])
@@ -207,18 +233,41 @@ def test_the_numbering_is_the_same_on_every_read(tmp_path: Path) -> None:
 
 
 def test_a_number_given_to_one_case_does_not_land_on_another(tmp_path: Path) -> None:
-    """A case may be given by name the very word another would be numbered with. Either refuse it or keep them apart:
-    two cases must not share an id. The names are read from the numbering itself, so this holds however it is spelt."""
-    numbered = [c["id"] for c in read(tmp_path, [GOOD] * 4)]
-    for name in numbered:
-        lines = [json.dumps({"input": "x", "id": name}), GOOD, GOOD, GOOD]
-        try:
-            got = read(tmp_path, lines)
-        except settings().SettingsError:
-            continue
-        ids = [c["id"] for c in got]
-        assert len(set(ids)) == 4, ids
-        assert ids[0] == name
+    """Yes/no 9: a case given by name the word another would be numbered with is refused, whichever comes first, and
+    never a silent collision. The other lines of the file do not move the number: the first line named `2` and the second is the
+    second case."""
+    s = settings()
+    for lines in ([json.dumps({"input": "x", "id": "2"}), GOOD], [GOOD, json.dumps({"input": "x", "id": "1"})],
+                  [json.dumps({"input": "x", "id": "3"}), GOOD, GOOD]):
+        with pytest.raises(s.SettingsError) as caught:
+            read(tmp_path, lines)
+        assert_one_line(caught.value)
+        assert caught.value.line is not None
+
+
+def test_a_name_that_is_no_number_of_any_case_is_taken(tmp_path: Path) -> None:
+    got = read(tmp_path, [json.dumps({"input": "x", "id": "9"}), GOOD, GOOD])
+    assert [c["id"] for c in got] == ["9", "2", "3"]
+
+
+def test_a_number_is_the_cases_place_counted_from_one_as_text(tmp_path: Path) -> None:
+    got = read(tmp_path, [GOOD, GOOD, GOOD])
+    assert [c["id"] for c in got] == ["1", "2", "3"]
+
+
+def test_a_named_case_keeps_its_place_in_the_count(tmp_path: Path) -> None:
+    got = read(tmp_path, [GOOD, '{"input": "x", "id": "named"}', GOOD])
+    assert [c["id"] for c in got] == ["1", "named", "3"]
+
+
+def test_a_number_counts_cases_and_not_lines(tmp_path: Path) -> None:
+    got = read(tmp_path, [GOOD, "", "", GOOD])
+    assert [c["id"] for c in got] == ["1", "2"]
+
+
+@pytest.mark.parametrize("value", ["7", "1.5"])
+def test_an_id_given_as_a_number_is_refused(tmp_path: Path, value: str) -> None:
+    refused_line(tmp_path, [GOOD, f'{{"input": "x", "id": {value}}}'], 2)
 
 
 def test_an_id_kept_is_kept_whatever_is_numbered_around_it(tmp_path: Path) -> None:

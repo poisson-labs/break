@@ -248,8 +248,7 @@ def test_each_kind_the_spec_offers_is_taken(kind: str) -> None:
 # a fault, operator, move or check not in the catalogue
 # ---------------------------------------------------------------------------
 
-# (the key, a name from another list or misspelt, the right list). A `[vary]` entry a way in cannot do is a ruling not
-# yet made, so the conversation and the model are read with an on-demand kind.
+# (the key, a name from another list or misspelt, the right list).
 NOT_IN_CATALOGUE = [
     ("vary", "tools", "Error"), ("vary", "tools", "erorr"), ("vary", "tools", "typos"), ("vary", "tools", "repeats"), ("vary", "tools", ""),
     ("vary", "inputs", "typo"), ("vary", "inputs", "error"), ("vary", "inputs", "presses"),
@@ -436,10 +435,21 @@ def test_a_number_of_hours_that_is_no_amount_is_refused(value: str) -> None:
 @pytest.mark.parametrize("key", ["dollars", "input_per_million", "output_per_million"])
 @pytest.mark.parametrize("value", ["-1", "nan", '"5"', "true"])
 def test_a_cap_or_a_price_that_is_no_amount_is_refused(key: str, value: str) -> None:
-    """Beside the other two, since a cap or a price on its own is a ruling not yet made."""
+    """Beside the other two, since a cap or a price on its own is refused for another reason (yes/no 6)."""
     good = {"dollars": 5.0, "input_per_million": 0.05, "output_per_million": 0.4}
     lines = "\n".join(f"{k} = {value if k == key else v}" for k, v in good.items())
     refused_at(doc(limits=lines), f"limits.{key}", f"{key} =")
+
+
+@pytest.mark.parametrize("lines", ["dollars = 5.0", "dollars = 5.0\ninput_per_million = 0.05", "dollars = 5.0\noutput_per_million = 0.4",
+                                   "input_per_million = 0.05", "output_per_million = 0.4"])
+def test_a_cap_without_both_prices_or_one_price_alone_is_refused(lines: str) -> None:
+    """Yes/no 6: a cap that could never fire is worse than none, since BK5.9 can only measure dollars from prices."""
+    assert refused(doc(limits=lines)).key.startswith("limits")
+
+
+def test_two_prices_are_taken_without_a_cap() -> None:
+    settings().loads(doc(limits="input_per_million = 0.05\noutput_per_million = 0.40"))
 
 
 def test_a_cap_and_two_prices_are_taken() -> None:
@@ -465,6 +475,12 @@ def test_a_version_above_this_modules_is_refused_on_its_line() -> None:
     s = settings()
     text = doc(head=f"version = {s.SCHEMA_VERSION + 1}")
     refused_at(text, "version", "version =")
+
+
+@pytest.mark.parametrize("head", ["", "# version = 1"])
+def test_a_file_with_no_version_is_refused_naming_it(head: str) -> None:
+    """Yes/no 7."""
+    assert refused(doc(head=head)).key == "version"
 
 
 def test_this_modules_version_is_taken() -> None:

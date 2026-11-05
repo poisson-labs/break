@@ -2,7 +2,7 @@
 
 Invariants pinned here (Break — Plan, the settings module):
 - BK4.1 Round trip over every key: `loads(dump(s)) == s`, for every key of spec §9.4. The half of BK4.1 that goes
-        through `init`'s flags, and BK4.4, wait on a ruling on what those functions take: no test here rests on it.
+        through `init`'s flags, and BK4.4, are in `test_settings_init.py`.
 
 And the defaults of plan ruling 19 and spec §9.4, and "the frozen settings types".
 
@@ -86,7 +86,6 @@ def test_what_the_spec_prints_commented_out_is_off_unless_asked_for(table: str, 
 @pytest.mark.parametrize("table, key, toml_value, read", OPTIONAL, ids=[f"{t}.{k}" for t, k, *_ in OPTIONAL])
 def test_an_optional_key_set_comes_back_and_differs_from_leaving_it_out(table: str, key: str, toml_value: str, read: Any) -> None:
     s = settings()
-    # An on-demand kind, since a `[vary]` entry a way in cannot do is a ruling not yet made.
     text = doc(kind="langgraph", **{table: f"{key} = {toml_value}"})
     assert written(text)[table][key] == read
     assert s.loads(text) != s.loads(doc(kind="langgraph"))
@@ -97,6 +96,15 @@ def test_the_prices_and_the_cap_come_back_each_under_its_own_key() -> None:
     assert limits["dollars"] == 7.5
     assert limits["input_per_million"] == 0.125
     assert limits["output_per_million"] == 0.5
+
+
+def test_two_prices_with_no_cap_read_as_a_cap_of_five_dollars() -> None:
+    """Yes/no 6, from §9.3 question 9's default: a cap exists whenever prices do."""
+    s = settings()
+    prices = "input_per_million = 0.125\noutput_per_million = 0.5"
+    assert written(doc(limits=prices))["limits"]["dollars"] == 5.0
+    assert s.loads(doc(limits=prices)) == s.loads(doc(limits=f"{prices}\ndollars = 5.00"))
+    assert s.loads(doc(limits=prices)) != s.loads(doc(limits=f"{prices}\ndollars = 6.00"))
 
 
 def test_settings_of_ones_own_come_back_under_their_names() -> None:
@@ -181,6 +189,7 @@ ROUND_TRIPS = {
     "a tool's name holding a space": doc(tools='"look up order" = "read"'),
     "a tool's name holding a quote": doc(tools='"say \\"hi\\"" = "read"'),
     "a tool's name beyond plain ascii": doc(tools='"prüfen" = "read"'),
+    "capitals, kept as they are": doc(tools='LookupOrder = { class = "write", stand_in = "My_App.Fakes:Refund" }', vary__env='Region = ["EU", "US"]', output='folder = "Runs"'),
     "a setting's name that needs quotes": doc(vary__env='"my.setting" = ["a"]'),
     "the numbers and words of a setting of one's own": doc(vary__env='mixed = [3, 2.5, true, "word"]'),
     "a value holding what looks like TOML": doc(vary__env='note = ["[search]\\nruns = 1"]'),
@@ -195,6 +204,7 @@ ROUND_TRIPS = {
     "an off tool": doc(tools='o = "off"'),
     "no faults": doc(vary="tools = []"),
     "a strategy of one's own": doc(search='strategy = "pkg.sub.mod:Strategy"'),
+    "the strategy not yet built": doc(search='strategy = "adaptive"'),
 }
 
 
