@@ -2,14 +2,68 @@
 
 ## Unreleased
 
-The first seven modules of Poisson Break: the repository, the package and its command, the
+The first eight modules of Poisson Break: the repository, the package and its command, the
 record every stored run carries, the four extension points, the catalogue of what Break varies
 with the ten launch faults, the applier that puts a condition on one run's tool calls, the
 failure check that decides whether a run failed, the settings file with the plan shown before
-spending, the look everything Break prints goes through, and the runs themselves, stored on
-Prove. A hunt's stages run from Python; the search, the confirm stage and the `hunt` command
-come next.
+spending, the look everything Break prints goes through, the runs themselves, stored on Prove,
+and the search a hunt runs after its control. A hunt's stages run from Python; the confirm stage
+and the `hunt` command come next.
 
+- `poisson_break.search`: the search without learning, and the door every strategy comes
+  through. A strategy is anything with `propose(seen, budget, *, rng)` that returns a list of
+  `Proposal`: a condition, the reason in one line, and the probability the strategy gave that
+  condition, above 0 and at most 1. `Seen` is all it is shown, read-only: the control's map, every
+  run so far (`SeenRun`: condition, case, seed and an outcome of `ok`, `failed` or `not
+  counted`), every proposal so far, the runs left, what the settings allow, the cases set aside
+  and how many cases a condition runs on.
+- `Screen` proposes every single change the control's map makes reachable, each once, in a fixed
+  order, at probability 1: every tool and every fault once in as few proposals as that takes,
+  then every input operator and every listed value of a setting, then the rest of the first call
+  of each tool, then each later call up to `max_call`. `Random` draws single changes and pairs of
+  them as one set, uniformly and never twice, at 1 over the size of the set; a pair on one call of
+  one tool, two values of one setting and a pair no one case can hold are not in it. Neither reads
+  an outcome, and neither proposes a rate, a fault on every call, or a change to the conversation
+  or the model's own calls.
+- `allowed(vary=, tools=, capabilities=)` gives what the settings allow as a frozen `Allowed`:
+  each tool that is not `off` with the faults a session takes on it, the input operators, each
+  setting's values, `max_call` and the faults turned off. It asks a real session, so no second
+  copy of the tool-class rule exists.
+- `search_stage(strategy, name=, seen=, rng=, run=, log=None, reserve=0)` runs a stage and returns
+  a `Stage`: the last `Seen`, the log and why it stopped or `None`. `run` is a callable that runs
+  each entry's condition on its cases and returns the rows, so the module runs no agent and
+  stores nothing. No condition runs twice: a repeat, a second spelling of a condition or the
+  control proposed again is logged `dropped` and costs no run, and a batch with nothing new ends
+  the stage. Every proposal is logged with its strategy, reason and probability before its run,
+  as a `LogEntry` whose `selection` is what a run's record carries, and with `log` given as one
+  JSON line in that file, which `read_log` reads back. A proposal with no probability or one
+  outside (0, 1], a reason that is not one line of text, a return that is not a list, a condition
+  the catalogue could not have written, or a change outside what the settings allow (named in the
+  refusal) refuses its whole batch before any of it runs. A strategy that raises stops the stage
+  with what it had; Ctrl-C and anything `run` raises pass through. A condition runs whole or not
+  at all: what the runs left cannot pay for is logged `not run` and ends the stage, and
+  `reserve` holds runs back for shrinking.
+- `cases_for(seen, condition, rng=)`: the cases a condition runs on, drawn from those not set
+  aside on which the map says every tool change can land; where none fits, from those that call
+  each tool named at all, so a change at a call the control never saw has somewhere to run. A
+  condition no case can take is logged `not run`, spends nothing and does not end the stage.
+- `score(seen, condition)`: failed runs over counted runs under the condition, less the same for
+  the control on those cases, each side pooled. A condition with a run on a case set aside, or
+  with no counted run, is refused.
+- `shrink(condition, failures=, calls=, tries=None)`: one change taken out at a time, the smaller
+  condition kept when it fails at least as often as the candidate did, less one run, the line
+  staying at the candidate's own count. A fault on every call is tried as each single call the
+  tool reaches. A candidate of one change that is not on every call costs no run.
+- `coverage(seen)`: what was tried and what was not looked at, as a frozen `Coverage`: reachable,
+  tried and untried for each tool and each fault, the tools never called, the tools called past
+  `max_call`, the faults turned off, the cases set aside, and how many reachable single changes
+  and pairs have no run.
+- `load_strategy(name_or_path)`: `screen`, `random`, or `module:Name`, imported; a class is made
+  with no arguments and anything else with a `propose` is used as it is. Whatever goes wrong is
+  one `SearchError` of one line, before anything runs. `adaptive` is not in this version and is
+  refused the same way.
+- `poisson_break.interfaces`: a strategy's `propose` is typed as returning a list, which is what
+  the stage holds it to.
 - `poisson_break.hunt`: runs stored on Prove. `open_hunt(settings, target=, cases=, name=None,
   existing=False)` makes a hunt's folder and its `hunt.json`, or opens one that is there, and
   runs nothing. A `Hunt` is read-only: `name`, `folder`, `store`, `proposals`, `settings`,
