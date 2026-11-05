@@ -4,9 +4,8 @@ Invariant pinned here (Break — Plan, the failure check):
 - BK3.5 Signals are not failures unless promoted, and each of `gave_up`, `retry_storm` and `over_budget` has a trigger
         and a control. `gave_up` does not count under a `#*` schedule.
 
-What a count counts (a tool, a streak, the calls past the line) is owed a ruling, so a test here reads only whether
-one counted anything. What word a promoted signal is written down as, and where it falls in §4's order, are owed one
-too, so a test here reads only that the run failed, and with one kind.
+What a count counts, what word a promoted signal is written down as, and where it falls in §4's order are in
+`test_checks_ruled.py`. Here a test reads only whether one counted anything, and that the run failed with one kind.
 """
 
 from __future__ import annotations

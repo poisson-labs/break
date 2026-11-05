@@ -10,8 +10,8 @@ And spec §4's two rows that Prove would lose: an exception from the agent and a
 catch, because Prove stores either as an error row with no outcome, and its comparisons drop those rows (BK5.3). A
 row dropped is a failure the search never sees.
 
-A run here is always a scripted agent's, through `tests/checks_support.py`, which also says what a test leaves to a
-ruling. Where a ruling is still owed a test holds only what every answer shares.
+A run here is always a scripted agent's, through `tests/checks_support.py`. What the rulings settled is held in
+`test_checks_ruled.py`, and some tests here hold only part of it.
 """
 
 from __future__ import annotations

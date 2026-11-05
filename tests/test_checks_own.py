@@ -12,9 +12,9 @@ Invariants pinned here (Break — Plan, the failure check):
 And §11's rule for every extension point: a version constant, and a test-only implementation outside the package
 that runs through the core with no core file changed. The checks are `tests/checks_own.py`.
 
-Owed a ruling, so held here only as far as every answer agrees: what `<name>` is in `own:<name>`, which strings are a
-failure kind, whether a check runs at all on a run Break already failed, who `judged_by` names on a run the check
-passed, and what a check's `SystemExit` or `KeyboardInterrupt` comes to.
+What `<name>` is in `own:<name>`, which strings are a failure kind, whether a check runs on a run Break already failed,
+who `judged_by` names on a run the check passed, and what a check's `SystemExit` or `KeyboardInterrupt` comes to are
+ruled, and held in `test_checks_ruled.py`.
 """
 
 from __future__ import annotations
@@ -159,7 +159,7 @@ def test_an_async_check_has_returned_something_that_is_not_an_answer() -> None:
 
 
 def test_an_empty_answer_is_not_a_pass(fresh_checks: ModuleType) -> None:
-    """Whether `""` is an error or a kind is owed a ruling. It is not `None`, so it is not ok."""
+    """It is not `None`, so it is not ok."""
     fresh_checks.RETURNS = ""
     assert verdict(way_in(fails=asked()).run) != OK
 
@@ -167,14 +167,8 @@ def test_an_empty_answer_is_not_a_pass(fresh_checks: ModuleType) -> None:
 @pytest.mark.parametrize("path", ["tests.checks_own:no_such_check", "tests.no_such_module:check", "tests.checks_own:NOT_CALLABLE"],
                          ids=["no-attribute", "no-module", "not-callable"])
 def test_a_check_that_cannot_be_loaded_or_called_is_not_the_agents_failure(path: str) -> None:
-    """When it is refused is owed a ruling: at load by the runs module, or on each run. Whenever it is, the agent did
-    nothing, so the run is neither ok nor failed."""
-    run = way_in(fails={"own": path}).run
-    try:
-        v = judged(run)
-    except Exception:
-        return
-    assert state_of(v) == "not counted"
+    """The agent did nothing, so the run is neither ok nor failed."""
+    assert state_of(judged(way_in(fails={"own": path}).run)) == "not counted"
 
 
 # ---------------------------------------------------------------------------

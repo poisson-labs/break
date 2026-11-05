@@ -56,6 +56,12 @@ def fails_if_no_refund(run: Any) -> str | None:
     return None if any(c.tool == "issue_refund" for c in run.calls) else "no_refund"
 
 
+def fails_if_a_kind_was_met(run: Any) -> str | None:
+    """A check of the kind a user writes when they have turned one of Break's off and want their own say on it."""
+    _heard((run,), {})
+    return "a_kind_was_met" if run.kinds else None
+
+
 def tampers(run: Any) -> None:
     """Tries everything a check could try on what it is handed, by every ordinary means, and then says ok."""
     _heard((run,), {})

@@ -1,12 +1,10 @@
 """What the failure check's tests share: how a scripted agent's run reaches the check, and how a test reads
 what comes back.
 
-The spec and plan do not say what `judge` is handed, what a `Verdict` holds, what a `RunView`'s fields are called,
-or what the settings call a budget. `judge(run: RunRecord)` as the plan writes it cannot work: a `RunRecord` holds no
-reply, no arguments and no word on how the run ended, and it already holds the failure. This file is where those names
-are written, so that the tests speak only of what the spec decides. An answer other than the one written here changes
-this file and no test, with one exception: the names of a view's fields, which `test_checks_own.py` and
-`checks_own.py` read the way a user's check reads them.
+`judge` and `signals` take a `FinishedRun`, which `watch` makes (rulings 1 to 6, Taylor, 2026-11-04, each in
+`test_checks_ruled.py`). The plan's `judge(run: RunRecord)` could not work: a `RunRecord` holds no reply, no arguments and
+no word on how the run ended, and it already holds the failure. The shape is written here, so that the tests speak of
+what a run did.
 
 `poisson_break.checks` is imported lazily, so on a tree without it each test fails on its own.
 
@@ -109,12 +107,12 @@ def error_of(v: Any) -> str | None:
 
 
 def stated_retries(n: int) -> dict[str, Any]:
-    """§4: "more than a stated number of times in a row (default 5)". §9.4 has no key for it."""
+    """§4: "more than a stated number of times in a row (default 5)". The key is ruling 6's."""
     return {"retry_storm_after": n}
 
 
 def budget(*, tool_calls: int | None = None, tokens: int | None = None) -> dict[str, Any]:
-    """§4: "more tokens or tool calls than the settings allow". §9.4 has no key for either."""
+    """§4: "more tokens or tool calls than the settings allow". The keys are ruling 6's."""
     out: dict[str, Any] = {}
     if tool_calls is not None:
         out["max_tool_calls"] = tool_calls
@@ -257,13 +255,15 @@ def plain(agent: str, text: str = "", *, case: dict[str, Any] | None = None, too
     program = getattr(agents(), agent)
     seen: list[tuple[Any, ...]] = [()]
 
+    as_seen = s.case(case)
+
     def run_agent() -> Any:
         with s:
-            done = program(s.case(case), wrap_all(tools))
+            done = program(as_seen, wrap_all(tools))
         seen[0] = done.seen
         return _result(done.reply, done.seen, was=None, outcome=outcome, tokens=tokens, over_reply=reply, pause=pause)
 
-    run = checks().watch(run_agent, case=case, session=s, fails=fails)
+    run = checks().watch(run_agent, case=as_seen, session=s, fails=fails)
     return Scene(run, s, tools, seen[0], word)
 
 
@@ -279,11 +279,13 @@ def way_in(text: str = "", *, script: list[tuple[str, dict[str, Any]]] | None = 
     tools = all_tools() if tools is None else tools
     agent = agents().WayIn(tools, script=script, max_steps=max_steps)
 
+    as_seen = s.case(case)
+
     def run_agent() -> Any:
-        done = agent.run(s.case(case), s, seed=SEED, limits=None)
+        done = agent.run(as_seen, s, seed=SEED, limits=None)
         return _result(done.reply, agent.seen, was=done, outcome=outcome, tokens=tokens, over_reply=reply, pause=pause)
 
-    run = checks().watch(run_agent, case=case, session=s, fails=fails)
+    run = checks().watch(run_agent, case=as_seen, session=s, fails=fails)
     return Scene(run, s, tools, agent.seen, word)
 
 

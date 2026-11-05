@@ -218,8 +218,7 @@ def test_a_not_counted_run_has_no_outcome_and_says_why() -> None:
 
 
 def test_a_refused_tool_is_not_an_agents_failure() -> None:
-    """Plan BK5.3: a `ToolRefused` stops the hunt. What `judge` says of such a run is owed a ruling; that it does not
-    call it the agent's failure, and does not call it ok, is not."""
+    """Plan BK5.3: a `ToolRefused` stops the hunt. The word `judge` has for such a run is ruling 23's."""
     def run_agent(s: Any) -> Any:
         try:
             s.call("not_classed", {}, lambda: "ran")
@@ -229,11 +228,7 @@ def test_a_refused_tool_is_not_an_agents_failure() -> None:
 
     scene = target(run_agent)
     assert isinstance(scene.session.stopped, apply().ToolRefused)
-    try:
-        v = judged(scene.run)
-    except apply().ToolRefused:
-        return
-    assert state_of(v) == NOT_COUNTED[0]
+    assert verdict(scene.run) == NOT_COUNTED
 
 
 # ---------------------------------------------------------------------------

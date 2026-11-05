@@ -265,15 +265,16 @@ def test_every_stage_in_the_set_is_accepted(stage: str) -> None:
     assert full_record(stage=stage).stage == stage
 
 
-@pytest.mark.parametrize("kind", ["exploded", "ok", "own:", "own", "Crashed", "gave_up"])
+@pytest.mark.parametrize("kind", ["exploded", "ok", "own:", "own", "Crashed", "Gave_up"])
 def test_a_kind_outside_the_set_is_refused(kind: str) -> None:
-    """A signal is not a kind, `ok` is the absence of one (`None`), and `own:` needs a name."""
+    """`ok` is the absence of one (`None`), and `own:` needs a name."""
     with pytest.raises(RecordError):
         Failure(kind=kind, signals=Signals(gave_up=0, retry_storm=0, over_budget=0))
 
 
-@pytest.mark.parametrize("kind", [*records.KINDS, "own:refund_ok", None])
+@pytest.mark.parametrize("kind", [*records.KINDS, *records.SIGNALS, "own:refund_ok", None])
 def test_every_kind_in_the_set_and_the_users_own_are_accepted(kind: str | None) -> None:
+    """A signal's own word among them, for one the user promoted (Taylor, 2026-11-04, the failure check's ruling 14)."""
     failure = Failure(kind=kind, signals=Signals(gave_up=0, retry_storm=0, over_budget=0))
     assert failure.kind == kind
 
