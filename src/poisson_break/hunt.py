@@ -28,6 +28,8 @@ of resuming. Open the hunt again, make the same calls, and exactly what is missi
 rows the arm keeps: the run cap (``runs``), the dollar cap (``dollars``), the time cap
 (``hours``), more than a tenth of the arm's runs not counted (``not counted``), a tool nobody
 classed (``refused``), or a tool the control saw that the way in did not list (``tools``).
+The tenth is judged over the runs this opening of the hunt has stored in the arm, once it has
+stored ten, so a hunt opened again after the cause is mended goes on from where it stopped.
 Ctrl-C passes through as it is. ``HuntError`` is this module's own refusal, before any run.
 
 **A way in** is any object with the shape of ``Target``. ``RolloutTarget`` is the first: a plain
@@ -139,8 +141,9 @@ class HuntStopped(Exception):
     """A stage that stopped short after work started, with every finished run stored.
 
     ``reason`` is one of ``REASONS``. ``arm`` is the Prove run the stage was writing,
-    ``<hunt>-<arm>``, and ``kept`` the rows that run holds. ``count`` is how many of them were
-    not counted, for the reason ``not counted``. ``cause`` is the refusal itself, for the
+    ``<hunt>-<arm>``, and ``kept`` the rows that run holds. ``count`` is, for the reason
+    ``not counted``, how many of the rows this opening of the hunt stored in that run were not
+    counted: all of the run's, in a hunt opened once. ``cause`` is the refusal itself, for the
     reason ``refused``. ``tools`` names the tools the control saw called that the way in did
     not list, for the reason ``tools``."""
 
@@ -376,7 +379,8 @@ class Hunt:
     what the hunt has spent. Nothing here can be assigned."""
 
     __slots__ = ("name", "folder", "store", "proposals", "settings", "cases", "target", "plan",
-                 "reserve", "_listed", "_capabilities", "_lines", "_fails", "_env", "_read")
+                 "reserve", "_listed", "_capabilities", "_lines", "_fails", "_env", "_read",
+                 "_since")
 
     name: str
     folder: Path
@@ -393,6 +397,7 @@ class Hunt:
     _fails: Mapping[str, Any]
     _env: Mapping[str, tuple[Any, ...]]
     _read: dict[str, list[_Kept]]
+    _since: dict[str, list[int]]
 
     def __init__(self, *, name: str, folder: Path, settings: Settings,
                  cases: tuple[Mapping[str, Any], ...], target: Target, plan: HuntPlan,
@@ -417,6 +422,9 @@ class Hunt:
             # Each arm's rows as last read, so a stage does not read the whole store again for
             # every call. It is checked against the store's own count before it is believed.
             "_read": {},
+            # For each arm, how many runs this opening of the hunt has stored in it and how
+            # many of those were not counted: what the tenth is judged over.
+            "_since": {},
         }
         for field, value in held.items():
             object.__setattr__(self, field, value)
@@ -1068,7 +1076,8 @@ def _salt(hunt: Hunt, word: str) -> str:
 
 
 def _stop(hunt: Hunt, reason: str, run_id: str, kept: int, *, count: int | None = None,
-          cause: BaseException | None = None, tools: Sequence[str] = ()) -> HuntStopped:
+          judged: int | None = None, cause: BaseException | None = None,
+          tools: Sequence[str] = ()) -> HuntStopped:
     settings = hunt.settings
     held = f"{_plural(kept, 'run')} of {run_id} {'is' if kept == 1 else 'are'} kept"
     if reason == "runs":
@@ -1080,9 +1089,13 @@ def _stop(hunt: Hunt, reason: str, run_id: str, kept: int, *, count: int | None 
     elif reason == "hours":
         why = (f"the hunt's runs have taken the {settings.limits.hours:g} hours it may "
                "(limits.hours)")
-    elif reason == _NOT_COUNTED:
+    elif reason == _NOT_COUNTED and judged == kept:
         why = f"{count} of the {_plural(kept, 'run')} of {run_id} could not be counted"
         held = "they are kept"
+    elif reason == _NOT_COUNTED:
+        why = (f"{count} of the {judged} runs stored in {run_id} since the hunt was opened "
+               "could not be counted")
+        held = f"all {kept} of its runs are kept"
     elif reason == "refused":
         why = str(cause)
     else:
@@ -1123,7 +1136,10 @@ def _stage(hunt: Hunt, *, word: str, stage: str, cells: Sequence[_Cell], repeats
     dearest = max((_cost(row.tokens, settings) for row in every), default=0.0)
     anything = bool(every)
     stored = len(held)
-    dead = sum(1 for row in held.values() if row.outcome is None)
+    # The tenth not counted is judged over what this opening of the hunt has stored in the
+    # arm, over every call that added to it. A row an earlier opening stored is kept and is
+    # not judged again, so a hunt opened again after the cause is mended goes on.
+    since = hunt._since.setdefault(run_id, [0, 0])
     started = False
 
     out: list[RunRow] = []
@@ -1161,12 +1177,13 @@ def _stage(hunt: Hunt, *, word: str, stage: str, cells: Sequence[_Cell], repeats
         dearest = max(dearest, cost)
         if dollars_spent is not None:
             dollars_spent += cost
+        since[0] += 1
         if ran.kept.outcome is None:
-            dead += 1
+            since[1] += 1
         if on_progress is not None:
             on_progress(done, total)
-        if stored >= 10 and dead * 10 > stored:
-            raise _stop(hunt, _NOT_COUNTED, run_id, stored, count=dead)
+        if since[0] >= 10 and since[1] * 10 > since[0]:
+            raise _stop(hunt, _NOT_COUNTED, run_id, stored, count=since[1], judged=since[0])
     return out
 
 
