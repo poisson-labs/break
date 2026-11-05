@@ -2,11 +2,47 @@
 
 ## Unreleased
 
-The first four modules of Poisson Break: the repository, the package and its command, the
+The first five modules of Poisson Break: the repository, the package and its command, the
 record every stored run carries, the four extension points, the catalogue of what Break varies
-with the ten launch faults, the applier that puts a condition on one run's tool calls, and the
-failure check that decides whether a run failed. Nothing hunts yet.
+with the ten launch faults, the applier that puts a condition on one run's tool calls, the
+failure check that decides whether a run failed, and the settings file with the plan shown
+before spending. Nothing hunts yet.
 
+- `poisson_break.settings`: the settings file `break.toml`. `loads` reads its text and `load` a
+  file into a frozen `Settings`, compared by what it holds; `dump` writes the file `init` writes,
+  with every setting that has a value on its own line and each one that is off commented out,
+  and `loads(dump(s)) == s`. Only `version`, `target.kind` and `target.entry` must be given; the
+  defaults are 400 runs, 5 control repeats, 4 cases per condition, 8 candidates, 5 confirm
+  repeats, a difference of 0.20, `q` 0.05, the first 3 calls, 120 seconds a run, 2 hours, the
+  ten tool faults and five input operators on, the conversation and model calls off.
+- The file is strict. An unknown key or table is refused with its dotted path, its line and the
+  nearest known key within two edits. So is a value that means nothing: a kind, fault, operator,
+  move, check or signal that is not one, read from the live catalogue so a fault registered from
+  outside is taken; a count below 1 or not a whole number; a share outside 0 to 1; a `write`
+  tool whose line does not say how it is made safe; a stand-in, a check of your own or a strategy
+  not written `module:name`; a cap in dollars without both prices, or one price alone; `hours =
+  inf` with no cap; a file with no `version` or one from a newer Break. Every refusal is a
+  `SettingsError`, one line, with `.key`, `.line` and `.suggestion`. Two prices with no cap read
+  as a cap of $5.00.
+- Reading, checking and writing settings run nobody's code: no framework is imported, and
+  neither is the target, the strategy, a stand-in or your own check. Nothing here asks what a
+  way in can do; that is refused before any run by what holds the target.
+- A `kind` whose way in is an optional extra (`openai-agents`, `langgraph`, `crewai`, `mcp`,
+  `command`) parses with `loads`, and `load` refuses it in one line naming the install command
+  until its module is there, found without importing it. The `adaptive` strategy parses and is
+  refused by `load` the same way.
+- `read_cases`: the case file, JSON Lines. A case needs only `input`, non-empty text; it may
+  carry an `id`, an `expect` table (`reply_contains`, `calls`, `never_calls`), `variants` and
+  `turns`, and any key of your target's own, which is kept. A case with no `id` takes its place
+  among the cases, counted from 1, as text. A blank line is skipped and still counted. A line
+  that is refused is named by its number.
+- `INIT_FLAGS`, `settings_from_init_args` and `equivalent_init_command`: every setting has one
+  flag, with `--tool` and `--env` repeating for a tool's line and a setting of your own, and the
+  one command a shell can run that writes the same file byte for byte. Flags are written whole.
+- `plan_hunt` and `plan_confirm`: the run counts a spending command shows before it starts, as
+  frozen results. A hunt on 12 cases with the defaults is 60 control runs and up to 340 for
+  search and shrink; confirming is 540 runs and up to 480 more for reference. A control stage
+  that leaves no room for one condition is refused, naming the smallest `runs` that fits.
 - `poisson_break.checks`: deciding whether a run failed, from what the agent did. No model
   grades a run. `watch(run_agent, *, case, session, fails=None)` runs the target once, catches
   what escapes it (an exception is a crash, an agent's `SystemExit` among them; running out of
