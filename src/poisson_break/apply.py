@@ -21,6 +21,13 @@ agent made them: the tool, the call number, the change that landed by its whole 
 change in the condition's order: whether it applied, and the first call it landed on. Nothing in
 either is content: no argument, no result, no marker.
 
+**What the run saw.** ``session.seen`` is a tuple of ``Seen``, one per tool call the record
+holds, in the same order and apart from the two records: the tool, the call number, the call's
+arguments as they were when it was made, and what the agent was handed back, a result or a
+failure. Each is a copy, or the object itself when it cannot be copied. It is what deciding
+whether a run failed reads, and what a user's own check is shown, and it never reaches a stored
+record. ``session.tools`` is each tool's line as the session was given it.
+
 **What a fault is given.** The frozen call context of ``poisson_break.changes``: the tool, its
 arguments, the call number, the condition, the seed, the marker, and ``previous``, the result the
 real tool or its stand-in last handed back on an earlier call of the same tool. A call on which
@@ -80,7 +87,7 @@ import threading
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from types import TracebackType
+from types import MappingProxyType, TracebackType
 from typing import Any, TypeVar, cast
 
 from poisson_break import changes as _catalogue
@@ -110,6 +117,7 @@ __all__ = [
     "RunOutOfTime",
     "ToolInfo",
     "RunResult",
+    "Seen",
     "Applied",
     "InstrumentError",
 ]
@@ -228,6 +236,28 @@ class RunResult:
         if not isinstance(self.ended, str) or self.ended not in ENDED:
             raise ValueError(f"ended is {_shown(self.ended)}, not one of returned, raised or "
                              "limit")
+
+
+# ---------------------------------------------------------------------------
+# the content of one call, kept apart from the records
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, kw_only=True)
+class Seen:
+    """One tool call's content, as the run holds it: the tool, its call number, the arguments as
+    they were when the call was made, and what the agent was handed back. ``saw`` is the result,
+    and ``error`` is ``None``; or ``error`` is the failure, a kind and one line, and ``saw`` is
+    ``None``. The kind is the fault's word for a failure Break made (``error``, ``timeout`` or
+    ``rate_limited`` at launch) and the exception's type name for anything else the call raised:
+    the tool's own exception, or what stopped the run on that call. The arguments and the result
+    are copies taken at the call, or the objects themselves when they cannot be copied."""
+
+    tool: str
+    call: int
+    args: Mapping[str, Any]
+    saw: Any
+    error: ToolError | None
 
 
 # ---------------------------------------------------------------------------
@@ -378,6 +408,24 @@ def _copied(value: Any) -> Any:
         return value
 
 
+def _arguments(args: Mapping[str, Any]) -> Mapping[str, Any]:
+    """A call's arguments as they are now, held read-only: each value a copy, or the value itself
+    when it cannot be copied. A target may fill one mapping in again for its next call. A mapping
+    that cannot be read through is held as it is."""
+    try:
+        return MappingProxyType({key: _copied(value) for key, value in args.items()})
+    except Exception:
+        return args
+
+
+def _failure_seen(wrong: BaseException) -> ToolError:
+    """What a call raised, as the content of that call keeps it: a tool failure's own kind and
+    line, and for anything else the exception's type name and its text on one line."""
+    if isinstance(wrong, ToolFailure):
+        return ToolError(kind=wrong.kind, message=wrong.message)
+    return ToolError(kind=type(wrong).__name__, message=" ".join(str(wrong).split()))
+
+
 def _request(case: Mapping[str, Any]) -> str:
     """The request as the input operators read it."""
     value = case.get("input", "")
@@ -482,7 +530,7 @@ def _current(tool: str) -> Session | None:
 
 class Session:
     """One run's applier: the condition, the seed, the marker, each tool's class, the per-tool
-    call counts and the record of what was applied.
+    call counts, the record of what was applied and, apart from it, the content of each call.
 
     ``capabilities`` says what the way in can do; with none given it is a plain Prove target's,
     which routes tool calls and nothing more, and a condition that asks for more is refused with
@@ -517,6 +565,8 @@ class Session:
         self._run_seconds = run_seconds
         self._deadline = None if run_seconds is None else self._started + run_seconds
         self._tools = {tool: _classed(tool, line) for tool, line in tools.items()}
+        self._lines: Mapping[str, object] = MappingProxyType(
+            {tool: _copied(line) for tool, line in tools.items()})
 
         try:
             check_capabilities(condition, capabilities)
@@ -554,6 +604,7 @@ class Session:
         self._lock = threading.Lock()
         self._counts: dict[str, int] = {}
         self._calls: list[Call | None] = []
+        self._seen: list[Seen | None] = []
         self._landed: list[int | None] = [None] * len(names)
         self._acted: list[bool] = [False] * len(names)
         self._previous: dict[str, Any] = {}
@@ -590,11 +641,24 @@ class Session:
         return self._run_seconds
 
     @property
+    def tools(self) -> Mapping[str, object]:
+        """Each tool's line as the run was given it, by the tool's name, read-only."""
+        return self._lines
+
+    @property
     def calls(self) -> tuple[Call, ...]:
         """One ``Call`` per tool call so far, in the order the agent made them. A call still
         inside its tool is not in it yet."""
         with self._lock:
             return tuple(call for call in self._calls if call is not None)
+
+    @property
+    def seen(self) -> tuple[Seen, ...]:
+        """One ``Seen`` per tool call so far, in the order the agent made them: the call's
+        arguments and what the agent was handed back, apart from the two records. A call whose
+        answer the agent has not yet been handed is not in it yet."""
+        with self._lock:
+            return tuple(one for one in self._seen if one is not None)
 
     @property
     def applied(self) -> tuple[Applied, ...]:
@@ -655,6 +719,9 @@ class Session:
                 f'the agent called "{tool}", which the settings do not class as read, write or '
                 "off", tool=tool))
 
+        # The arguments are copied before the call takes its number, so that whatever happens
+        # from here on leaves both the call's record and its content.
+        given = _arguments(args)
         with self._lock:
             if self._stopped is not None:
                 raise self._stopped
@@ -662,18 +729,28 @@ class Session:
             self._counts[tool] = number
             slot = len(self._calls)
             self._calls.append(None)
+            self._seen.append(None)
 
-        index = self._landing(tool, number)
-        runner = _Real(self, tool, args, real, classed.stand_in)
+        saw: Any = None
+        failure: ToolError | None = None
         try:
-            outcome = self._outcome(index, runner, tool, args, number)
-        finally:
-            self._record(slot, index, tool, number, runner.runs > 0)
+            index = self._landing(tool, number)
+            runner = _Real(self, tool, args, real, classed.stand_in)
+            try:
+                outcome = self._outcome(index, runner, tool, args, number)
+            finally:
+                self._record(slot, index, tool, number, runner.runs > 0)
 
-        if isinstance(outcome, ToolError):
-            raise ToolFailure(outcome.kind, outcome.message)
-        self._wait(outcome.delay)
-        return outcome.value
+            if isinstance(outcome, ToolError):
+                raise ToolFailure(outcome.kind, outcome.message)
+            self._wait(outcome.delay)
+            saw = _copied(outcome.value)
+            return outcome.value
+        except BaseException as wrong:
+            failure = _failure_seen(wrong)
+            raise
+        finally:
+            self._keep(slot, Seen(tool=tool, call=number, args=given, saw=saw, error=failure))
 
     def _landing(self, tool: str, number: int) -> int | None:
         """Which change lands on this call: the first in the condition's order that applies to
@@ -720,6 +797,11 @@ class Session:
             if index is not None:
                 first = self._landed[index]
                 self._landed[index] = number if first is None else min(first, number)
+
+    def _keep(self, slot: int, one: Seen) -> None:
+        """Keep the call's content, in the call's own place."""
+        with self._lock:
+            self._seen[slot] = one
 
     def _hold(self, tool: str, value: Any) -> None:
         """Keep what the tool just returned as its previous result, as a copy. Only a fault on
