@@ -35,8 +35,18 @@ classifiers = [
 # declared yet: the line is added, with nothing else changed, the day Trace is published. Until
 # then the two tests that read Trace's version and its pin are red (tests/test_command.py,
 # tests/test_dependencies.py).
+#
+# Rich draws what the command prints on a terminal, questionary asks its menus there, and
+# prompt_toolkit, which questionary is built on, puts a menu on stderr. All three are ordinary
+# dependencies, not an extra: Break is pretty on a terminal from a plain install. Floors, not
+# pins, and each one measured: the look's tests pass on Rich 14.2.0, which is the floor Trace
+# declares, and on 15.0.0, with questionary 2.1.1 on prompt_toolkit 3.0.53. Nothing below them
+# is claimed.
 dependencies = [
     "poisson-prove==0.1.2",
+    "rich>=14.2.0",
+    "questionary>=2.1.1",
+    "prompt_toolkit>=3.0.53",
 ]
 
 [project.optional-dependencies]
@@ -48,6 +58,8 @@ dev = [
     "mypy>=2.3.1",
     "ruff>=0.16.7",
     "hatchling>=1.27.0",
+    # pyte reads a pseudo-terminal's screen back for the look's tests
+    "pyte>=0.8.2",
 ]
 
 # The command: `poisson-break`, one script (`python -m poisson_break` is the same). `main` takes

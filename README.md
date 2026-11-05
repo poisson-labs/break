@@ -16,7 +16,8 @@ Break is being built and is not released. The `poisson-break` name on PyPI holds
 placeholder with no code. This tree has the command, the record every stored run carries, the
 four extension points, the catalogue of changes with the ten launch faults, the applier that
 puts a condition on one run's tool calls, the failure check that decides whether a run failed,
-and the settings file with the plan a hunt shows before it spends; the hunt itself comes in the
+the settings file with the plan a hunt shows before it spends, and the look everything Break
+prints goes through, pretty on a terminal and plain anywhere else; the hunt itself comes in the
 modules after it.
 
 ## Install, from this tree
@@ -39,8 +40,12 @@ poisson-break --help
 ```
 
 `--version` prints one line with the versions of Break, Prove, Trace and Python. A mistake on
-the command line is one `error:` line on stderr and exit 2. The look every Poisson Labs command
-shares is written down in [docs/cli-look.md](docs/cli-look.md).
+the command line is one `error:` line on stderr and exit 2. A failure inside the command is one
+line that names the log its details went to, and exit 3. Two options are the tool's own and go
+before or after a verb: `--plain` prints plain text on a terminal too, and `--debug` prints the
+details of such a failure as well as logging them. The look every Poisson Labs command shares
+is written down in [docs/cli-look.md](docs/cli-look.md), and [How Break prints](#how-break-prints)
+is Break's build of it.
 
 ## What Break varies
 
@@ -339,11 +344,125 @@ more than the hunt that found the candidates, and the plan says so before anythi
 control stage that leaves no room for one condition is refused, naming the smallest `runs` that
 fits: 100 cases at 5 repeats against 400 runs asks for 504.
 
+## How Break prints
+
+Everything a command prints goes through `poisson_break.look`. A verb builds one result: a
+verdict word, its sentence, the detail and the commands to run next. The look prints it one of
+two ways.
+
+```python
+import os, sys
+from poisson_break import look
+
+result = look.Result(
+    "found", f"4 candidates in {look.fmt_count(400)} runs ({look.fmt_dollars(1.60)})",
+    detail=(
+        look.Row("control", f"60 runs · 9 failed ({look.fmt_rate(0.15)}) · {look.fmt_dollars(0.004)} a run"),
+        look.Table(("", "condition", "failed", "kind"), (
+            ("1", "tool:lookup_order#1=timeout", "4 of 4", "ran_out"),
+            ("2", "input:cut_short", "2 of 4", "wrong"),
+        )),
+        look.Line("these are candidates, not findings: a few runs each, chosen for having failed"),
+    ),
+    nexts=(look.command("poisson-break", "confirm"),),
+)
+mode = look.mode_for(sys.stdout, sys.stderr, os.environ, sys.argv[1:])
+look.render(result, stream=sys.stdout, mode=mode)
+```
+
+```
+found  4 candidates in 400 runs ($1.60)
+  control  60 runs · 9 failed (0.150) · $0.0040 a run
+     condition                    failed  kind
+  1  tool:lookup_order#1=timeout  4 of 4  ran_out
+  2  input:cut_short              2 of 4  wrong
+  these are candidates, not findings: a few runs each, chosen for having failed
+next: poisson-break confirm
+```
+
+**Plain is the contract.** That is the plain rendering: text only, no colour code and no box
+character, written with the standard library alone. It is what a pipe, a file and CI get, and
+what tests and docs pin. Piped, every fact is one line however long. On a terminal a long line
+is wrapped at the terminal's width with a hanging indent and no word is broken. The verdict
+line is never wrapped, and neither is a command printed for you to copy.
+
+**Pretty carries the same facts in the same order,** drawn with Rich: the verdict word in its
+colour, labels dim, a table under a rule. It runs only when stdout and stderr are both
+terminals, `NO_COLOR` is unset or empty, `CI` is unset, `TERM` is not `dumb`, stdout is UTF-8
+and neither `--json` nor `--plain` was given. Anywhere else, and wherever Rich cannot be
+imported, plain runs, byte for byte, and nothing is said about it. A table too wide for the
+terminal folds: a unit every cell of a column repeats moves into the header (`took (ms)`), and
+past that each row is printed as a record, one `column  value` a line. Nothing is cut or
+dropped.
+
+**Colour has four meanings and no others.** Green: the command did what was asked (`found`,
+`confirmed`, `wrote`, `ready`). Yellow: it stopped short or cannot say (`stopped`,
+`nothing found`, `too small to tell`, `note:`). Red: an error or a failed check (`error:`,
+`not ready`, `failed`). Dim: secondary text. A word that is neither good nor bad, `plan` among
+them, is bold with no colour. A number is never coloured, and only the terminal's sixteen named
+colours are used, so your theme decides the shades.
+
+**Problems go to stderr, one line each.**
+
+```
+error: the tool issue_refund changes things outside and has no stand-in
+  next: poisson-break doctor
+note: Break calls your tools for real.
+```
+
+`look.run(tool, argv, body)` runs a command under the look and returns its exit code. A body
+raises `look.Refused` (exit 1, nothing was spent or written), `look.Usage` (exit 2) or
+`look.Stopped(result)` (the result on stdout, exit 3), or returns a code of `look.EXIT`: 0 done,
+1 refused, 2 usage, 3 stopped, 4 a check you asked for did not pass, 130 interrupted. Ctrl-C
+prints `stopped  interrupted: ...` and exits 130. Anything unexpected is one line,
+`error: an unexpected failure inside poisson-break (ValueError); the details are in
+~/.cache/poisson-break/errors.log`, with the traceback in that file, and on stderr too under
+`--debug`.
+
+**Questions and progress stay on stderr,** so stdout holds the result and nothing else.
+`look.ask("start?", False)` asks `[y/N]`; a text default asks `[default]`; with `choices` it is
+a menu, moved with the arrow keys in pretty and a numbered list in plain. `--yes` answers
+without asking. Without it, a stdin that is not a terminal refuses the question: a piped `y` is
+not an answer. `look.Progress(label, total)` shows work as one line that is removed when the
+work ends.
+
+**`--json`** is one strict document from `look.as_json(result)`: `schema`, `verdict` and
+`sentence` first, then the result's data. It never holds `NaN`.
+
+**Numbers read the same everywhere.**
+
+| | |
+|---|---|
+| `fmt_rate(0.15)`, `fmt_rate(0.87, signed=True)` | `0.150`, `+0.870` |
+| `fmt_p(0.049)`, `fmt_p(2.3e-08)` | `0.049`, `2.3e-08` |
+| `fmt_dollars(1.6)`, `fmt_dollars(0.0052)`, `fmt_dollars(0.004)` | `$1.60`, `$0.0052`, `$0.0040` |
+| `fmt_count(4200)` | `4,200` |
+| `fmt_duration(100)`, `fmt_duration(5760)` | `1 min 40 s`, `1 h 36 min` |
+| `fmt_time(when)` | `2026-11-04T18:00:05Z`, always UTC |
+| `fmt_hash(digest)` | its first 12 characters; `--json` carries it whole |
+
+A rate or a p-value outside 0 to 1, anything that is not a number, and a time with no zone are
+refused with `ValueError`. No line Break prints asks you to paste a hash: a hunt, a finding and
+a change each have a name.
+
+**Commands that paste.** `look.word(text)` writes a value as one word a shell reads back
+exactly, bare where that is safe (`refund-agent-1`) and quoted where it is not
+(`'late refunds'`). `look.command(*words)` joins them into a line no rendering ever wraps.
+
+**Where the terminal cannot show a character.** `·`, `–` and `×` become `-`, `-` and `x`. Any
+other character the stream cannot encode is written as its escape (`caf\xe9`), so two names
+never read as one. A control character in a name, an escape sequence among them, is shown as
+text and never acted on.
+
 ## What it depends on
 
 Prove (`poisson-prove`) and Trace (`poisson-trace`), each pinned to one exact version. Break's
 Prove is the version Trace pins, so the three tools agree on one Prove. Trace is not yet on
 PyPI; its pin is declared the day it is.
+
+Rich, questionary and prompt_toolkit draw the pretty rendering and its menus. They are ordinary
+dependencies, so a plain `pip install` is pretty on a terminal, and a plain run never loads
+them.
 
 ## Developing
 
@@ -358,7 +477,10 @@ The suite runs under a guard that fails any connection: open-source Break opens 
 its own and sends nothing anywhere. A second check reads the source for a test or an interval
 computed locally and fails on one: every statistic Break reports is Trace's or Prove's.
 `scripts/clean_install.py` builds the wheel, installs it into a fresh environment outside the
-checkout and runs the command, as CI does. The tests stand on five scripted agents in
+checkout and runs the command, piped and on a terminal, as CI does. The look's tests run small
+programs on real pipes and pseudo-terminals and read back what a terminal would show; every
+command a later module adds joins the corpus in `tests/look_corpus.py` and is held to the same
+checks, both ways. The tests stand on five scripted agents in
 `tests/agents/`, small programs with no model and no framework: one retries, one gives up, one
 follows planted text, one repeats a write, and one speaks only the way-in protocol. The repository follows
 [docs/repo-hygiene.md](docs/repo-hygiene.md).
