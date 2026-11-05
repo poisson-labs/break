@@ -20,6 +20,8 @@ from PyPI), and checks, from an empty folder with its own HOME:
   * on a terminal `poisson-break hunt` draws the same `error:` line with colour, and with
     `--plain` draws it as text;
   * the package is imported from the fresh environment, not from the checkout;
+  * a hunt of one run is opened and stored there, and Prove's own store reads the row back, so
+    what stores a run came with the wheel too;
   * none of the above writes a file into the folder it runs in.
 
 Prints one `ok  ` or `FAIL` line per check, writes WORK/results.json, and exits 0 only when
@@ -116,7 +118,14 @@ def main() -> int:
           + (f" ({', '.join(f'{n} {v}' for n, v in drawn_with.items())})" if drawn_with
              else f"\n{done.stderr}"))
 
-    # 4. the command, from an empty folder with its own HOME
+    # 4. one run, stored through Prove and read back by Prove's own store
+    done = subprocess.run([str(py), "-c", ONE_RUN, str(work / "one-run")],
+                          capture_output=True, text=True, env=fresh_env(work))
+    check(done.returncode == 0 and done.stdout.strip() == "ok 1",
+          "a hunt of one run is stored in the fresh environment and Prove's store reads it back"
+          + ("" if done.returncode == 0 else f"\n{done.stdout}\n{done.stderr}"))
+
+    # 5. the command, from an empty folder with its own HOME
     bin_ = venv / "bin" / "poisson-break"
     folder, env = fresh_folder(work)
     done = run([str(bin_), "--version"], folder, env)
@@ -148,6 +157,39 @@ def main() -> int:
           "on a terminal poisson-break hunt --plain draws it as text")
     check(not any(folder.iterdir()), "nothing was written into the folder the command ran in")
     return finish(work, results)
+
+
+# A hunt of one case, run once, on a target that calls no tool and no model: opened, run and read
+# back through Prove's own store, in a folder of its own under WORK.
+ONE_RUN = r'''
+import shutil, sys
+from pathlib import Path
+
+from poisson_prove import Episode
+from poisson_prove.store import Store
+
+from poisson_break import hunt
+from poisson_break.settings import loads
+
+folder = Path(sys.argv[1])
+shutil.rmtree(folder, ignore_errors=True)
+settings = loads(f"""
+version = 1
+[target]
+kind = "rollout"
+entry = "my_app.agents:refund_agent"
+[search]
+control_repeats = 1
+runs = 5
+[output]
+folder = {str(folder)!r}
+""".replace("'", '"'))
+target = hunt.RolloutTarget(lambda cfg, seed: Episode(outcome="done", t=0.0, horizon=1.0), tools=[])
+opened = hunt.open_hunt(settings, target=target, cases=[{"id": "1", "input": "Where is order 7?"}])
+summary = hunt.control(opened)
+tally = Store(opened.store).tally(f"{opened.name}-control")
+print("ok" if (summary.runs, summary.failed) == (1, 0) else "wrong", tally.with_outcome)
+'''
 
 
 def fresh_env(work: Path) -> dict[str, str]:
