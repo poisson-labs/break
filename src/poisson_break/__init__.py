@@ -17,10 +17,14 @@ settings file ``break.toml``: reading and writing it, the case file, ``init``'s 
 run counts of the plan a hunt shows before it spends (``poisson_break.settings``), the look
 everything Break prints goes through: one result printed pretty on a terminal and plain anywhere
 else, problems as one line on stderr, the exit codes, questions, progress and the way numbers
-read (``poisson_break.look``), and the runs themselves, stored on Prove: a hunt's folder and its
+read (``poisson_break.look``), the runs themselves, stored on Prove: a hunt's folder and its
 name, each arm a Prove run whose every row Break decided and wrote a record for, the control
 stage and what it measures, the caps on runs, dollars and hours, resuming a stopped hunt, and
-the way in for a plain Prove target (``poisson_break.hunt``).
+the way in for a plain Prove target (``poisson_break.hunt``), and the search a hunt runs after
+its control: the two strategies that learn nothing, the stage that runs any strategy and holds
+it to no condition twice and a logged probability on every proposal, the score, shrinking a
+candidate to the smallest change that still fails, what a hunt did not look at, and loading a
+strategy of your own by its import path (``poisson_break.search``).
 """
 
 __version__ = "0.1.0.dev0"
