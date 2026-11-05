@@ -150,16 +150,17 @@ class Strategy(Protocol):
 @runtime_checkable
 class Check(Protocol):
     """The user's own failure check: ``check(run)`` returns ``None`` for ok or a failure kind,
-    which Break records as ``own:<name>``.
+    which Break records as ``own:<name>``, ``<name>`` being the word the check returned.
 
     ``run`` is a read-only view: the case, the condition's name and changes with whether and
     where each applied, every tool call in order with its arguments, what the agent saw and
     whether the real tool ran, the agent's reply, the target's own outcome where there is one,
     tokens in and out where known, the run's seconds, and the kinds Break's own checks would
     give. A field a way in cannot fill is ``None``, never absent. The check runs once per run,
-    after the run, only on a run Break's own checks found ok, and cannot change it. A check that
-    raises, or returns anything but ``None`` or a string, is an instrument error. A check may
-    call a model; findings that rest on it carry the mark "judged by your check".
+    after the run, only on a run Break's own checks found ok, and cannot change it. A failure
+    kind is a non-empty word of ASCII letters, digits, ``_`` and ``-``. A check that raises, or
+    returns anything but ``None`` or a failure kind, is an instrument error. A check may call a
+    model; findings that rest on it carry the mark "judged by your check".
     """
 
     def __call__(self, run: Any) -> str | None: ...
