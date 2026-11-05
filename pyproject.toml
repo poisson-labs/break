@@ -48,6 +48,8 @@ dev = [
     "mypy>=2.3.1",
     "ruff>=0.16.7",
     "hatchling>=1.27.0",
+    # pyte reads a pseudo-terminal's screen back for the look's tests
+    "pyte>=0.8.2",
 ]
 
 # The command: `poisson-break`, one script (`python -m poisson_break` is the same). `main` takes
