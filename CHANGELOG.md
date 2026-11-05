@@ -2,11 +2,58 @@
 
 ## Unreleased
 
-The first five modules of Poisson Break: the repository, the package and its command, the
+The first six modules of Poisson Break: the repository, the package and its command, the
 record every stored run carries, the four extension points, the catalogue of what Break varies
 with the ten launch faults, the applier that puts a condition on one run's tool calls, the
-failure check that decides whether a run failed, and the settings file with the plan shown
-before spending. Nothing hunts yet.
+failure check that decides whether a run failed, the settings file with the plan shown before
+spending, and the look everything Break prints goes through. Nothing hunts yet.
+
+- `poisson_break.look`: one result, two renderings. A verb builds a `Result` (a verdict word,
+  its sentence, the detail as `Row`, `Line` and `Table`, the commands to run next) or a `Plan`
+  (a result whose verdict is `plan`, with an estimate and its source), and `render` prints it
+  plain or pretty. Plain is text only, with no colour code and no box character, and needs
+  nothing but the standard library: one line per fact on a pipe, wrapped at the terminal's width
+  with a hanging indent on a terminal, the verdict line and a command never wrapped. Pretty
+  carries the same facts in the same order, drawn with Rich.
+- `mode_for` chooses: pretty only when stdout and stderr are both terminals, `NO_COLOR` is
+  unset or empty, `CI` is unset, `TERM` is not `dumb`, stdout is UTF-8, and neither `--json` nor
+  `--plain` stands before a `--`. Anywhere else, and wherever Rich cannot be imported, plain
+  runs, byte for byte, and nothing is said about it.
+- Colour has four meanings: green for a command that did what was asked (`found`, `confirmed`,
+  `wrote`, `ready`, `rechecked`, `fails less`), yellow for one that stopped short or cannot say
+  (`stopped`, `nothing found`, `not confirmed`, `too small to tell`, `did not fail`, `note:`),
+  red for an error or a failed check (`error:`, `not ready`, `failed`, `fails more`), dim for
+  secondary text. Any other verdict word is bold with no colour. A number is never coloured,
+  and only the terminal's sixteen named colours, bold and dim are used.
+- A table too wide for the terminal folds in pretty: a unit every cell of a column repeats
+  moves into the header, and past that each row is printed as a record. Nothing is cut.
+- `run(tool, argv, body)` runs a command under the look and returns its exit code, from `EXIT`:
+  0 done, 1 refused, 2 usage, 3 stopped, 4 a check did not pass, 130 interrupted. `Refused` and
+  `Usage` are one `error:` line on stderr with their `next:` commands under it; `Stopped`
+  prints the result it carries; Ctrl-C prints `stopped  interrupted: ...`; anything unexpected
+  is one line naming `~/.cache/poisson-break/errors.log`, where the traceback is appended, and
+  `--debug` prints the traceback too. `error`, `note`, `out` and `err` write the lines.
+- `ask(question, default, choices=None)` asks on stderr: `[y/N]` for a yes or no, `[default]`
+  for text, a menu for `choices` (questionary's in pretty, a numbered list in plain). `--yes`
+  answers without asking, and without it a stdin that is not a terminal refuses the question.
+  `Progress(label, total)` shows work on stderr as one line, removed when the work ends.
+- `as_json(result)`: the `--json` document, `schema`, `verdict` and `sentence` first, never a
+  `NaN`.
+- Numbers read the same everywhere: `fmt_rate` (`0.150`, and `+0.870` for a difference),
+  `fmt_p` (`0.049`, `2.3e-08`), `fmt_dollars` (`$1.60`, `$0.0052`), `fmt_count` (`4,200`),
+  `fmt_duration` (`1 min 40 s`, `1 h 36 min`), `fmt_time` (UTC with `Z`) and `fmt_hash` (12
+  characters). `word` quotes a value for a shell and `command` joins a line that is never
+  wrapped.
+- A stream that cannot encode `·`, `–` or `×` gets `-`, `-` and `x`, and any other character it
+  cannot encode is written as its escape, so two names never read as one. A control character
+  in a value is shown as text and never acted on.
+- The command goes through the look. It takes `--plain` and `--debug`, a mistake on the command
+  line is drawn in the terminal's red on a terminal, and a failure inside the command is one
+  line and exit 3.
+- Rich (14.2.0 or later), questionary (2.1.1 or later) and prompt_toolkit (3.0.53 or later) are
+  ordinary dependencies. A plain run loads none of them.
+- The clean-install check also confirms that the three came with the wheel, and runs the
+  command on a terminal, with colour and with `--plain`.
 
 - `poisson_break.settings`: the settings file `break.toml`. `loads` reads its text and `load` a
   file into a frozen `Settings`, compared by what it holds; `dump` writes the file `init` writes,
