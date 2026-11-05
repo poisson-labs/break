@@ -307,6 +307,23 @@ def test_an_expect_that_is_no_table_is_refused_with_its_line_number(tmp_path: Pa
     refused_line(tmp_path, [GOOD, f'{{"input": "x", "expect": {value}}}'], 2)
 
 
+@pytest.mark.parametrize("field", ["calls", "never_calls"])
+@pytest.mark.parametrize("value", ['"a"', "7", "true", "null", '{"a": 1}', "[1]", '["a", 1]', '[["a"]]', "[null]"])
+def test_expected_calls_that_are_no_list_of_text_are_refused_with_the_line_number(tmp_path: Path, field: str, value: str) -> None:
+    """The failure check's ruling 34: cheaper refused here, by line, than met by `judge` as an instrument error on every run."""
+    refused_line(tmp_path, [GOOD, f'{{"input": "x", "expect": {{"{field}": {value}}}}}'], 2)
+
+
+@pytest.mark.parametrize("value", ["7", "true", "null", '["a"]', '{"a": 1}'])
+def test_a_reply_contains_that_is_not_one_string_is_refused_with_the_line_number(tmp_path: Path, value: str) -> None:
+    """The failure check's ruling 34, and its 21: one string, so a list of them is refused too."""
+    refused_line(tmp_path, [GOOD, f'{{"input": "x", "expect": {{"reply_contains": {value}}}}}'], 2)
+
+
+def test_one_bad_expectation_beside_good_ones_is_refused(tmp_path: Path) -> None:
+    refused_line(tmp_path, [json.dumps({"input": "x", "expect": {"reply_contains": "y", "calls": ["a"], "never_calls": [1]}})], 1)
+
+
 @pytest.mark.parametrize("field", ["variants", "turns"])
 @pytest.mark.parametrize("value", ['"not a list"', "7", '{"a": 1}', "[1, 2]", "true"])
 def test_variants_or_turns_that_are_no_list_of_text_are_refused_with_the_line_number(tmp_path: Path, field: str, value: str) -> None:

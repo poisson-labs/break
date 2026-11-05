@@ -49,6 +49,9 @@ checks = ["crashed", "hung", "ran_out", "forbidden_call", "followed_plant", "dup
 # own = "my_app.checks:refund_ok"   # your own check
 # also = ["gave_up"]                # promote a signal to a failure
 # never_call = ["delete_account"]
+# retry_storm_after = 5             # how many calls of one tool in a row are not yet a retry storm
+# max_tool_calls = 40               # over this, a run is counted as over budget
+# max_tokens = 200000
 run_seconds = 120
 
 [vary]
@@ -93,7 +96,7 @@ ON_DEMAND_KINDS = ("openai-agents", "langgraph", "crewai", "mcp", "command")
 # another value as TOML, the other value as read back).
 #
 # 400, 5, 4, 8, 5, 0.20, 0.05 and 3 are plan ruling 19. 120 is spec §4 and `screen` is §5.3. `retry_storm_after` is §4's 5,
-# under the key the failure check's ruling 6 gives it, which §9.4 does not print yet. The rest are §9.4's.
+# printed commented out because no line means that (the failure check's ruling 6). The rest are §9.4's.
 FAULTS_TOML = ('["error", "timeout", "slow", "rate_limited", "empty", "cut_off", "malformed", "stale", '
                '"lost_reply", "planted_instruction"]')
 OPERATORS_TOML = '["typos", "reordered", "padded", "cut_short", "variant"]'
