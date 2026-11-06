@@ -414,7 +414,9 @@ clock again. A stage that stops short raises `HuntStopped`, which says why (`run
 `hours`, `not counted`, `refused` or `tools`), in which arm, and how many rows the arm keeps.
 It also stops when more than a tenth of an arm's runs could not be counted, judged after every
 run once ten are stored, and when the agent calls a tool `[tools]` does not class: that run is
-not stored, so that it is made once the tool has a line.
+not stored, so that it is made once the tool has a line. The tenth is judged over the runs
+stored since the hunt was opened, so once the cause is mended, opening the hunt again goes on
+from where it stopped, with the runs not counted kept as they are.
 
 **Stopping loses nothing, and the same calls go on.** A run is stored the moment it finishes, so
 Ctrl-C, a cap or a killed process loses nothing finished. Open the hunt again with

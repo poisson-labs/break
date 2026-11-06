@@ -107,7 +107,8 @@ and the `hunt` command come next.
 - `HuntStopped` is a stage that stopped short with every finished run stored: `reason` (`runs`,
   `dollars`, `hours`, `not counted`, `refused`, `tools`), `arm`, `kept`, `count`, `cause` and
   `tools`. More than a tenth of an arm's runs not counted stops it, judged after every run once
-  ten are stored. A tool nobody classed stops it and that run is not stored. A tool the control
+  ten are stored, over the runs stored since the hunt was opened, so a hunt opened again after
+  the cause is mended goes on. A tool nobody classed stops it and that run is not stored. A tool the control
   saw called that the way in did not list stops the hunt after the control. Ctrl-C passes
   through as it is. `HuntError` is the module's own refusal before any run.
 - A run is stored the moment it finishes, and a cell is run once in an arm: asked for again,
