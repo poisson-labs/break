@@ -2,14 +2,76 @@
 
 ## Unreleased
 
-The first eight modules of Poisson Break: the repository, the package and its command, the
+The first nine modules of Poisson Break: the repository, the package and its command, the
 record every stored run carries, the four extension points, the catalogue of what Break varies
 with the ten launch faults, the applier that puts a condition on one run's tool calls, the
 failure check that decides whether a run failed, the settings file with the plan shown before
 spending, the look everything Break prints goes through, the runs themselves, stored on Prove,
-and the search a hunt runs after its control. A hunt's stages run from Python; the confirm stage
-and the `hunt` command come next.
+the search a hunt runs after its control, and the confirm stage with its findings, replay and
+recheck. A hunt's stages run from Python; the commands that run them come next.
 
+- `poisson_break.confirm`: confirming findings. `write_candidates(hunt, conditions)` keeps a
+  hunt's candidates, best first, in its `candidates.json`, and `read_candidates(hunt)` reads
+  them back; no condition at all, a condition twice in any spelling, the empty condition, more
+  than the settings' `candidates`, and writing again once a confirm stage is on disk are each
+  refused. `design(candidates, settings, control)` works out the confirm stage and runs
+  nothing: one control arm and one arm for each candidate, every arm on every case the control
+  did not set aside, the settings' `repeats` times each, with the run counts `plan_confirm`
+  gives and their cost at what one control run cost.
+- `confirm(hunt)` writes the design to the hunt's `confirm.json` before the stage's first run,
+  runs the arms on seeds no earlier stage used, and hands back a `Confirmation`: the stage, its
+  design, a `Tested` for every candidate and a `Finding` for each one confirmed. A stage that
+  stopped is taken up again under its written design, whatever the settings say by then, and a
+  finished stage asked again runs nothing and gives the same answer.
+- Every number is Trace's or Prove's. Each candidate's arm is put to Trace once, against the
+  shared control arm, as `python -m poisson_trace fix-check OLD NEW --inputs all --event failed
+  --max-mde X --store STORE --json`, run with the Python Break runs on, in the hunt's folder,
+  and what is read is the JSON it prints, whatever its exit code (`ask_trace`). The candidates'
+  p-values are adjusted together with Prove's `bh` at the settings' `q`. A failure share is two
+  of Trace's counts divided, and the module computes nothing else.
+- The verdicts: `confirmed` when Trace says *different*, the candidate's arm failed more and
+  the adjusted p-value is at or under `q`; `too small to tell` when Trace says so, with its
+  count of repeats that would decide; `not confirmed` otherwise, with the note `failed less`,
+  `not after the correction` or `nothing to compare` where one applies. A candidate with
+  nothing to compare has no numbers and is left out of the adjustment. `no_outcome` names the
+  cases with no run that has an outcome in one of the two arms, beside Trace's own count of
+  what it left out.
+- `confirm(hunt, repeats=N)` asks again after a *too small to tell*: a new stage of only the
+  candidates the latest stage called *too small to tell*, with its own control arm, on new
+  seeds, read on its own and never pooled with the earlier stage. It is refused while the
+  latest stage has runs missing and when nothing was too small.
+- A finding is numbered within the hunt from 1 in the order confirmed and written to
+  `findings/<n>.toml` (`write_finding`), plain TOML with its schema name first and a value that
+  is none left out; `read_finding` reads it back equal. It holds the condition by name, the two
+  failure shares, Trace's difference, interval and p-value, the adjusted p-value and `q`, the
+  failure kinds and signals counted over its arm, whether a failed run was judged by your own
+  check, what Trace flagged and left out, its cases, repeats, stage and arms, its reference
+  arm, the command that replays it and the Trace command for its full report.
+- Each finding gets a reference arm, `reference-<n>`: the unchanged agent under the finding's
+  condition, every case of its stage again, on fresh seeds, run at the end of `confirm` with
+  the finding's file written first. `reference(hunt)` runs what is missing of them.
+- `replay(hunt, finding)` runs one finding once and stores nothing: on the first of its cases
+  with the most failed runs in its confirm arm, on the seed of that case's first failed run,
+  or on the case given, on the seed of its first run. It hands back a `Replayed`: the outcome,
+  the kind and every call in order with the change applied to it.
+- `recheck(hunt)` runs every finding on the agent as it is now, over the cases and repeats of
+  its reference arm, in arms `recheck-<n>-<finding>`, asks Trace about the reference arm and
+  the new one, adjusts across the findings with `bh`, and hands back a `Rechecked` for each
+  with one of four phrases read from Trace's verdict and direction: `fails less`, `fails
+  more`, `no significant difference`, `too small to tell`. *Different* stands only at an
+  adjusted p-value at or under `q`. `gap_days` is Trace's time between the two runs. With
+  `old`, a way in over the agent as it was, both are run now (`recheck-<n>-<finding>-old`) and
+  compared with each other. A recheck that stopped is finished before a new one is begun.
+- Trace is required at one version, `TRACE_VERSION`. Before any run of `confirm` or `recheck`
+  Break asks Trace for its version, then for a check of two runs of one row each that it
+  writes in a temporary folder. Trace missing, at another version or printing another schema
+  is refused there with nothing run. Every refusal is a `ConfirmError` with a `reason`:
+  `trace missing`, `trace version`, `trace schema`, `trace answer`, `no candidates`,
+  `no control`, `nothing to ask again`, `unfinished` or `unknown finding`. `trace answer` is an
+  answer Break could not read after the arms ran, and the arms are kept.
+- Break now depends on Trace, pinned at one commit of its repository until Trace is on PyPI,
+  and its Prove pin moves to 0.1.3, the version that Trace pins. CI installs Trace with a
+  read-only token used by the install step alone.
 - `poisson_break.search`: the search without learning, and the door every strategy comes
   through. A strategy is anything with `propose(seen, budget, *, rng)` that returns a list of
   `Proposal`: a condition, the reason in one line, and the probability the strategy gave that
@@ -284,8 +346,8 @@ and the `hunt` command come next.
   through JSON and refuse a field the shape does not name or a value outside its closed set.
 - `poisson_break.interfaces`: the four extension points, each at version 1: a fault, a way in,
   a strategy and your own failure check.
-- Prove pinned to the exact version Trace pins (0.1.2). Trace is not yet on PyPI; its pin is
-  declared the day it is.
+- Prove pinned to the exact version Trace pins. Trace is not yet on PyPI, so it is pinned at
+  a commit of its repository until it is.
 - CI: lint, type check and the tests on Python 3.11 to 3.13, under a guard that fails any
   connection and a check that no statistic is computed locally; a clean install of the built
   wheel into a fresh environment outside the checkout that runs the command.

@@ -1372,6 +1372,31 @@ def control(hunt: Hunt, *, on_progress: Callable[[int, int], None] | None = None
     return summary
 
 
+def _run_unstored(hunt: Hunt, arm: str, case: str, condition: Condition | str, *,
+                  seed: int) -> tuple[RunRow, tuple[records.Call, ...]]:
+    """One run that is stored nowhere and that no cap counts: what replaying a finding runs.
+
+    ``condition`` on the case ``case``, on ``seed`` as given and not one a planner drew, through
+    the same applier and failure check as a stored run. ``arm`` is the Prove run the replayed
+    row was read from. Hands back the run as a row and its calls in order. A condition the way
+    in or a session does not take is refused as a stage refuses it, before the run, and a tool
+    nobody classed raises its ``ToolRefused``. This is the confirm module's door and no one
+    else's: nothing here is written to the hunt's file or its store."""
+    hunt = _of(hunt)
+    (ident,) = _known(hunt, [case])
+    resolved = _resolved(hunt, condition)
+    _asked(hunt, [resolved])
+    config = {"case": ident}
+    cell = _Cell(case=ident, condition=resolved, text=_name_of(resolved), config=config,
+                 repeat=0, selection=records.Selection(
+                     strategy=hunt.settings.search.strategy, probability=1))
+    ran = _run_once(hunt, cell, run_id=arm, stage="confirm", seed=seed,
+                    key=(config_hash(config), 0))
+    if isinstance(ran, ToolRefused):
+        raise ran
+    return ran.kept.row(resolved), ran.kept.calls
+
+
 def _rate(failed: int, counted: int) -> float | None:
     return failed / counted if counted else None
 

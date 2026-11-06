@@ -5,7 +5,8 @@ outside the checkout, runs the command.
 
 WORK is a folder outside the checkout (CI uses the runner's temporary folder). The script makes
 a fresh virtual environment there, installs the wheel into it with pip (its dependencies come
-from PyPI), and checks, from an empty folder with its own HOME:
+from PyPI, and Trace from its repository at the commit the wheel pins, which needs git and read
+access to that repository), and checks, from an empty folder with its own HOME:
 
   * every file under src/poisson_break that is not bytecode is in the wheel, by the same path,
     and every file the wheel carries under the package is installed;
@@ -22,6 +23,10 @@ from PyPI), and checks, from an empty folder with its own HOME:
   * the package is imported from the fresh environment, not from the checkout;
   * a hunt of one run is opened and stored there, and Prove's own store reads the row back, so
     what stores a run came with the wheel too;
+  * Trace came with the wheel at the one version Break reads, and Prove at the version that
+    Trace pins;
+  * a confirm stage of one candidate is run there and Trace's own command answers for it, so
+    what confirms a finding came with the wheel too;
   * none of the above writes a file into the folder it runs in.
 
 Prints one `ok  ` or `FAIL` line per check, writes WORK/results.json, and exits 0 only when
@@ -125,7 +130,21 @@ def main() -> int:
           "a hunt of one run is stored in the fresh environment and Prove's store reads it back"
           + ("" if done.returncode == 0 else f"\n{done.stdout}\n{done.stderr}"))
 
-    # 5. the command, from an empty folder with its own HOME
+    # 5. Trace, at the version Break reads, and a confirm stage it answers for
+    done = subprocess.run([str(py), "-c", PINS], capture_output=True, text=True,
+                          env=fresh_env(work))
+    check(done.returncode == 0 and done.stdout.startswith("ok "),
+          "Trace came with the wheel at the version Break reads, and Prove at the one Trace pins"
+          + (f" ({done.stdout.strip()[3:]})" if done.returncode == 0
+             else f"\n{done.stdout}\n{done.stderr}"))
+    done = subprocess.run([str(py), "-c", ONE_CONFIRM, str(work / "one-confirm")],
+                          capture_output=True, text=True, env=fresh_env(work))
+    check(done.returncode == 0 and done.stdout.startswith("ok "),
+          "a confirm stage of one candidate is run in the fresh environment and Trace answers"
+          + (f" ({done.stdout.strip()[3:]})" if done.returncode == 0
+             else f"\n{done.stdout}\n{done.stderr}"))
+
+    # 6. the command, from an empty folder with its own HOME
     bin_ = venv / "bin" / "poisson-break"
     folder, env = fresh_folder(work)
     done = run([str(bin_), "--version"], folder, env)
@@ -192,11 +211,72 @@ print("ok" if (summary.runs, summary.failed) == (1, 0) else "wrong", tally.with_
 '''
 
 
+# What is installed beside Break: Trace at the one version the confirm module reads, and Prove
+# at the version Trace's own metadata pins.
+PINS = r'''
+import importlib.metadata as m
+
+from poisson_break import confirm
+
+trace, prove = m.version("poisson-trace"), m.version("poisson-prove")
+pins = [r.replace(" ", "") for r in (m.requires("poisson-trace") or [])]
+held = trace == confirm.TRACE_VERSION and f"poisson-prove=={prove}" in pins
+print("ok" if held else "wrong", f"poisson-trace {trace}, poisson-prove {prove}")
+'''
+
+# A confirm stage end to end, on a target with no tool and no model whose runs fail by their
+# seed: the control, one candidate written, the stage run, and Trace's own command asked for its
+# test of the candidate's arm against the control arm. Which verdict comes back does not matter
+# here; that Trace answered with one does.
+ONE_CONFIRM = r'''
+import shutil, sys
+from pathlib import Path
+
+from poisson_prove import Episode
+
+from poisson_break import confirm, hunt
+from poisson_break.settings import loads
+
+folder = Path(sys.argv[1])
+shutil.rmtree(folder, ignore_errors=True)
+settings = loads(f"""
+version = 1
+[target]
+kind = "rollout"
+entry = "my_app.agents:refund_agent"
+[fails]
+outcomes = ["unresolved"]
+[search]
+control_repeats = 2
+runs = 20
+[confirm]
+repeats = 4
+[output]
+folder = {str(folder)!r}
+""".replace("'", '"'))
+target = hunt.RolloutTarget(
+    lambda cfg, seed: Episode(outcome="unresolved" if seed % 3 == 0 else "done", t=0.0,
+                              horizon=1.0),
+    tools=[])
+cases = [{"id": str(n), "input": f"Where is order {n}? It was due on Monday."}
+         for n in range(1, 7)]
+opened = hunt.open_hunt(settings, target=target, cases=cases)
+hunt.control(opened)
+confirm.write_candidates(opened, ["input:cut_short"])
+done = confirm.confirm(opened)
+(tested,) = done.tested
+print("ok" if tested.verdict in confirm.VERDICTS else "wrong", tested.verdict)
+'''
+
+
 def fresh_env(work: Path) -> dict[str, str]:
     home = work / "home"
     (home / "tmp").mkdir(parents=True, exist_ok=True)
+    # Nothing that holds a secret reaches what is run here, and none of the git settings the
+    # install was handed: only pip's install of the wheel reads those.
     env = {k: v for k, v in os.environ.items()
            if not any(w in k.upper() for w in ("KEY", "TOKEN", "SECRET", "PASSWORD"))
+           and not k.startswith("GIT_CONFIG_")
            and k not in ("PYTHONPATH", "VIRTUAL_ENV", "PYTHONHOME", "PYTHONSTARTUP")}
     env.update(HOME=str(home), TMPDIR=str(home / "tmp"), LANG="C.UTF-8", LC_ALL="C.UTF-8",
                PYTHONIOENCODING="utf-8")

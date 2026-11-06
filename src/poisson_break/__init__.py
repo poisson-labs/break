@@ -20,11 +20,15 @@ else, problems as one line on stderr, the exit codes, questions, progress and th
 read (``poisson_break.look``), the runs themselves, stored on Prove: a hunt's folder and its
 name, each arm a Prove run whose every row Break decided and wrote a record for, the control
 stage and what it measures, the caps on runs, dollars and hours, resuming a stopped hunt, and
-the way in for a plain Prove target (``poisson_break.hunt``), and the search a hunt runs after
+the way in for a plain Prove target (``poisson_break.hunt``), the search a hunt runs after
 its control: the two strategies that learn nothing, the stage that runs any strategy and holds
 it to no condition twice and a logged probability on every proposal, the score, shrinking a
 candidate to the smallest change that still fails, what a hunt did not look at, and loading a
-strategy of your own by its import path (``poisson_break.search``).
+strategy of your own by its import path (``poisson_break.search``), and confirming what a hunt
+found: the candidates tested against one shared control on fresh seeds, under a design written
+down before its first run, every number Trace's or Prove's, the findings as files that read
+back equal, each with its reference run, replaying a finding once, and rechecking a fix on the
+agent as it is now (``poisson_break.confirm``).
 """
 
 __version__ = "0.1.0.dev0"
