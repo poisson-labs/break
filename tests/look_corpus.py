@@ -70,10 +70,8 @@ CORPUS: list[Invocation] = [
 
 # The eight verbs (plan BK8.1): each verb's help, each documented example and the bad inputs, from
 # `tests/commands_corpus.py`. A verb that writes runs through `commands_child.py`, which puts its folder back first.
-# Not here: `hunt --yes`, `confirm --yes` and `recheck --yes`. Each prints its plan before its result and shows progress
-# on a terminal's stderr, which two checks of the frozen conformance test cannot take (the JSON check compares the
-# document with stdout's first line, the plan; the same-facts check compares stderr on a terminal with stderr piped).
-# Put to Taylor as a ruling; `test_commands_renderings.py` holds those three both ways meanwhile.
+# A spending verb shows its progress on a terminal's stderr: one line, the stage's label and its count, drawn in place.
+PROGRESS = r"^ *[a-z][a-z ]*[ ━╸╺─]+[\d,]+/[\d,]+ *$"
 VERBS = ("init", "doctor", "hunt", "confirm", "findings", "replay", "recheck", "catalog")
 CORPUS += [
     *[Invocation(f"{verb}-help", (verb, "--help"), kind="help") for verb in VERBS],
@@ -84,15 +82,23 @@ CORPUS += [
                setup=setup("cases-only", pristine=True)),
     Invocation("init-over-a-file", ("init", "--yes", *INIT), kind="bad", code=1, setup=setup("weak")),
     Invocation("hunt-dry-run", ("hunt", "--dry-run"), has_json=True, setup=setup("weak")),
+    Invocation("hunt-found", ("hunt", "--yes"), program=writing(), has_json=True,
+               setup=setup("weak", pristine=True), other_stderr=PROGRESS),
+    Invocation("hunt-nothing-found", ("hunt", "--yes"), program=writing(), has_json=True,
+               setup=setup("sound", pristine=True), other_stderr=PROGRESS),
     Invocation("hunt-no-terminal", ("hunt",), code=1, setup=setup("weak")),
     Invocation("hunt-name-not-safe", ("hunt", "--yes", "--name=a b"), kind="bad", code=1, setup=setup("weak")),
     Invocation("hunt-option-before-verb", ("--yes", "hunt"), kind="bad", code=2, setup=setup("weak")),
     Invocation("hunt-abbreviated", ("hunt", "--dry"), kind="bad", code=2, setup=setup("weak")),
     Invocation("confirm-dry-run", ("confirm", "--dry-run"), has_json=True, setup=setup("candidates")),
+    Invocation("confirm-asked-again", ("confirm", "--yes"), program=writing(), has_json=True,
+               setup=setup("confirmed", pristine=True), other_stderr=PROGRESS),
     Invocation("confirm-no-hunt", ("confirm", "--yes"), kind="bad", code=1, setup=setup("weak")),
     Invocation("findings", ("findings",), has_json=True, setup=setup("confirmed")),
     Invocation("findings-1", ("findings", "1"), has_json=True, setup=setup("confirmed")),
     Invocation("findings-unknown", ("findings", "9"), kind="bad", code=1, setup=setup("confirmed")),
     Invocation("replay-1", ("replay", "1"), has_json=True, setup=setup("confirmed")),
     Invocation("recheck-dry-run", ("recheck", "--dry-run"), has_json=True, setup=setup("confirmed")),
+    Invocation("recheck", ("recheck", "--yes"), program=writing(), has_json=True,
+               setup=setup("confirmed", pristine=True), other_stderr=PROGRESS),
 ]
