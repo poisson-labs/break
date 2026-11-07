@@ -161,7 +161,7 @@ def test_help_is_rendered_from_prog(prog: str, capsys: pytest.CaptureFixture[str
 @pytest.mark.parametrize("prog", PROGS)
 def test_error_next_line_is_rendered_from_prog(prog: str, capsys: pytest.CaptureFixture[str]) -> None:
     """A usage error's `next:` command is the command as typed."""
-    code, out, err = _main(["hunt"], prog, capsys)
+    code, out, err = _main(["bogus"], prog, capsys)
     assert code == 2
     assert out == ""
     assert prog in err, err
@@ -208,7 +208,7 @@ def _one_error_line(stderr: str) -> None:
     assert "argparse" not in stderr.lower()
 
 
-@pytest.mark.parametrize("words", [["hunt"], ["findings", "2"], ["--bogus"], ["--version=1"]])
+@pytest.mark.parametrize("words", [["bogus"], ["findings2"], ["--bogus"], ["--version=1"]])
 def test_unknown_verb_or_flag_is_one_error_line_and_exit_2(words: list[str]) -> None:
     ran = run_command(words)
     assert ran.exit == 2, (ran.stdout, ran.stderr)
