@@ -12,6 +12,8 @@ only these targets read, which the case reader keeps and hands over (spec §9.4)
 - `weak` and `weak_to`: the share of runs that fail when a look-up raised a fault named in `weak_to` (1 if not given):
   the planted weakness. A fault not named, and any fault on `check_policy`, makes no difference;
 - `less_to`: faults that, raised by a look-up, make the run not fail at all: a condition that fails less;
+- `crash_to`: faults that, raised by a look-up, make the agent fall over (an exception escapes it): a run that crashed;
+- `crash`: true when every run of the case falls over, whatever was changed;
 - `lookups`: how many times the agent looks the order up (1 if not given), so a call number past `max_call` is seen;
 - `outcome`: an outcome word reported on every run, whatever else happened;
 - `tokens`: the tokens in and out every run reports, for a hunt with prices;
@@ -20,7 +22,8 @@ only these targets read, which the case reader keeps and hands over (spec §9.4)
 A run that fails reports the outcome `unresolved`, which the settings list as failing. `BREAK_TEST_MENDED=1` in the
 environment is the agent mended: no run fails at all, so a recheck sees it fail less and a replay sees it not fail; and
 `BREAK_TEST_WEAK=<share>` is the agent changed so that its weakness fails that share of runs, so a recheck can see it
-fail more. `old_desk` is the
+fail more. `BREAK_TEST_BROKEN=1` is a way in gone wrong: the target hands back something that is no episode, so the run
+stops as Break's own failure and is not counted. `old_desk` is the
 agent before it was mended, whatever the environment says, for `recheck --old`.
 
 No model, no framework.
@@ -40,6 +43,7 @@ from poisson_prove import Episode
 from poisson_break.apply import wrap
 
 FAILING = "unresolved"
+NOT_AN_EPISODE = "not an episode"
 TOOLS = ("lookup_order", "check_policy")
 
 
@@ -81,6 +85,8 @@ def _act(cfg: Mapping[str, Any], seed: int, *, mended: bool) -> Episode:
         check_policy("refunds")
     except Exception:  # the policy is read and nothing hangs on it: a fault here makes no difference
         pass
+    if cfg.get("crash") or any(kind in cfg.get("crash_to", ()) for kind in seen):
+        raise RuntimeError("the agent fell over")
     rate = float(cfg.get("rate", 0.0))
     share = rate
     if any(kind in cfg.get("weak_to", ()) for kind in seen):
@@ -89,6 +95,8 @@ def _act(cfg: Mapping[str, Any], seed: int, *, mended: bool) -> Episode:
         share = 0.0
     if mended:
         share = 0.0
+    if os.environ.get("BREAK_TEST_BROKEN") == "1":
+        return NOT_AN_EPISODE  # type: ignore[return-value]
     failed = draw(seed, ident) < share
     outcome = str(cfg["outcome"]) if "outcome" in cfg else (FAILING if failed else "done")
     meta: dict[str, Any] = {"reply": "done", "ended": "returned"}

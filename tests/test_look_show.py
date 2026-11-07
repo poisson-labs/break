@@ -8,7 +8,10 @@ here is red on `show` missing, and nothing else.
 Each child runs `body` under `look.run`, as a verb does, and compares what `show` wrote with what the look's own
 public names write for the same result in the same process: `as_json` under `--json`, and `render` on the same
 stream in the mode the run chose otherwise. Nothing is mocked; which mode a run is in is what the operating system
-and the environment say. Outside a run is not held here: the ruling does not say what `show` does there.
+and the environment say.
+
+Outside a run (Taylor's yes to BK8 point 24, 2026-11-07): `show` renders plain on stdout, as `error` and `note` print
+plain outside a run, whatever the streams are and whatever the command line says.
 """
 
 from __future__ import annotations
@@ -17,7 +20,9 @@ from typing import Any
 
 import pytest
 
-from tests.look_support import PIPED, TERMINALS, look, pretty_env, run_body, strip, words_of
+import sys
+
+from tests.look_support import PIPED, REPO, TERMINALS, launch, look, pretty_env, run_body, strip, words_of
 
 # A result with every kind of detail and a command to run next, and a plan, built in the child.
 BUILD = """\
@@ -145,3 +150,31 @@ look.show(result)
     lines = ran.out.splitlines()
     assert lines[0].startswith("plan  ")
     assert [i for i, text in enumerate(lines) if text.startswith("found  ")], ran
+
+
+# ---------- outside a run (point 24) ----------
+
+OUTSIDE = """\
+import os, sys
+from poisson_break import look
+""" + BUILD + f"""
+look.show(result)
+sys.stdout.write({SPLIT!r})
+sys.stdout.flush()
+look.render(result, stream=sys.stdout, mode="plain")
+sys.stdout.flush()
+"""
+
+
+@pytest.mark.parametrize("streams", [PIPED, TERMINALS], ids=["piped", "terminals"])
+@pytest.mark.parametrize("words", [(), ("--json",)], ids=["bare", "json"])
+def test_outside_a_run_show_renders_plain_on_stdout(streams: Any, words: tuple[str, ...]) -> None:
+    """No `look.run`: on pipes or on terminals with every condition of the switch holding, and with `--json` on the
+    command line, `show` writes what `render` writes in plain, on stdout, and nothing on stderr."""
+    ran = launch([sys.executable, "-c", OUTSIDE, *words], pretty_env(), streams, cwd=REPO)
+    assert ran.exit == 0, ran
+    shown, written = ran.out.split(SPLIT.strip() + "\n", 1)
+    assert shown == written, (shown, written)
+    assert "\x1b" not in shown
+    assert shown.startswith("found  ")
+    assert ran.err == ""

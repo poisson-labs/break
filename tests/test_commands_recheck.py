@@ -14,6 +14,12 @@ One finding, `error` on the look-up, confirmed through the library on a desk fai
 six tenths of its runs under `error`. The agent changed is the environment's: `BREAK_TEST_MENDED=1` mends it (it fails
 less), `BREAK_TEST_WEAK=1.0` makes it worse (it fails more), and nothing set leaves it as it was, where the pinned
 Trace says the first recheck is too small to tell.
+
+Taylor's rulings on BK8's open points (2026-11-07), held here: the gap is a detail line in days, to one decimal below ten
+days and whole from ten, from Trace's `gap_seconds` over 86,400, and no line under `--old` (point 19); `recheck` with no
+finding written is refused, exit 1, with the `confirm` command as its `next:` (point 20); under `--json` only the
+result's document, and the plan's when it is the result (point 6); "start?" answered no says `stopped  nothing was run`
+and exits 0 (point 9); `--dry-run` writes nothing (point 10); the schema `poisson_break.recheck-result/1` (point 11).
 """
 
 from __future__ import annotations
@@ -35,14 +41,19 @@ from tests.commands_support import (
     cli,
     detail,
     errors,
+    files_under,
+    paths_under,
+    findings_of,
     hashes,
     holds_number,
     json_document,
+    nexts,
     notes,
     on,
     opened,
     prepared,
     project,
+    refused_once,
     result_of,
     results,
     store_runs,
@@ -182,6 +193,8 @@ def test_old_runs_the_old_and_the_new_agent_side_by_side(finding: Project) -> No
     assert olds[-1][: -len("-old")] in runs
     assert {r["target"] for r in finding.runs()[made:]} == {"desk", "old_desk"}
     assert "fails less" in line_of(ran)
+    assert not [line for line in detail(result_of(ran, "rechecked")) if re.search(r"\bdays?\b", line)], \
+        "point 19: side by side, no gap"
 
 
 def test_the_note_follows_the_plan(finding: Project) -> None:
@@ -236,3 +249,106 @@ def test_every_command_recheck_names_starts_with_the_name_it_was_run_under(findi
     assert ran.exit == CODES["done"], ran
     assert "poisson-break" not in ran.out + ran.err, ran
     assert PROG not in ran.out.replace("poisson-trace", "")
+
+
+# ---------------------------------------------------------------------------
+# point 19: the gap in days
+# ---------------------------------------------------------------------------
+
+
+def aged(tmp_path: Path, days: float) -> Project:
+    """A project whose finding's reference arm reads as started `days` before now: its manifest's start moved back, the
+    start Trace reads for its gap."""
+    import json
+    from datetime import UTC, datetime, timedelta
+
+    proj = with_a_finding(tmp_path)
+    (one,) = findings_of(proj, "desk-1")
+    manifest = proj.hunt("desk-1") / "store" / one.reference / "manifest.json"
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    data["created_at"] = (datetime.now(UTC) - timedelta(days=days)).isoformat().replace("+00:00", "Z")
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+    return proj
+
+
+def gap_lines(ran: Any) -> list[str]:
+    return [line for line in detail(result_of(ran, "rechecked")) if re.search(r"\bdays\b", line)]
+
+
+@pytest.mark.parametrize(("days", "shown", "not_shown"), [(3.4, "3.4", None), (12.3, "12", "12.3")])
+def test_the_gap_since_the_reference_run_is_a_detail_line_in_days(tmp_path: Path, days: float, shown: str,
+                                                                   not_shown: str | None) -> None:
+    """One decimal below ten days, whole from ten."""
+    proj = aged(tmp_path, days)
+    ran = cli(proj, "recheck", "--yes", BREAK_TEST_MENDED="1")
+    assert ran.exit == CODES["done"], ran
+    lines = gap_lines(ran)
+    assert len(lines) == 1, ran
+    assert holds_number(lines[0], shown), lines
+    if not_shown is not None:
+        assert not holds_number(lines[0], not_shown), lines
+
+
+def test_a_gap_of_seconds_is_shown_as_0_0_days(finding: Project) -> None:
+    """Trace's gap is there, and under a tenth of a day."""
+    ran = cli(finding, "recheck", "--yes", "--hunt", "desk-1", BREAK_TEST_MENDED="1")
+    lines = gap_lines(ran)
+    assert len(lines) == 1 and holds_number(lines[0], "0.0"), ran
+
+
+# ---------------------------------------------------------------------------
+# point 20: no finding written
+# ---------------------------------------------------------------------------
+
+
+def test_recheck_with_no_finding_written_is_refused_naming_confirm(tmp_path: Path) -> None:
+    proj = project(tmp_path, RECHECK, **SETTINGS)
+    prepared(proj, (on("error"),))
+    arms = store_runs(proj, "desk-1")
+    ran = cli(proj, "recheck", "--yes")
+    refused_once(ran, CODES["refused"])
+    assert shlex.split(nexts(ran)[0])[:2] == [PROG, "confirm"], ran
+    assert store_runs(proj, "desk-1") == arms
+    assert proj.runs() == []
+
+
+# ---------------------------------------------------------------------------
+# points 6, 9, 10, 11 (on desk-1 by name: an earlier test makes a later hunt in the same folder)
+# ---------------------------------------------------------------------------
+
+
+def test_recheck_s_document_is_the_result_s_only_named_recheck_result(finding: Project) -> None:
+    ran = cli(finding, "recheck", "--yes", "--json", "--hunt", "desk-1", BREAK_TEST_MENDED="1")
+    assert ran.exit == CODES["done"], ran
+    document = json_document(ran)
+    assert document["verdict"] == "rechecked"
+    assert document["schema"] == "poisson_break.recheck-result/1"
+
+
+def test_under_json_without_a_terminal_the_plan_is_the_document_and_the_refusal_on_stderr(finding: Project) -> None:
+    arms = recheck_runs(finding)
+    ran = cli(finding, "recheck", "--json", "--hunt", "desk-1")
+    assert ran.exit == CODES["refused"], ran
+    assert json_document(ran)["verdict"] == "plan"
+    assert len(errors(ran)) == 1 and "--yes" in errors(ran)[0]
+    assert recheck_runs(finding) == arms
+
+
+def test_start_answered_no_runs_nothing_and_says_so(finding: Project) -> None:
+    from tests.look_support import Streams
+
+    arms = recheck_runs(finding)
+    ran = cli(finding, "recheck", "--hunt", "desk-1", streams=Streams(stdin="pty", keys=(b"n\r",)))
+    assert ran.exit == CODES["done"], ran
+    assert [b[0] for b in results(ran.out)][1:] == ["stopped  nothing was run"], ran
+    assert recheck_runs(finding) == arms
+
+
+def test_a_dry_run_writes_nothing(tmp_path: Path) -> None:
+    """On a project of its own, so no earlier command in a shared folder has written what this one must not."""
+    proj = with_a_finding(tmp_path)
+    before, paths = files_under(proj.folder), paths_under(proj.folder)
+    for words in (["recheck", "--dry-run"], ["recheck", "--dry-run", "--json"]):
+        assert cli(proj, *words, PYTHONDONTWRITEBYTECODE="1").exit == CODES["done"]
+        assert files_under(proj.folder) == before
+        assert paths_under(proj.folder) == paths

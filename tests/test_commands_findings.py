@@ -10,6 +10,13 @@ Invariants held here (Break — Plan, the commands module; spec §9.1, §5.5 "Wh
 - §6.1    `replay` stores nothing.
 - Point A (`evidence/bk7/rulings-build.md`): `findings` lists what `read_findings` hands back, a gap passed over and a
           file that cannot be read refused in one line.
+
+Taylor's rulings on BK8's open points (2026-11-07), held here: `findings`, listing, adds under a `control` heading each
+case that failed in the control, with its failed runs of its runs and its kinds, the cases set aside marked so (point
+15); `replay --case ID` replays another of the finding's cases (point 16); `replay` asks nothing before its one run and
+shows no plan, but prints the "Break calls your tools for real" note on stderr (point 17, with Taylor's addition); a
+replay whose run was not counted says `stopped` with the run's one line of error as the sentence, and exits 3 (point
+18); the schemas `poisson_break.findings-result/1` and `poisson_break.replay-result/1` (point 11).
 """
 
 from __future__ import annotations
@@ -29,6 +36,7 @@ from tests.commands_support import (
     MIXED_CANDIDATES,
     MIXED_SETTINGS,
     PROG,
+    REAL,
     Project,
     cli,
     detail,
@@ -38,12 +46,15 @@ from tests.commands_support import (
     holds_number,
     json_document,
     nexts,
+    notes,
     opened,
     prepared,
     project,
     refused_once,
     result_of,
+    results,
     store_runs,
+    stored,
     verdict,
 )
 from tests.look_support import strip
@@ -300,3 +311,158 @@ def test_replay_takes_the_latest_hunt_and_hunt_names_another(tmp_path: Path) -> 
     named = cli(proj, "replay", "1", "--hunt", "desk-1")
     assert named.exit == CODES["done"], named
     assert verdict(named)[0] == "failed"
+
+
+# ---------------------------------------------------------------------------
+# point 17: no plan and no question, and the note
+# ---------------------------------------------------------------------------
+
+
+def test_replay_shows_no_plan_and_asks_nothing(replayed: Any) -> None:
+    """Run with stdin not a terminal and no `--yes`, it runs: nothing was asked. Its one result is the replay's."""
+    proj, ran, before, arms, runs = replayed
+    assert ran.exit == CODES["done"], ran
+    assert [b[0].split("  ")[0] for b in results(ran.out)] == ["failed"], ran
+    assert "[y/N]" not in ran.err
+
+
+def test_replay_prints_break_calls_your_tools_for_real_as_a_note(replayed: Any) -> None:
+    proj, ran, before, arms, runs = replayed
+    assert [n for n in notes(ran) if REAL in n], ran.err
+
+
+# ---------------------------------------------------------------------------
+# point 16: another case
+# ---------------------------------------------------------------------------
+
+
+def test_replay_case_runs_the_case_named(two: Project) -> None:
+    (finding, *_) = findings_of(two, "desk-1")
+    default = cli(two, "replay", "1")
+    chosen = two.runs()[-1]["case"]
+    other = next(c for c in finding.cases if c != chosen)
+    runs = len(two.runs())
+    ran = cli(two, "replay", "1", "--case", other)
+    assert default.exit == ran.exit == CODES["done"], ran
+    assert len(two.runs()) == runs + 1
+    assert two.runs()[-1]["case"] == other
+    assert re.search(rf"\b{other}\b", strip(ran.out).splitlines()[0]), ran
+
+
+def test_replay_of_a_case_the_finding_does_not_hold_is_refused_and_runs_nothing(two: Project) -> None:
+    runs = len(two.runs())
+    refused_once(cli(two, "replay", "1", "--case", "k404"), CODES["refused"])
+    assert len(two.runs()) == runs
+
+
+# ---------------------------------------------------------------------------
+# point 18: a replay whose run was not counted
+# ---------------------------------------------------------------------------
+
+
+def test_a_replay_whose_run_was_not_counted_says_stopped_with_its_error_and_exits_3(two: Project) -> None:
+    """The way in hands back something that is no episode: the run is Break's own failure, not counted. The result is
+    `stopped`, its sentence the run's one line of error, exit 3; nothing is stored."""
+    before = files_under(two.hunts)
+    runs = len(two.runs())
+    ran = cli(two, "replay", "1", BREAK_TEST_BROKEN="1")
+    assert ran.exit == CODES["stopped"], ran
+    word, sentence = verdict(ran)
+    assert word == "stopped"
+    assert sentence.strip() and "\n" not in sentence
+    assert "Traceback" not in ran.err
+    assert len(two.runs()) == runs + 1
+    assert files_under(two.hunts) == before
+
+
+# ---------------------------------------------------------------------------
+# point 15: the control's failures in the listing
+# ---------------------------------------------------------------------------
+
+
+def control_failures(proj: Project, name: str) -> dict[str, tuple[int, int, list[str]]]:
+    """Each case that failed in the control: its failed runs, its runs, and its kinds, from the control arm's rows."""
+    held: dict[str, tuple[int, int, list[str]]] = {}
+    for r in stored(proj, name, "control"):
+        case = r["meta"]["poisson_break"]["case"]
+        failed, ran, kinds = held.get(case, (0, 0, []))
+        kind = r["meta"]["poisson_break"]["failure"]["kind"]
+        if r["outcome"] == "failed" and kind not in kinds:
+            kinds = [*kinds, kind]
+        held[case] = (failed + (r["outcome"] == "failed"), ran + 1, kinds)
+    return {case: value for case, value in held.items() if value[0]}
+
+
+def set_aside(proj: Project, name: str) -> tuple[str, ...]:
+    from poisson_break.hunt import control
+
+    with contextlib.chdir(proj.folder):
+        return tuple(control(opened(proj, name)).set_aside)
+
+
+def under_control(ran: Any) -> list[str]:
+    lines = detail(result_of(ran, "ok"))
+    heads = [i for i, line in enumerate(lines) if line.split()[:1] == ["control"]]
+    assert heads, f"no control heading: {lines}"
+    return lines[heads[0]:]
+
+
+def test_findings_lists_each_case_that_failed_in_the_control_under_its_own_heading(two: Project) -> None:
+    ran = cli(two, "findings")
+    assert ran.exit == CODES["done"], ran
+    failing = control_failures(two, "desk-1")
+    assert failing, "the mixed desk fails half its control runs"
+    shown = under_control(ran)
+    for case, (failed, runs, kinds) in failing.items():
+        lines = [line for line in shown if case in re.findall(r"[\w.-]+", line)]
+        assert len(lines) == 1, (case, shown)
+        assert re.search(rf"(?<!\d){failed} of {runs}(?!\d)", lines[0]), (case, failed, runs, lines[0])
+        for kind in kinds:
+            assert kind in lines[0], (kind, lines[0])
+
+
+def test_a_case_that_never_failed_in_the_control_is_not_listed_there(two: Project) -> None:
+    ran = cli(two, "findings")
+    failing = control_failures(two, "desk-1")
+    every = {r["meta"]["poisson_break"]["case"] for r in stored(two, "desk-1", "control")}
+    shown = "\n".join(under_control(ran))
+    for case in every - set(failing):
+        assert case not in re.findall(r"[\w.-]+", shown), (case, shown)
+
+
+def test_the_cases_set_aside_are_marked_so_and_no_others(two: Project) -> None:
+    ran = cli(two, "findings")
+    aside = set_aside(two, "desk-1")
+    assert aside, "one case of the mixed desk fails every control run"
+    shown = under_control(ran)
+    for line in shown:
+        words = re.findall(r"[\w.-]+", line)
+        named = [case for case in control_failures(two, "desk-1") if case in words]
+        if named:
+            assert ("set aside" in line) == (named[0] in aside), line
+
+
+def test_a_case_s_line_under_control_carries_its_kinds(tmp_path: Path) -> None:
+    """The mixed desk with one case more, `k99`, that falls over on every run: its line carries the kind `crashed` (and
+    it is set aside, since it fails every control run)."""
+    proj = project(tmp_path, [*MIXED, {"id": "k99", "input": "Where is order 99?", "crash": True}], **MIXED_SETTINGS)
+    confirmed(proj)
+    ran = cli(proj, "findings")
+    assert ran.exit == CODES["done"], ran
+    (line,) = [text for text in under_control(ran) if "k99" in re.findall(r"[\w.-]+", text)]
+    assert "crashed" in line and "set aside" in line, line
+    others = [text for text in under_control(ran)[1:] if "k99" not in text]
+    assert others and not any("crashed" in text for text in others), others
+
+
+# ---------------------------------------------------------------------------
+# point 11: the schemas
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(("words", "schema"), [(["findings"], "findings-result"), (["findings", "1"], "findings-result"),
+                                               (["replay", "1"], "replay-result")])
+def test_each_document_is_named_after_its_verb(two: Project, words: list[str], schema: str) -> None:
+    ran = cli(two, *words, "--json")
+    assert ran.exit == CODES["done"], ran
+    assert json_document(ran)["schema"] == f"poisson_break.{schema}/1"

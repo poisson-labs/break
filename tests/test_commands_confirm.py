@@ -16,6 +16,13 @@ Invariants held here (Break — Plan, the commands module; spec §9.1, §9.2, §
 - trace#31 (open): a stage whose control arm and one candidate's arm hold no failed run is no answer from Trace; the
           command reports it as the confirm module refuses it, in one line with a refusal's exit code, not as a crash.
 
+Taylor's rulings on BK8's open points (2026-11-07), held here: under `--json` only the result's document (point 6);
+no answer from Trace exits 1 (point 8); "start?" answered no runs nothing, exits 0 and says `stopped  nothing was run`
+(point 9); `--dry-run` writes nothing (point 10); the schema `poisson_break.confirm-result/1` (point 11); a refusal known
+before the plan prints no plan (point 14); and `not after the correction` is shown on its candidate's line as `failed
+less` is (point 21). `nothing to compare` is not reached through a stage that runs: an arm with no case left to compare
+has every run not counted, and the hunt module stops such an arm first (BK5's tenth), so no test here holds it.
+
 The hunts here are made through the library (`commands_support.prepared`): the control stage run and the candidates
 written, as `hunt` leaves them. Every answer is the pinned Trace's own, installed beside Break; the refusals of Trace
 use the stand-in of the confirm module's tests (`tests/trace_stand_in`), which answers `--version` and the probe.
@@ -47,6 +54,8 @@ from tests.commands_support import (
     cases,
     cli,
     errors,
+    files_under,
+    paths_under,
     findings_of,
     hashes,
     holds_number,
@@ -64,7 +73,7 @@ from tests.commands_support import (
     verdict,
 )
 from tests.conftest import GUARD, REPO
-from tests.look_support import VERDICT_LINE, strip
+from tests.look_support import VERDICT_LINE, Streams, strip
 
 STAND_IN = REPO / "tests" / "trace_stand_in"
 RECORDED = REPO / "tests" / "trace_recorded" / "fix_check_7e6fef6.jsonl"
@@ -76,15 +85,6 @@ def stand_in(proj: Project, tmp_path: Path, **env: str) -> dict[str, str]:
     log.touch()
     return {"PYTHONPATH": os.pathsep.join([str(STAND_IN), str(GUARD), str(REPO / "src"), str(REPO)]),
             "BREAK_TEST_TRACE_LOG": str(log), "BREAK_TEST_TRACE_RECORDED": str(RECORDED), **env}
-
-
-def refused_beside_a_plan(ran: Any, code: int) -> None:
-    """A refusal that may come after the plan was shown: one `error:` line, no traceback, and nothing on stdout but,
-    at most, the plan. Whether the plan comes first is not ruled."""
-    assert ran.exit == code, ran
-    assert len(errors(ran)) == 1, ran
-    assert "Traceback" not in ran.err
-    assert [b[0].split("  ")[0] for b in results(ran.out)] in ([], ["plan"]), ran
 
 
 def line_of(block: list[str], number: int) -> str:
@@ -156,6 +156,23 @@ def test_a_candidate_that_failed_less_is_shown_with_its_note(mixed: tuple[Projec
     assert done.tested[2].note == "failed less"
     assert "failed less" in line_of(result_of(ran, "confirmed"), 3)
     assert "failed less" not in line_of(result_of(ran, "confirmed"), 1)
+
+
+def test_a_candidate_not_confirmed_after_the_correction_is_shown_with_its_note(tmp_path: Path) -> None:
+    """Point 21. The mixed stage with q at 1e-12: `error` fails more by Trace (its p is about 1e-8) but not after
+    Prove's correction at that q, so it is not confirmed, with the note `not after the correction`; the others keep
+    their own notes."""
+    proj = project(tmp_path, MIXED, confirm={"repeats": 4, "q": 1e-12}, search={"control_repeats": 3, "runs": 400})
+    prepared(proj, MIXED_CANDIDATES)
+    ran = cli(proj, "confirm", "--yes")
+    assert ran.exit == CODES["done"], ran
+    done = again(proj, "desk-1")
+    assert [t.note for t in done.tested] == ["not after the correction", None, "failed less"]
+    block = result_of(ran, "nothing confirmed")
+    assert "not after the correction" in line_of(block, 1)
+    assert "not confirmed" in line_of(block, 1)
+    assert "not after the correction" not in line_of(block, 2) + line_of(block, 3)
+    assert "failed less" in line_of(block, 3)
 
 
 def test_the_finding_file_written_is_named_and_there(mixed: tuple[Project, Any, Any]) -> None:
@@ -236,12 +253,37 @@ def test_repeats_asks_again_about_what_was_too_small_to_tell(tmp_path: Path) -> 
     assert [line for line in detail(final[0]) if on("timeout") in line], final
 
 
-def test_repeats_with_no_stage_is_refused_and_runs_nothing(tmp_path: Path) -> None:
+def test_repeats_with_no_stage_is_refused_before_any_plan_and_runs_nothing(tmp_path: Path) -> None:
+    """Point 14: known before any plan, so no plan is printed: one `error:` line and nothing on stdout."""
     proj = project(tmp_path, MIXED, **MIXED_SETTINGS)
     prepared(proj, MIXED_CANDIDATES)
     ran = cli(proj, "confirm", "--repeats", "6", "--yes")
-    refused_beside_a_plan(ran, CODES["refused"])
+    refused_once(ran, CODES["refused"])
     assert "desk-1-confirm-control" not in store_runs(proj, "desk-1")
+
+
+def test_repeats_with_nothing_too_small_to_tell_is_refused_before_any_plan(tmp_path: Path) -> None:
+    """Point 14: a finished stage with nothing left to ask again about."""
+    proj = project(tmp_path, MIXED, **MIXED_SETTINGS)
+    prepared(proj, (on("error"),))
+    assert cli(proj, "confirm", "--yes").exit == CODES["done"]
+    runs = store_runs(proj, "desk-1")
+    ran = cli(proj, "confirm", "--repeats", "6", "--yes")
+    refused_once(ran, CODES["refused"])
+    assert store_runs(proj, "desk-1") == runs
+
+
+def test_repeats_on_an_unfinished_stage_is_refused_before_any_plan(tmp_path: Path) -> None:
+    """Point 14: a stage its cap stopped is not finished, so there is nothing to ask again yet."""
+    priced = [{**c, "tokens": [1000, 0]} for c in MIXED]
+    proj = project(tmp_path, priced, confirm={"repeats": 4}, search={"control_repeats": 3, "runs": 400},
+                   limits={"dollars": 0.0375, "input_per_million": 1.0, "output_per_million": 1.0})
+    prepared(proj, MIXED_CANDIDATES)
+    assert cli(proj, "confirm", "--yes").exit == CODES["stopped"]
+    rows = len(stored(proj, "desk-1", "confirm-control"))
+    ran = cli(proj, "confirm", "--repeats", "6", "--yes")
+    refused_once(ran, CODES["refused"])
+    assert len(stored(proj, "desk-1", "confirm-control")) == rows
 
 
 # ---------------------------------------------------------------------------
@@ -272,6 +314,7 @@ def test_without_a_terminal_and_without_yes_the_plan_is_shown_and_refused(tmp_pa
 
 
 def test_confirm_under_json_is_one_strict_document(tmp_path: Path) -> None:
+    """Points 6 and 11: the result's document only, `confirm-result`."""
     proj = project(tmp_path, MIXED, **MIXED_SETTINGS)
     prepared(proj, MIXED_CANDIDATES)
     ran = cli(proj, "confirm", "--yes", "--json")
@@ -279,6 +322,39 @@ def test_confirm_under_json_is_one_strict_document(tmp_path: Path) -> None:
     document = json_document(ran)
     assert list(document)[:3] == ["schema", "verdict", "sentence"]
     assert document["verdict"] == "confirmed"
+    assert document["schema"] == "poisson_break.confirm-result/1"
+
+
+def test_under_json_without_a_terminal_the_plan_is_the_document_and_the_refusal_on_stderr(tmp_path: Path) -> None:
+    proj = project(tmp_path, MIXED, **MIXED_SETTINGS)
+    prepared(proj, MIXED_CANDIDATES)
+    ran = cli(proj, "confirm", "--json")
+    assert ran.exit == CODES["refused"], ran
+    assert json_document(ran)["verdict"] == "plan"
+    assert len(errors(ran)) == 1 and "--yes" in errors(ran)[0]
+    assert not [r for r in store_runs(proj, "desk-1") if "confirm" in r]
+
+
+def test_start_answered_no_runs_nothing_and_says_so(tmp_path: Path) -> None:
+    """Point 9."""
+    proj = project(tmp_path, MIXED, **MIXED_SETTINGS)
+    prepared(proj, MIXED_CANDIDATES)
+    ran = cli(proj, "confirm", streams=Streams(stdin="pty", keys=(b"n\r",)))
+    assert ran.exit == CODES["done"], ran
+    assert [b[0].split("  ")[0] for b in results(ran.out)] == ["plan", "stopped"], ran
+    assert results(ran.out)[-1][0] == "stopped  nothing was run"
+    assert not [r for r in store_runs(proj, "desk-1") if "confirm" in r]
+
+
+def test_a_dry_run_writes_nothing(tmp_path: Path) -> None:
+    """Point 10: no `confirm.json`, no arm, nothing else, under `--json` too."""
+    proj = project(tmp_path, MIXED, **MIXED_SETTINGS)
+    prepared(proj, MIXED_CANDIDATES)
+    before, paths = files_under(proj.folder), paths_under(proj.folder)
+    for words in (["confirm", "--dry-run"], ["confirm", "--dry-run", "--json"]):
+        assert cli(proj, *words, PYTHONDONTWRITEBYTECODE="1").exit == CODES["done"]
+        assert files_under(proj.folder) == before
+        assert paths_under(proj.folder) == paths
 
 
 def test_confirm_takes_the_latest_hunt_and_hunt_names_another(tmp_path: Path) -> None:

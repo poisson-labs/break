@@ -18,6 +18,13 @@ Invariants held here (Break — Plan, the commands module; spec §9.1, §9.2, §
 - BK5.17, BK6.11, BK5.18  What a way in cannot do, a strategy that cannot be found and a check that cannot be loaded
           are each refused in one line before any run.
 
+Taylor's rulings on BK8's open points (2026-11-07), held here: under `--json` only the result's document is printed,
+and the plan's only when it is the result (point 6); `hunt --hunt NAME` goes on with that hunt, and is the command a
+Ctrl-C and a cap's stop print (point 7); "start?" answered no runs nothing, exits 0 and says `stopped  nothing was run`
+(point 9); `--dry-run` writes nothing (point 10); the result's schema is `poisson_break.hunt-result/1` (point 11); the
+high base rate is a `note:` on stderr carrying the control's rate (point 12); and a candidate's line carries "k of n
+failed" from the rows of the stage that last ran it, and the kind most of its failed rows have (point 13).
+
 The scripted desk (`tests/commands_targets.py`) fails every run in which its look-up raised `error`, and no other run,
 unless a case says otherwise. Every run it makes is counted from its log, in the child.
 """
@@ -47,6 +54,9 @@ from tests.commands_support import (
     cli,
     err_lines,
     errors,
+    files_under,
+    paths_under,
+    opened,
     hashes,
     holds_number,
     hunt_names,
@@ -311,11 +321,15 @@ def test_without_a_terminal_and_without_yes_the_plan_is_shown_and_refused(tmp_pa
 
 
 def test_a_question_answered_no_runs_nothing(tmp_path: Path) -> None:
+    """Point 9: nothing run, exit 0, and after the plan the result `stopped  nothing was run`."""
     proj = project(tmp_path)
     ran = cli(proj, "hunt", streams=Streams(stdin="pty", keys=(b"n\r",)))
     assert verdict(ran)[0] == "plan"
     assert proj.runs() == []
     assert "Traceback" not in ran.err
+    assert ran.exit == CODES["done"], ran
+    assert [b[0] for b in results(ran.out)] == [results(ran.out)[0][0], "stopped  nothing was run"], ran
+    assert errors(ran) == []
 
 
 def test_a_question_answered_yes_runs_the_hunt(tmp_path: Path) -> None:
@@ -353,13 +367,38 @@ def test_on_terminals_no_stage_progress_is_left_on_the_screen(tmp_path: Path) ->
 
 
 def test_a_hunt_under_json_is_one_strict_document_with_the_same_exit_code(tmp_path: Path) -> None:
+    """Points 6 and 11: the hunt goes on to run, so only its result's document is printed, `hunt-result`."""
     proj = project(tmp_path)
     ran = cli(proj, "hunt", "--yes", "--json")
     assert ran.exit == CODES["done"], ran
     document = json_document(ran)
     assert list(document)[:3] == ["schema", "verdict", "sentence"]
     assert document["verdict"] == "found"
+    assert document["schema"] == "poisson_break.hunt-result/1"
     assert "\x1b" not in ran.out
+
+
+def test_under_json_without_a_terminal_the_plan_is_the_document_and_the_refusal_on_stderr(tmp_path: Path) -> None:
+    """Point 6: the plan is the result when the question cannot be asked: its document on stdout, the refusal's one
+    line on stderr naming `--yes`, exit 1, no run."""
+    proj = project(tmp_path)
+    ran = cli(proj, "hunt", "--json")
+    assert ran.exit == CODES["refused"], ran
+    assert json_document(ran)["verdict"] == "plan"
+    assert len(errors(ran)) == 1 and "--yes" in errors(ran)[0], ran.err
+    assert proj.runs() == []
+
+
+def test_a_dry_run_writes_nothing_and_moves_no_hunt_number(tmp_path: Path) -> None:
+    """Point 10: the folder is as it was, under `--json` too; the hunt made after it is still the first."""
+    proj = project(tmp_path)
+    before, paths = files_under(proj.folder), paths_under(proj.folder)
+    for words in (["hunt", "--dry-run"], ["hunt", "--dry-run", "--json"]):
+        assert cli(proj, *words, PYTHONDONTWRITEBYTECODE="1").exit == CODES["done"]
+        assert files_under(proj.folder) == before
+        assert paths_under(proj.folder) == paths
+    assert cli(proj, "hunt", "--yes").exit == CODES["done"]
+    assert hunt_names(proj) == ["desk-1"]
 
 
 # ---------------------------------------------------------------------------
@@ -499,7 +538,7 @@ def test_a_hunt_stopped_by_its_dollar_cap_prints_what_was_kept_and_exits_3(tmp_p
     assert len(stored(proj, name, "control")) == 1
     assert re.search(r"\bdollars?\b", text), text
     assert holds_number(text, "1"), text
-    assert nexts(ran), "a stop says how to go on"
+    assert nexts(ran) == [f"{PROG} hunt --hunt {name}"], "point 7: a stop gives the command that goes on with it"
     assert "Traceback" not in ran.err
 
 
@@ -559,7 +598,7 @@ def test_ctrl_c_during_a_hunt_prints_what_was_kept_and_how_to_go_on_and_exits_13
     assert len(stop) == 1, shown
     assert holds_number(stop[0], str(kept)), stop
     commands = [shlex.split(c) for c in re.findall(r"next:\s+(.*\S)", shown)]
-    assert commands and commands[0][0] == PROG, shown
+    assert commands == [[PROG, "hunt", "--hunt", name]], shown
     again = cli(proj, *commands[0][1:], *([] if "--yes" in commands[0] else ["--yes"]))
     assert again.exit == CODES["done"], again
     assert hunt_names(proj) == [name]
@@ -582,3 +621,145 @@ def test_every_command_the_hunt_names_starts_with_the_name_it_was_run_under(tmp_
     commands = nexts(ran)
     assert commands and all(c.startswith("poisson break ") for c in commands), commands
     assert "poisson-break" not in ran.out + ran.err
+
+
+# ---------------------------------------------------------------------------
+# point 7: going on with a hunt by its name
+# ---------------------------------------------------------------------------
+
+
+def test_hunt_given_a_hunt_that_is_not_there_is_refused_before_any_run(tmp_path: Path) -> None:
+    proj = project(tmp_path, SOUND)
+    refused_once(cli(proj, "hunt", "--yes", "--hunt", "nightly"), CODES["refused"])
+    assert proj.runs() == []
+    assert hunt_names(proj) == []
+
+
+def test_hunt_given_a_stopped_hunt_goes_on_with_it(tmp_path: Path) -> None:
+    """A hunt stopped by its dollar cap after one run, the cap then raised, and the command the stop printed run: no
+    hunt is made, the cell stored before the stop is not run again, and the hunt ends."""
+    proj = project(tmp_path, cases(3, weak_to=["error"], tokens=[1000, 0]),
+                   limits={"dollars": 0.0015, "input_per_million": 1.0, "output_per_million": 1.0})
+    first = cli(proj, "hunt", "--yes")
+    assert first.exit == CODES["stopped"], first
+    (name,) = hunt_names(proj)
+    (stopped_at,) = [(r["case"], r["seed"]) for r in proj.runs()]
+    text = proj.settings.read_text(encoding="utf-8")
+    assert text.count("0.0015") == 1
+    proj.settings.write_text(text.replace("0.0015", "1.0"), encoding="utf-8")
+    command = shlex.split(nexts(first)[0])
+    again = cli(proj, *command[1:], "--yes")
+    assert again.exit == CODES["done"], again
+    assert hunt_names(proj) == [name]
+    assert [(r["case"], r["seed"]) for r in proj.runs()].count(stopped_at) == 1
+    assert len(stored(proj, name, "control")) == 6
+
+
+# ---------------------------------------------------------------------------
+# point 12: the high base rate
+# ---------------------------------------------------------------------------
+
+
+def control_rate(proj: Project, name: str) -> str:
+    """The control stage's rate as the look prints it, read back through the library (the stage is stored, so asking
+    for it again runs nothing)."""
+    import contextlib
+
+    from poisson_break import look
+    from poisson_break.hunt import control
+
+    with contextlib.chdir(proj.folder):
+        summary = control(opened(proj, name))
+    return str(look.fmt_rate(summary.rate))
+
+
+def test_a_control_that_fails_more_than_half_its_runs_is_a_note_carrying_its_rate(tmp_path: Path) -> None:
+    """Point 12, spec §5.2, BK5.7: a `note:` on stderr when the control stage ends, carrying the control's rate."""
+    proj = project(tmp_path, cases(6, rate=0.8, weak_to=["error"]), search={"control_repeats": 3, "runs": 120})
+    ran = cli(proj, "hunt", "--yes")
+    assert ran.exit == CODES["done"], ran
+    (name,) = hunt_names(proj)
+    rate = control_rate(proj, name)
+    assert [n for n in notes(ran) if REAL not in n and holds_number(n, rate)], (rate, ran.err)
+
+
+def test_a_control_that_fails_seldom_has_no_such_note(found: tuple[Project, Any]) -> None:
+    """The found hunt's control failed none of its runs: its one note is the one after the plan."""
+    proj, ran = found
+    assert ran.exit == CODES["done"] and proj.runs(), ran
+    assert [n for n in notes(ran) if REAL in n], "the hunt ran and printed its one note"
+    assert [n for n in notes(ran) if REAL not in n] == [], ran.err
+
+
+# ---------------------------------------------------------------------------
+# point 13: "k of n failed" and the kind on a candidate's line
+# ---------------------------------------------------------------------------
+
+
+def last_rows(proj: Project, name: str, condition: str) -> list[dict[str, Any]]:
+    """The stored rows of the stage that last ran `condition`: shrink's if it ran it, else search's."""
+    for arm in ("shrink", "search"):
+        if f"{name}-{arm}" not in store_runs(proj, name):
+            continue
+        rows = [r for r in stored(proj, name, arm)
+                if r["meta"]["poisson_break"]["condition"]["name"] == condition]
+        if rows:
+            return rows
+    raise AssertionError(f"no stage ran {condition}")
+
+
+def main_kind(rows: list[dict[str, Any]]) -> str:
+    """The kind most of the failed rows have, ties by the order of §4 (`records.KINDS`, then the signals)."""
+    from poisson_break.records import KINDS, SIGNALS
+
+    order = [*KINDS, *SIGNALS]
+    kinds = [r["meta"]["poisson_break"]["failure"]["kind"] for r in rows if r["outcome"] == "failed"]
+    most = max(kinds.count(k) for k in kinds)
+    return min((k for k in kinds if kinds.count(k) == most), key=lambda k: order.index(k) if k in order else len(order))
+
+
+def candidate_line(ran: Any, condition: str) -> str:
+    block = result_of(ran, "found")
+    found = [line for line in detail(block) if condition in line.split()]
+    assert len(found) == 1, (condition, block)
+    return found[0]
+
+
+@pytest.fixture(scope="module")
+def two_kinds(tmp_path_factory: pytest.TempPathFactory) -> tuple[Project, Any]:
+    """A desk that fails about half its runs under `error` and crashes on every run under `timeout`: two candidates,
+    one whose rows did not all fail, and one whose kind is not the word "failed"."""
+    proj = project(tmp_path_factory.mktemp("kinds"), cases(8, weak=0.5, weak_to=["error"], crash_to=["timeout"]),
+                   search={"control_repeats": 2, "runs": 300, "cases_per_condition": 6})
+    return proj, cli(proj, "hunt", "--yes")
+
+
+@pytest.mark.parametrize("hunted", ["found", "two_kinds"])
+def test_a_candidate_s_line_carries_k_of_n_failed_from_the_stage_that_last_ran_it(
+        hunted: str, request: pytest.FixtureRequest) -> None:
+    proj, ran = request.getfixturevalue(hunted)
+    assert ran.exit == CODES["done"], ran
+    (name,) = hunt_names(proj)
+    counts = []
+    for condition in candidates(proj, name):
+        rows = last_rows(proj, name, condition)
+        failed = sum(r["outcome"] == "failed" for r in rows)
+        counts.append((failed, len(rows)))
+        line = candidate_line(ran, condition)
+        assert re.search(rf"(?<!\d){failed} of {len(rows)} failed\b", line), (line, failed, len(rows))
+    if hunted == "two_kinds":
+        assert any(k < n for k, n in counts), f"a candidate whose rows did not all fail: {counts}"
+
+
+def test_a_candidate_s_line_carries_the_kind_most_of_its_failed_rows_have(
+        two_kinds: tuple[Project, Any]) -> None:
+    proj, ran = two_kinds
+    assert ran.exit == CODES["done"], ran
+    (name,) = hunt_names(proj)
+    kinds = {condition: main_kind(last_rows(proj, name, condition)) for condition in candidates(proj, name)}
+    assert "crashed" in kinds.values(), kinds
+    for condition, kind in kinds.items():
+        words = candidate_line(ran, condition).split()
+        assert kind in words, (kind, words)
+        others = {"crashed", "wrong"} - {kind}
+        assert not others & set(words), (kind, words)

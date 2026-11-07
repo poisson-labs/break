@@ -6,8 +6,9 @@ Invariants held here (Break — Plan, the commands module; spec §9.1):
 - BK8.9   "Break calls your tools for real" is in `doctor`'s output.
 - §9.1    `doctor`'s verdicts are `ready` and `not ready`; it lists the target's tools.
 
-Reading taken, not ruled (put to Taylor in OWED, with the rest): `doctor` asked for nothing more runs nothing, since
-its one run is "if asked". How it is asked for is a ruling, so no test here asks for it.
+Taylor's rulings on BK8's open points (2026-11-07), held here: `doctor --run` asks `[y/N]` (`--yes` answers), runs
+the first case once with no change, stores nothing, and adds its outcome as a detail line; `doctor` alone runs nothing
+and asks nothing (point 23, and point 26 (a)); the schema `poisson_break.doctor-result/1` (point 11).
 """
 
 from __future__ import annotations
@@ -22,15 +23,19 @@ from tests.commands_support import (
     CODES,
     PROG,
     REAL,
+    cases,
     cli,
     detail,
+    errors,
+    files_under,
+    paths_under,
     json_document,
     nexts,
     project,
     result_of,
     verdict,
 )
-from tests.look_support import strip
+from tests.look_support import Streams, strip
 
 
 def not_ready(ran: Any) -> str:
@@ -58,12 +63,16 @@ def test_ready_says_break_calls_your_tools_for_real(tmp_path: Path) -> None:
     assert REAL in strip(ran.out + ran.err)
 
 
-def test_doctor_asked_for_nothing_more_runs_nothing(tmp_path: Path) -> None:
+def test_doctor_asked_for_nothing_more_runs_nothing_and_asks_nothing(tmp_path: Path) -> None:
+    """Point 23: with stdin not a terminal and no `--yes`, `doctor` alone is ready: it asked nothing, and ran nothing."""
     proj = project(tmp_path)
-    ran = cli(proj, "doctor")
+    before = files_under(proj.folder)
+    ran = cli(proj, "doctor", PYTHONDONTWRITEBYTECODE="1")
     assert ran.exit == CODES["done"] and verdict(ran)[0] == "ready", ran
     assert proj.runs() == []
     assert not proj.hunts.exists()
+    assert files_under(proj.folder) == before
+    assert errors(ran) == [] and "[y/N]" not in ran.err
 
 
 def test_doctor_under_json_is_one_strict_document_with_the_same_exit_code(tmp_path: Path) -> None:
@@ -72,6 +81,7 @@ def test_doctor_under_json_is_one_strict_document_with_the_same_exit_code(tmp_pa
     document = json_document(ran)
     assert list(document)[:3] == ["schema", "verdict", "sentence"]
     assert document["verdict"] == "ready"
+    assert document["schema"] == "poisson_break.doctor-result/1"
 
 
 def test_a_problem_under_json_is_one_document_and_still_exits_4(tmp_path: Path) -> None:
@@ -167,3 +177,69 @@ def test_not_ready_is_one_problem_line(tmp_path: Path) -> None:
     not_ready(ran)
     assert detail(result_of(ran, "not ready")) == [], ran
     assert not [line for line in strip(ran.err).splitlines() if line.startswith("error: ")], ran
+
+
+# ---------------------------------------------------------------------------
+# point 23: doctor --run
+# ---------------------------------------------------------------------------
+
+
+def outcome_lines(ran: Any) -> list[str]:
+    return detail(result_of(ran, "ready"))
+
+
+@pytest.mark.parametrize(("rate", "outcome"), [(0.0, "ok"), (1.0, "failed")])
+def test_doctor_run_yes_runs_the_first_case_once_and_shows_its_outcome(tmp_path: Path, rate: float,
+                                                                       outcome: str) -> None:
+    """The first case of three runs once: `k1`, whose runs all fail or none do. Its outcome is a detail line."""
+    proj = project(tmp_path, [*cases(1, rate=rate), *cases(2, first=2, rate=1.0 - rate)])
+    ran = cli(proj, "doctor", "--run", "--yes")
+    assert ran.exit == CODES["done"], ran
+    assert verdict(ran)[0] == "ready"
+    assert [r["case"] for r in proj.runs()] == ["k1"]
+    other = {"ok": "failed", "failed": "ok"}[outcome]
+    words = [w for line in outcome_lines(ran) for w in line.split()]
+    assert outcome in words and other not in words, outcome_lines(ran)
+
+
+def test_doctor_run_makes_no_change(tmp_path: Path) -> None:
+    """`k1` fails every run under `error` and no other: run with no change, it does not fail."""
+    proj = project(tmp_path, cases(3, weak_to=["error"]))
+    ran = cli(proj, "doctor", "--run", "--yes")
+    assert ran.exit == CODES["done"], ran
+    words = [w for line in outcome_lines(ran) for w in line.split()]
+    assert "ok" in words and "failed" not in words, outcome_lines(ran)
+
+
+def test_doctor_run_stores_nothing(tmp_path: Path) -> None:
+    proj = project(tmp_path)
+    before, paths = files_under(proj.folder), paths_under(proj.folder)
+    ran = cli(proj, "doctor", "--run", "--yes", PYTHONDONTWRITEBYTECODE="1")
+    assert ran.exit == CODES["done"] and len(proj.runs()) == 1, ran
+    assert files_under(proj.folder) == before
+    assert paths_under(proj.folder) == paths
+    assert not proj.hunts.exists()
+
+
+def test_doctor_run_asks_first_and_yes_runs(tmp_path: Path) -> None:
+    proj = project(tmp_path)
+    ran = cli(proj, "doctor", "--run", streams=Streams(stdin="pty", keys=(b"y\r",)))
+    assert ran.exit == CODES["done"], ran
+    assert "[y/N]" in strip(ran.err)
+    assert len(proj.runs()) == 1
+
+
+def test_doctor_run_answered_no_runs_nothing(tmp_path: Path) -> None:
+    proj = project(tmp_path)
+    ran = cli(proj, "doctor", "--run", streams=Streams(stdin="pty", keys=(b"n\r",)))
+    assert "[y/N]" in strip(ran.err)
+    assert proj.runs() == []
+    assert "Traceback" not in ran.err
+
+
+def test_doctor_run_without_a_terminal_and_without_yes_is_refused_and_runs_nothing(tmp_path: Path) -> None:
+    proj = project(tmp_path)
+    ran = cli(proj, "doctor", "--run")
+    assert ran.exit == CODES["refused"], ran
+    assert len(errors(ran)) == 1 and "--yes" in errors(ran)[0], ran
+    assert proj.runs() == []

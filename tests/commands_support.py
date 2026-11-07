@@ -305,6 +305,13 @@ def files_under(folder: Path) -> dict[str, bytes]:
     return {p.relative_to(folder).as_posix(): p.read_bytes() for p in sorted(folder.rglob("*")) if p.is_file()}
 
 
+def paths_under(folder: Path) -> list[str]:
+    """Every path under `folder`, folders as well as files, by its path from there: an empty folder made shows."""
+    if not folder.exists():
+        return []
+    return sorted(p.relative_to(folder).as_posix() for p in folder.rglob("*"))
+
+
 def condition_name(text: str) -> str:
     from poisson_break.changes import name, parse
 

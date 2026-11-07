@@ -8,6 +8,9 @@ Invariants held here (Break — Plan, the commands module and BK1.6; spec §9.1,
 
 What is pinned is the catalogue's own data, read through `poisson_break.changes.CATALOG`: each line's surface and name,
 and its description. How a line is laid out is not.
+
+Taylor's rulings on BK8's open points (2026-11-07), held here: `catalog` needs no `break.toml`, and lists in the
+catalogue's order (point 25); the schema `poisson_break.catalog-result/1` (point 11).
 """
 
 from __future__ import annotations
@@ -88,4 +91,23 @@ def test_catalog_under_json_is_one_strict_document(tmp_path: Path) -> None:
     document = json_document(ran)
     assert list(document)[:3] == ["schema", "verdict", "sentence"]
     assert document["verdict"] == "ok"
+    assert document["schema"] == "poisson_break.catalog-result/1"
+
+
+def test_catalog_needs_no_settings_file(tmp_path: Path) -> None:
+    proj = project(tmp_path, write=False)
+    ran = cli(proj, "catalog")
+    assert ran.exit == CODES["done"], ran
+    assert verdict(ran)[0] == "ok"
+    assert len(detail(result_of(ran, "ok"))) >= len(entries())
+
+
+def test_catalog_lists_in_the_catalogue_s_order(listed: tuple[Any, list[str]]) -> None:
+    ran, lines = listed
+    at = []
+    for entry in entries():
+        found = lines_for(lines, entry)
+        assert len(found) == 1, (entry, lines)
+        at.append(lines.index(found[0]))
+    assert at == sorted(at), at
 
