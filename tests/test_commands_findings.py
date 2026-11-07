@@ -16,7 +16,8 @@ case that failed in the control, with its failed runs of its runs and its kinds,
 15); `replay --case ID` replays another of the finding's cases (point 16); `replay` asks nothing before its one run and
 shows no plan, but prints the "Break calls your tools for real" note on stderr (point 17, with Taylor's addition); a
 replay whose run was not counted says `stopped` with the run's one line of error as the sentence, and exits 3 (point
-18); the schemas `poisson_break.findings-result/1` and `poisson_break.replay-result/1` (point 11).
+18), that line being `Replayed.error` (point 37); the schemas `poisson_break.findings-result/1` and
+`poisson_break.replay-result/1` (point 11).
 """
 
 from __future__ import annotations
@@ -57,6 +58,7 @@ from tests.commands_support import (
     stored,
     verdict,
 )
+from tests.commands_spies import REPLAY_ERROR, SPIED_ERROR, spied, spying
 from tests.look_support import strip
 
 
@@ -360,9 +362,13 @@ def test_replay_of_a_case_the_finding_does_not_hold_is_refused_and_runs_nothing(
 # ---------------------------------------------------------------------------
 
 
-def test_a_replay_whose_run_was_not_counted_says_stopped_with_its_error_and_exits_3(two: Project) -> None:
+def test_a_replay_whose_run_was_not_counted_says_stopped_with_its_error_and_exits_3(
+        two: Project, monkeypatch: pytest.MonkeyPatch) -> None:
     """The way in hands back something that is no episode: the run is Break's own failure, not counted. The result is
-    `stopped`, its sentence the run's one line of error, exit 3; nothing is stored."""
+    `stopped`, its sentence the run's one line of error, exit 3; nothing is stored. The line is `Replayed.error`
+    (point 37): the same replay made through the library, on the same seed, carries it."""
+    from poisson_break.confirm import replay
+
     before = files_under(two.hunts)
     runs = len(two.runs())
     ran = cli(two, "replay", "1", BREAK_TEST_BROKEN="1")
@@ -373,6 +379,20 @@ def test_a_replay_whose_run_was_not_counted_says_stopped_with_its_error_and_exit
     assert "Traceback" not in ran.err
     assert len(two.runs()) == runs + 1
     assert files_under(two.hunts) == before
+    monkeypatch.setenv("BREAK_TEST_BROKEN", "1")
+    with contextlib.chdir(two.folder):
+        done = replay(opened(two, "desk-1"), 1)
+    assert done.outcome == "not counted"
+    assert sentence == done.error
+
+
+def test_the_sentence_of_a_replay_not_counted_is_replayed_error(two: Project, tmp_path: Path) -> None:
+    """Point 37: with `confirm.replay` handing back an error line no run wrote, that line is the sentence."""
+    env = spying(two, tmp_path / "spy", REPLAY_ERROR)
+    ran = cli(two, "replay", "1", BREAK_TEST_BROKEN="1", **env)
+    assert ran.exit == CODES["stopped"], ran
+    assert verdict(ran) == ("stopped", SPIED_ERROR)
+    assert [c["name"] for c in spied(env)] == ["replay"]
 
 
 # ---------------------------------------------------------------------------

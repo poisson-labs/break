@@ -8,7 +8,8 @@ Invariants held here (Break — Plan, the commands module; spec §9.1):
 
 Taylor's rulings on BK8's open points (2026-11-07), held here: `doctor --run` asks `[y/N]` (`--yes` answers), runs
 the first case once with no change, stores nothing, and adds its outcome as a detail line; `doctor` alone runs nothing
-and asks nothing (point 23, and point 26 (a)); the schema `poisson_break.doctor-result/1` (point 11).
+and asks nothing (point 23, and point 26 (a)); the run is `poisson_break.hunt.run_once`'s (point 39); the schema
+`poisson_break.doctor-result/1` (point 11).
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ from tests.commands_support import (
     result_of,
     verdict,
 )
+from tests.commands_spies import RUN_ONCE, spied, spying
 from tests.look_support import Streams, strip
 
 
@@ -219,6 +221,30 @@ def test_doctor_run_stores_nothing(tmp_path: Path) -> None:
     assert files_under(proj.folder) == before
     assert paths_under(proj.folder) == paths
     assert not proj.hunts.exists()
+
+
+def test_doctor_run_is_hunt_run_once_s_one_run(tmp_path: Path) -> None:
+    """Point 39: with `hunt.run_once` stood in for, the case is never run, `run_once` is asked once, for the first case
+    as the case file holds it, and the outcome and kind shown are the ones it handed back."""
+    proj = project(tmp_path / "proj", cases(3, rate=0.0))
+    env = spying(proj, tmp_path / "spy", RUN_ONCE)
+    ran = cli(proj, "doctor", "--run", "--yes", **env)
+    assert ran.exit == CODES["done"], ran
+    assert verdict(ran)[0] == "ready"
+    assert proj.runs() == []
+    calls = spied(env)
+    assert [c["name"] for c in calls] == ["run_once"], calls
+    assert calls[0]["case"] == cases(3, rate=0.0)[0]
+    words = [w.strip("():,") for line in outcome_lines(ran) for w in line.split()]
+    assert "failed" in words and "spied_kind" in words and "ok" not in words, outcome_lines(ran)
+
+
+def test_doctor_alone_does_not_ask_run_once(tmp_path: Path) -> None:
+    proj = project(tmp_path / "proj")
+    env = spying(proj, tmp_path / "spy", RUN_ONCE)
+    ran = cli(proj, "doctor", **env)
+    assert ran.exit == CODES["done"], ran
+    assert spied(env) == []
 
 
 def test_doctor_run_asks_first_and_yes_runs(tmp_path: Path) -> None:

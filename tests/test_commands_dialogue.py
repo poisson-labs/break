@@ -18,6 +18,21 @@ Taylor's rulings on BK8's open points (2026-11-07) settle what the spec left to 
   `next:` (BK8.12);
 - point 5: "at most nine questions" counts the numbered questions; no prompt belongs to a question past nine.
 
+Taylor's rulings on points 31 to 40 (2026-11-07) settle the rest of the form, and these tests hold them too:
+
+- point 31: under `init --yes` each question takes its own default, the `[y/N]` ones as no, and the look is asked
+  nothing;
+- point 32: each line of question 1's menu starts with the kind as `break.toml` writes it, so a script chooses any of the
+  six, in either rendering;
+- point 33: with no tool found, question 4 is one text prompt for the names, comma-separated, empty by default meaning
+  none, then each name's `read`/`write`/`off` menu as for a tool found;
+- point 34: question 2 given an entry that does not import, or nothing, says why in one `note:` line and asks again; a
+  stdin that ends first is the look's refusal;
+- point 35: a yes to model calls is `vary.model` set to every model fault of the catalogue; a yes to settings of one's
+  own is a text prompt per setting in `--env`'s form, until an empty answer;
+- point 36: the conversation question is `[Y/n]`;
+- point 40: the install command is the one `poisson_break.settings.install_command` hands back.
+
 Invariants held here (Break — Plan, the commands module): BK8.3 (the dialogue under scripted answers and the equivalent
 command produce byte-identical files, under both renderings), BK8.5 and BK8.12 (the menus use the look's question and
 run under scripted answers in both renderings).
@@ -25,9 +40,8 @@ run under scripted answers in both renderings).
 Every dialogue runs on three pseudo-terminals (`tests/commands_dialogue.py`). Plain is the terminals with `NO_COLOR`;
 pretty is the terminals with the switch holding, where a menu is questionary's and is answered with the arrow keys.
 
-**Not held here, put to Taylor (OWED):** how a menu line names a kind other than `rollout` (so a test can choose one in
-the menu), what question 4 asks when no tool was found, what question 2 does with an entry that does not import or an
-empty answer, and what a yes to model calls or to settings of one's own adds. No test chooses any of those.
+**Not held here, put to Taylor (OWED, point 43):** what a yes to the conversation writes. The tests hold only that it
+turns the conversation on with moves of the catalogue's, and that a no writes none.
 """
 
 from __future__ import annotations
@@ -39,6 +53,7 @@ from typing import Any
 import pytest
 
 from tests.commands_dialogue import Asked, converse, orders, scripted
+from tests.commands_spies import INSTALL_COMMAND, NOTHING_TO_INSTALL, spied, spying
 from tests.commands_support import (
     CODES,
     PROG,
@@ -62,6 +77,8 @@ WRAPPED = ("lookup_order", "check_policy")
 # Each kind whose way in is an optional extra, and that extra (the settings module's own table).
 EXTRAS = {"openai-agents": "openai-agents", "langgraph": "langgraph", "crewai": "crewai", "mcp": "mcp",
           "command": "mcp"}
+# The six kinds, as `break.toml` writes them (BK4.7).
+KINDS = ("openai-agents", "langgraph", "crewai", "mcp", "command", "rollout")
 
 
 def empty(tmp_path: Path, *, with_cases: bool = True, turns: bool = False) -> Any:
@@ -257,8 +274,9 @@ def test_no_prompt_belongs_to_a_question_past_nine(plain: tuple[Any, Any, list[A
 def numbered_questions(asked: list[Asked]) -> list[int]:
     """The number of the question each prompt belongs to, read by point 1's form: the menu of six kinds is question 1
     and the text after it 2; the text whose default is the cases file 3, with the `[y/N]` after it; a tool's menu, the
-    menu after a `write` and the text after `stand-in` 4; the yes/nos 6; `[400]` 7; `[5.00]` 9; a text after 6 or 7
-    that is neither is 8, and any other text 5."""
+    menu after a `write` and the text after `stand-in` 4; the yes/nos 6, and a text after a yes there or after such a
+    text answered (point 35's settings of one's own) 6; `[400]` 7; `[5.00]` 9; a text after 6 or 7 that is neither is
+    8, and any other text 5."""
     numbers: list[int] = []
     for i, one in enumerate(asked):
         before = asked[i - 1] if i else None
@@ -277,6 +295,9 @@ def numbered_questions(asked: list[Asked]) -> list[int]:
             number = 7
         elif one.bracket == "[5.00]":
             number = 9
+        elif numbers and numbers[-1] == 6 and before is not None and (
+                (before.yes_no and before.answer.lower().startswith("y")) or (not before.yes_no and before.answer)):
+            number = 6  # point 35: a setting of one's own, after the yes or after the setting before it
         elif numbers and numbers[-1] in (6, 7, 8):
             number = 8
         else:
@@ -297,13 +318,31 @@ def test_question_9_is_not_asked_without_the_prices(tmp_path: Path) -> None:
     assert proj.settings.read_text(encoding="utf-8") == expected(words)
 
 
-def test_the_conversation_is_asked_only_when_a_case_has_turns(tmp_path: Path) -> None:
-    """Question 6 asks one `[y/N]` or `[Y/n]` more when a case is a conversation."""
+def test_the_conversation_is_asked_only_when_a_case_has_turns_and_defaults_to_yes(tmp_path: Path) -> None:
+    """Question 6 asks one yes/no more when a case is a conversation, third of its five, and it is `[Y/n]` (point 36);
+    Enter takes it, and the conversation is varied with moves of the catalogue's."""
+    from poisson_break.changes import CATALOG
+    from poisson_break.settings import loads
+
     proj = empty(tmp_path, turns=True)
     rest = ["", ENTRY, "", "", "", "", "", "", "", "", "", "", ""]
     ran, asked = converse(proj, ["init"], answering(dict(CLASSES), rest))
     assert ran.exit == CODES["done"], (ran, asked)
-    assert sum(a.yes_no for a in asked) == 5, [a.text for a in asked]
+    assert [a.bracket for a in asked if a.yes_no] == ["[Y/n]", "[Y/n]", "[Y/n]", "[y/N]", "[y/N]"], [a.text for a in
+                                                                                                      asked]
+    moves = loads(proj.settings.read_text(encoding="utf-8")).vary.conversation
+    assert moves and set(moves) <= {e.name for e in CATALOG if e.surface == "user"}, moves
+
+
+def test_the_conversation_answered_no_is_not_varied(tmp_path: Path) -> None:
+    proj = empty(tmp_path, turns=True)
+    rest = ["", ENTRY, "", "", "", "", "", "n", "", "", "", "", ""]
+    ran, asked = converse(proj, ["init"], answering(dict(CLASSES), rest))
+    assert ran.exit == CODES["done"], (ran, asked)
+    assert [a.answer for a in asked if a.yes_no] == ["", "", "n", "", ""]
+    words = ["--kind", "rollout", "--entry", ENTRY, "--cases", "cases.jsonl", "--tool", 'lookup_order = "read"',
+             "--tool", f'check_policy = {{ class = "write", stand_in = "{STAND_IN}" }}']
+    assert proj.settings.read_text(encoding="utf-8") == expected(words)
 
 
 # ---------------------------------------------------------------------------
@@ -487,3 +526,250 @@ def test_init_s_document_is_named_init_result(tmp_path: Path) -> None:
     ran = cli(proj, "init", "--yes", "--json", "--kind", "rollout", "--entry", ENTRY, "--tool", 'lookup_order = "read"')
     assert ran.exit == CODES["done"], ran
     assert json_document(ran)["schema"] == "poisson_break.init-result/1"
+
+
+# ---------------------------------------------------------------------------
+# point 40: the install command is settings.install_command's
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("kind", ["rollout", "langgraph"])
+def test_the_install_command_is_the_one_settings_install_command_hands_back(tmp_path: Path, kind: str) -> None:
+    """With `install_command` stood in for, handing back a line for every kind, the core's own too: that line is the
+    first `next:`, and `init` asked it of the kind written."""
+    proj = empty(tmp_path / "proj")
+    env = spying(proj, tmp_path / "spy", INSTALL_COMMAND)
+    ran = cli(proj, "init", "--yes", "--kind", kind, "--entry", ENTRY, "--tool", 'lookup_order = "read"', **env)
+    assert ran.exit == CODES["done"], ran
+    assert nexts(ran)[0] == f"pip install spied-extra-for-{kind}", nexts(ran)
+    assert {"name": "install_command", "kind": kind} in spied(env)
+
+
+def test_with_nothing_to_install_init_names_no_install_command(tmp_path: Path) -> None:
+    """With `install_command` handing back `None` for every kind, a kind whose extra is missing gets no `pip install`."""
+    proj = empty(tmp_path / "proj")
+    env = spying(proj, tmp_path / "spy", NOTHING_TO_INSTALL)
+    ran = cli(proj, "init", "--yes", "--kind", "langgraph", "--entry", ENTRY, "--tool", 'lookup_order = "read"', **env)
+    assert ran.exit == CODES["done"], ran
+    assert nexts(ran) and not any(shlex.split(n)[0] == "pip" for n in nexts(ran)), nexts(ran)
+    assert {"name": "install_command", "kind": "langgraph"} in spied(env)
+
+
+# ---------------------------------------------------------------------------
+# point 31: init --yes takes every default, the [y/N] ones as no
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("streams", ["terminals", "piped"])
+def test_init_yes_takes_every_default_the_yes_no_ones_as_no(tmp_path: Path, streams: str) -> None:
+    """No cases file, so the starter file would be offered: under `--yes` it is not written, model calls and settings of
+    one's own stay off, each tool found is `read`, and nothing is asked, on terminals or not."""
+    from poisson_break.settings import loads
+
+    proj = empty(tmp_path, with_cases=False)
+    if streams == "terminals":
+        ran, asked = converse(proj, ["init", "--yes", "--entry", ENTRY], scripted([]))
+        assert asked == []
+    else:
+        ran = cli(proj, "init", "--yes", "--entry", ENTRY)
+    assert ran.exit == CODES["done"], ran
+    assert "[y/N]" not in strip(ran.err) and "[Y/n]" not in strip(ran.err)
+    assert set(files_under(proj.folder)) == {"break.toml"}
+    words = ["--kind", "rollout", "--entry", ENTRY, "--cases", "cases.jsonl",
+             *[w for tool in WRAPPED for w in ("--tool", f'{tool} = "read"')]]
+    text = proj.settings.read_text(encoding="utf-8")
+    assert text == expected(words)
+    vary = loads(text).vary
+    assert (vary.model, vary.env, vary.conversation) == ((), (), ())
+
+
+def test_init_yes_with_conversations_takes_the_conversation_s_default_yes(tmp_path: Path) -> None:
+    """Points 31 and 36: the conversation's default is yes, so `--yes` turns it on."""
+    from poisson_break.changes import CATALOG
+    from poisson_break.settings import loads
+
+    proj = empty(tmp_path, turns=True)
+    ran = cli(proj, "init", "--yes", "--entry", ENTRY)
+    assert ran.exit == CODES["done"], ran
+    vary = loads(proj.settings.read_text(encoding="utf-8")).vary
+    assert vary.conversation and set(vary.conversation) <= {e.name for e in CATALOG if e.surface == "user"}
+    assert (vary.model, vary.env) == ((), ())
+
+
+# ---------------------------------------------------------------------------
+# point 32: each kind chosen in question 1's menu, in both renderings
+# ---------------------------------------------------------------------------
+
+
+def test_each_line_of_question_1_starts_with_the_kind_as_break_toml_writes_it(
+        plain: tuple[Any, Any, list[Asked]]) -> None:
+    menu = plain[2][0].menu
+    assert sorted(line.split()[0] for line in menu) == sorted(KINDS), menu
+    (rollout,) = [line for line in menu if line.split()[0] == "rollout"]
+    assert "a function Break can call" in rollout
+
+
+def choosing(kind: str) -> Any:
+    """Question 1 answered with the line of `kind`, question 2 with the entry, and every other question by Enter."""
+    count = {"asked": 0}
+
+    def answer(asked: Asked) -> str:
+        count["asked"] += 1
+        if count["asked"] == 1:
+            assert len(asked.menu) == 6, asked.text
+            (line,) = [c for c in asked.menu if c.split()[0] == kind]
+            return line
+        if count["asked"] == 2:
+            return ENTRY
+        return ""
+
+    return answer
+
+
+@pytest.mark.parametrize("rendering", ["plain", "pretty"])
+@pytest.mark.parametrize("kind", KINDS)
+def test_each_kind_can_be_chosen_in_question_1_s_menu(tmp_path: Path, plain: tuple[Any, Any, list[Asked]], kind: str,
+                                                      rendering: str) -> None:
+    """BK8.12, points 4 and 32: chosen in the menu, the kind is written; a kind whose extra is missing still gets
+    `break.toml`, `wrote`, exit 0, and the install command as its first `next:`."""
+    from poisson_break.settings import loads
+
+    proj = empty(tmp_path)
+    ran, asked = converse(proj, ["init"], choosing(kind), pretty=rendering == "pretty", order=orders(plain[2]))
+    assert ran.exit == CODES["done"], (ran, asked)
+    assert verdict(ran)[0] == "wrote"
+    written = loads(proj.settings.read_text(encoding="utf-8"))
+    assert (written.target.kind, written.target.entry) == (kind, ENTRY)
+    if kind in EXTRAS:
+        assert shlex.split(nexts(ran)[0]) == ["pip", "install", f"poisson-break[{EXTRAS[kind]}]"], nexts(ran)
+    else:
+        assert not any(shlex.split(n)[0] == "pip" for n in nexts(ran)), nexts(ran)
+
+
+# ---------------------------------------------------------------------------
+# point 33: question 4 when no tool was found
+# ---------------------------------------------------------------------------
+
+IN_BODY = ("from poisson_break.apply import wrap\n"
+           "def _a(q): return q\n"
+           "def agent(cfg, seed):\n"
+           "    lookup = wrap('lookup_order', _a)\n"
+           "    send = wrap('send_mail', _a)\n"
+           "    raise SystemExit('the agent was run')\n")
+IN_BODY_CLASSES = {"lookup_order": ["read"], "send_mail": ["off"]}
+IN_BODY_REST = ["", "in_body:agent", "", "lookup_order, send_mail", "", "", "", "", "", "", "", "", ""]
+IN_BODY_WORDS = ["--kind", "rollout", "--entry", "in_body:agent", "--cases", "cases.jsonl",
+                 "--tool", 'lookup_order = "read"', "--tool", 'send_mail = "off"']
+
+
+def in_body(folder: Path) -> tuple[Any, dict[str, str]]:
+    proj = empty(folder)
+    (proj.folder / "in_body.py").write_text(IN_BODY, encoding="utf-8")
+    return proj, {"PYTHONPATH": f"{proj.folder}:" + child_env(proj)["PYTHONPATH"]}
+
+
+@pytest.fixture(scope="module")
+def no_tool_found(tmp_path_factory: pytest.TempPathFactory) -> dict[str, tuple[Any, Any, list[Asked]]]:
+    proj, env = in_body(tmp_path_factory.mktemp("in-body-plain"))
+    ran, asked = converse(proj, ["init"], answering(dict(IN_BODY_CLASSES), list(IN_BODY_REST)), **env)
+    held = {"plain": (proj, ran, asked)}
+    proj, env = in_body(tmp_path_factory.mktemp("in-body-pretty"))
+    ran, again = converse(proj, ["init"], answering(dict(IN_BODY_CLASSES), list(IN_BODY_REST)), pretty=True,
+                          order=orders(asked), **env)
+    held["pretty"] = (proj, ran, again)
+    return held
+
+
+@pytest.mark.parametrize("rendering", ["plain", "pretty"])
+def test_with_no_tool_found_question_4_asks_for_the_names_then_a_menu_for_each(
+        no_tool_found: dict[str, tuple[Any, Any, list[Asked]]], rendering: str) -> None:
+    """A target that wraps its tools inside its own body: question 4 is one text prompt, empty by default, answered
+    with two names; then each name's menu, in the order given; the file is what the same flags write."""
+    proj, ran, asked = no_tool_found[rendering]
+    assert ran.exit == CODES["done"], (ran, asked)
+    names = asked[3]
+    assert not names.is_menu and not names.yes_no and names.bracket == "[]", names.text
+    assert names.answer == "lookup_order, send_mail"
+    menus = asked[4:6]
+    assert [m.is_menu for m in menus] == [True, True], [m.text for m in menus]
+    assert ["lookup_order" in menus[0].question, "send_mail" in menus[1].question] == [True, True]
+    if rendering == "plain":
+        assert [m.menu for m in menus] == [["read", "write", "off"]] * 2
+        assert [m.bracket for m in menus] == ["[read]"] * 2
+    assert sum(m.is_menu for m in asked) == 3  # question 1's, and the two
+    assert proj.settings.read_text(encoding="utf-8") == expected(IN_BODY_WORDS)
+    assert proj.runs() == []
+
+
+def test_with_no_tool_found_and_no_names_given_no_tool_is_asked_of(tmp_path: Path) -> None:
+    proj, env = in_body(tmp_path)
+    rest = ["", "in_body:agent", "", "", "", "", "", "", "", "", "", "", ""]
+    ran, asked = converse(proj, ["init"], scripted(rest), **env)
+    assert ran.exit == CODES["done"], (ran, asked)
+    assert sum(a.is_menu for a in asked) == 1
+    words = ["--kind", "rollout", "--entry", "in_body:agent", "--cases", "cases.jsonl"]
+    assert proj.settings.read_text(encoding="utf-8") == expected(words)
+
+
+# ---------------------------------------------------------------------------
+# point 34: question 2 given an entry that does not import, or nothing
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bad", ["no_such_module_here:agent", ""], ids=["does not import", "nothing"])
+def test_question_2_given_a_bad_entry_says_why_in_one_note_and_asks_again(tmp_path: Path, bad: str) -> None:
+    proj = empty(tmp_path)
+    rest = ["", bad, ENTRY, "", "", "", "", "", "", "", "", "", ""]
+    ran, asked = converse(proj, ["init"], answering(dict(CLASSES), rest))
+    assert ran.exit == CODES["done"], (ran, asked)
+    assert asked[2].question == asked[1].question and asked[2].bracket == asked[1].bracket, asked[2].text
+    said = [line for line in strip(asked[2].text).splitlines() if line.strip()]
+    assert [line for line in said if line.startswith("note:")] and len(
+        [line for line in said if line.startswith("note:")]) == 1, said
+    assert not [line for line in said if line.startswith("error:")], said
+    if bad:
+        assert "no_such_module_here" in strip(asked[2].text), said
+    words = ["--kind", "rollout", "--entry", ENTRY, "--cases", "cases.jsonl", "--tool", 'lookup_order = "read"',
+             "--tool", f'check_policy = {{ class = "write", stand_in = "{STAND_IN}" }}']
+    assert proj.settings.read_text(encoding="utf-8") == expected(words)
+
+
+def test_question_2_with_stdin_ending_first_is_the_look_s_refusal(tmp_path: Path) -> None:
+    """End of input (Ctrl-D) at question 2: the look refuses the question in one line, exit 1, nothing written."""
+    proj = empty(tmp_path)
+    before = files_under(proj.folder)
+    ran, asked = converse(proj, ["init"], scripted(["", "\x04"]))
+    assert ran.exit == CODES["refused"], (ran, asked)
+    assert len([line for line in strip(ran.err).splitlines() if line.startswith("error:")]) == 1, ran
+    assert "Traceback" not in ran.err
+    assert files_under(proj.folder) == before
+
+
+# ---------------------------------------------------------------------------
+# point 35: what a yes to model calls, or to settings of one's own, adds
+# ---------------------------------------------------------------------------
+
+
+def test_a_yes_to_model_calls_and_to_settings_of_one_s_own(tmp_path: Path) -> None:
+    """Model calls yes: every model fault of the catalogue. Settings of one's own yes: one text prompt per setting, in
+    `--env`'s form, until an empty answer; then question 7."""
+    from poisson_break.changes import CATALOG
+
+    proj = empty(tmp_path)
+    inventory, region = 'inventory = ["full", "empty"]', 'region = ["eu", "us"]'
+    rest = ["", ENTRY, "", "", "", "", "", "y", "y", inventory, region, "", "", "", ""]
+    ran, asked = converse(proj, ["init"], answering(dict(CLASSES), rest))
+    assert ran.exit == CODES["done"], (ran, asked)
+    at = next(i for i, a in enumerate(asked) if a.answer == inventory)
+    assert asked[at - 1].yes_no and asked[at - 1].answer == "y"
+    own = asked[at:at + 3]
+    assert [(a.is_menu, a.yes_no) for a in own] == [(False, False)] * 3, [a.text for a in own]
+    assert [a.answer for a in own] == [inventory, region, ""]
+    assert asked[at + 3].bracket == "[400]"
+    numbered = numbered_questions(asked)
+    assert numbered == sorted(numbered) and set(numbered) == set(range(1, 9)), numbered
+    model = ",".join(e.name for e in CATALOG if e.surface == "model")
+    words = ["--kind", "rollout", "--entry", ENTRY, "--cases", "cases.jsonl", "--tool", 'lookup_order = "read"',
+             "--tool", f'check_policy = {{ class = "write", stand_in = "{STAND_IN}" }}',
+             "--vary-model", model, "--env", inventory, "--env", region]
+    assert proj.settings.read_text(encoding="utf-8") == expected(words)
