@@ -145,10 +145,27 @@ def test_the_command_imports_the_library_it_drives() -> None:
     ("from poisson_break import look\nlook._show(1)", "reaches poisson_break.look._show"),
     ("getattr(x, '_spent')", "through getattr"),
     ("from poisson_break import confirm\nconfirm.CONFIRM_SCHEMA", "not in its __all__"),
+    # BK8 points 37, 39 and 40 (2026-11-07): the private names the three new public ones replace
+    ("from poisson_break.settings import _WAYS_IN", "private name"),
+    ("from poisson_break import settings\nsettings._WAYS_IN['mcp']", "reaches poisson_break.settings._WAYS_IN"),
+    ("from poisson_break.settings import _module_is_there", "private name"),
+    ("import poisson_break.settings as s\ns._module_is_there('x')", "reaches poisson_break.settings._module_is_there"),
+    ("import poisson_break.hunt as h\nh._run_unstored()", "reaches poisson_break.hunt._run_unstored"),
+    ("from poisson_break.hunt import _rows_of", "private name"),
+    ("from poisson_break import confirm\nconfirm._Stored(h).rows('a')", "reaches poisson_break.confirm._Stored"),
 ])
 def test_the_check_finds_each_way_a_private_name_is_reached(source: str, found: str) -> None:
     """The check can fail: each of these, in a command's source, is named."""
     assert any(found in what for what in _violations(source)), _violations(source)
+
+
+def test_the_check_takes_the_three_public_names_the_rulings_add() -> None:
+    """BK8 points 37, 39 and 40 (2026-11-07): `hunt.run_once`, `settings.install_command` and `Replayed.error` are what
+    the command reaches instead, each a public name of its module."""
+    clean = ("from poisson_break.hunt import run_once\nfrom poisson_break.settings import install_command\n"
+             "from poisson_break.confirm import Replayed\nimport poisson_break.hunt as h\nh.run_once\n"
+             "from poisson_break import settings\nsettings.install_command\n")
+    assert _violations(clean) == []
 
 
 def test_the_check_takes_public_names() -> None:
