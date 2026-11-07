@@ -4,7 +4,12 @@
 #
 # The suite itself runs under a guard that fails any connection the code under test makes
 # (tests/conftest.py), and carries the check that no statistic is computed locally
-# (tests/test_package.py). Prove comes from PyPI at its exact pin, so no job needs a token.
+# (tests/test_package.py). Prove comes from PyPI at its exact pin. Trace is not on PyPI yet and
+# its repository is private, so it comes from that repository at the commit pyproject.toml pins,
+# read with TRACE_READ_TOKEN: a repository secret holding a read-only token for
+# poisson-labs/trace. Only the steps that install read it, as git settings in their own
+# environment: it is written to no file and printed by no step. With the secret unset the
+# install fails and the job is red.
 #
 # A pull request's run is cancelled when a newer one starts for it; each push to main is a group
 # of its own. Third-party actions are pinned to a commit, with the release it is in beside it,
@@ -40,12 +45,18 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - name: Install
+        env:
+          # git reads these three as one setting, for this step alone: fetches from Trace's
+          # repository go through the token.
+          GIT_CONFIG_COUNT: "1"
+          GIT_CONFIG_KEY_0: url.https://x-access-token:${{ secrets.TRACE_READ_TOKEN }}@github.com/poisson-labs/trace.insteadOf
+          GIT_CONFIG_VALUE_0: https://github.com/poisson-labs/trace
         run: |
           python -m venv .venv
           .venv/bin/python -m pip install --quiet -e ".[dev]"
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
-      - name: Prove is installed at its pin
-        run: python -c "import importlib.metadata as m; print('poisson-prove', m.version('poisson-prove'))"
+      - name: Prove and Trace are installed at their pins
+        run: python -c "import importlib.metadata as m; print('poisson-prove', m.version('poisson-prove')); print('poisson-trace', m.version('poisson-trace'))"
       - name: Ruff
         run: ruff check .
       - name: Mypy
@@ -69,7 +80,12 @@ jobs:
           python -m pip install --quiet "hatchling>=1.27.0"
           python -m hatchling build -t wheel -d dist
       # A fresh environment in the runner's temporary folder, outside the checkout: the wheel
-      # installed with pip, its dependencies from PyPI, and the command run from an empty folder
-      # with its own HOME.
+      # installed with pip, its dependencies from PyPI and Trace from its repository at the
+      # pinned commit, and the command run from an empty folder with its own HOME. The script
+      # keeps the token from everything it runs but the install.
       - name: Install the wheel in a fresh environment and run the command
+        env:
+          GIT_CONFIG_COUNT: "1"
+          GIT_CONFIG_KEY_0: url.https://x-access-token:${{ secrets.TRACE_READ_TOKEN }}@github.com/poisson-labs/trace.insteadOf
+          GIT_CONFIG_VALUE_0: https://github.com/poisson-labs/trace
         run: python scripts/clean_install.py --wheel "$(ls dist/*.whl)" --work "$RUNNER_TEMP/clean-install"
