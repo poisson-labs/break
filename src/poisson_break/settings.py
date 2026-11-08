@@ -90,6 +90,7 @@ __all__ = [
     "INIT_FLAGS",
     "settings_from_init_args",
     "equivalent_init_command",
+    "install_command",
     "HuntPlan",
     "ConfirmPlan",
     "plan_hunt",
@@ -1331,21 +1332,35 @@ def _module_is_there(name: str) -> bool:
         return False
 
 
+def install_command(kind: str) -> str | None:
+    """The ``pip install`` line that puts the way in for ``kind`` on this machine, when it is an
+    optional extra that is not installed; ``None`` for the core's own kind, and for a kind whose
+    way in is there. Looking for the way in imports nothing. The line is the one ``load``'s
+    refusal names, and the one ``init`` ends with for such a kind."""
+    if not isinstance(kind, str):
+        raise TypeError(f"a kind is a word, not {type(kind).__name__}")
+    if kind not in _WAYS_IN:
+        return None
+    module, extra = _WAYS_IN[kind]
+    if _module_is_there(module):
+        return None
+    return f"pip install 'poisson-break[{extra}]'"
+
+
 def load(path: str | os.PathLike[str]) -> Settings:
     """The settings in a file, checked as ``loads`` checks them, and then for what is not
     installed: a ``kind`` whose way in is an optional extra that is not there is refused in one
-    line naming the install command, and so is a strategy that is not built yet. Looking for a
-    way in imports nothing."""
+    line naming the install command (``install_command``), and so is a strategy that is not
+    built yet. Looking for a way in imports nothing."""
     text, _ = _file_text(path, "settings file")
     settings, source = _read(text)
     kind = settings.target.kind
-    if kind in _WAYS_IN:
-        module, extra = _WAYS_IN[kind]
-        if not _module_is_there(module):
-            at = ("target", "kind")
-            raise SettingsError(
-                f'{source.named(at)} is "{kind}", and that way in is not installed: '
-                f'pip install "poisson-break[{extra}]"', key=_dotted(at), line=source.line(at))
+    install = install_command(kind)
+    if install is not None:
+        at = ("target", "kind")
+        raise SettingsError(
+            f'{source.named(at)} is "{kind}", and that way in is not installed: {install}',
+            key=_dotted(at), line=source.line(at))
     if settings.search.strategy in _NOT_BUILT:
         at = ("search", "strategy")
         raise SettingsError(

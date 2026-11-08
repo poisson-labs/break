@@ -86,6 +86,7 @@ __all__ = [
     "ControlSummary",
     "Budget",
     "RunRow",
+    "run_once",
     "HuntStopped",
     "HuntError",
     "Target",
@@ -1373,15 +1374,19 @@ def control(hunt: Hunt, *, on_progress: Callable[[int, int], None] | None = None
 
 
 def _run_unstored(hunt: Hunt, arm: str, case: str, condition: Condition | str, *,
-                  seed: int) -> tuple[RunRow, tuple[records.Call, ...]]:
-    """One run that is stored nowhere and that no cap counts: what replaying a finding runs.
+                  seed: int, stage: str = "confirm"
+                  ) -> tuple[RunRow, tuple[records.Call, ...], str | None]:
+    """One run that is stored nowhere and that no cap counts: what replaying a finding runs,
+    and what ``run_once`` runs.
 
     ``condition`` on the case ``case``, on ``seed`` as given and not one a planner drew, through
     the same applier and failure check as a stored run. ``arm`` is the Prove run the replayed
-    row was read from. Hands back the run as a row and its calls in order. A condition the way
-    in or a session does not take is refused as a stage refuses it, before the run, and a tool
-    nobody classed raises its ``ToolRefused``. This is the confirm module's door and no one
-    else's: nothing here is written to the hunt's file or its store."""
+    row was read from, and ``stage`` the stage its record names. Hands back the run as a row,
+    its calls in order, and, for a run that was not counted, the one line of error a stored row
+    of it would carry, else ``None``. A condition the way in or a session does not take is
+    refused as a stage refuses it, before the run, and a tool nobody classed raises its
+    ``ToolRefused``. This is the confirm module's door and ``run_once``'s, and no one else's:
+    nothing here is written to the hunt's file or its store."""
     hunt = _of(hunt)
     (ident,) = _known(hunt, [case])
     resolved = _resolved(hunt, condition)
@@ -1390,11 +1395,46 @@ def _run_unstored(hunt: Hunt, arm: str, case: str, condition: Condition | str, *
     cell = _Cell(case=ident, condition=resolved, text=_name_of(resolved), config=config,
                  repeat=0, selection=records.Selection(
                      strategy=hunt.settings.search.strategy, probability=1))
-    ran = _run_once(hunt, cell, run_id=arm, stage="confirm", seed=seed,
+    ran = _run_once(hunt, cell, run_id=arm, stage=stage, seed=seed,
                     key=(config_hash(config), 0))
     if isinstance(ran, ToolRefused):
         raise ran
-    return ran.kept.row(resolved), ran.kept.calls
+    error = ran.record.error if ran.kept.outcome is None else None
+    return ran.kept.row(resolved), ran.kept.calls, error
+
+
+_ONCE = "run-once"
+
+
+def run_once(settings: Settings, *, target: Target, case: Mapping[str, Any]) -> RunRow:
+    """One case run once with no change, through the same applier and failure check as a
+    stored run, and stored nowhere: no hunt is made or opened, nothing is written anywhere, and
+    no cap counts the run or remembers it. What ``doctor --run`` runs.
+
+    ``target`` is the way in, already made, as ``load_target`` makes one. ``case`` is one case
+    as ``read_cases`` hands it, a mapping with its ``id``, handed to the target as it is; the row
+    names the case by that id and its condition is the empty one. The run is on the settings'
+    own seed and held to the settings' ``run_seconds``. What ``open_hunt`` refuses before any
+    run is refused here too: a listed tool with no line, a ``[vary]`` entry the way in cannot
+    make, a check or a stand-in that cannot be loaded. A tool nobody classed, met in the run,
+    raises the applier's ``ToolRefused`` naming it, and nothing is stored."""
+    if not isinstance(settings, Settings):
+        raise TypeError(f"a run is made from settings, not {type(settings).__name__}")
+    held = (case,)
+    (ident,) = _case_ids(held)
+    listed, capabilities = _asked_of(target, settings)
+    _loads(settings, _tool_lines(settings), capabilities)
+    control_runs = settings.search.control_repeats
+    plan = HuntPlan(control_runs=control_runs,
+                    search_runs=max(0, settings.search.runs - control_runs),
+                    runs=settings.search.runs)
+    # A hunt that is never on disk: its folder is named and never made, and nothing below
+    # writes to it. It is only what the run reads its settings, cases and tool lines from.
+    hunt = Hunt(name=_ONCE, folder=_output_folder(settings) / _ONCE, settings=settings,
+                cases=held, target=target, plan=plan, listed=listed, capabilities=capabilities)
+    row, _, _ = _run_unstored(hunt, _ONCE, ident, Condition(changes=()),
+                              seed=settings.search.seed, stage="control")
+    return row
 
 
 def _rate(failed: int, counted: int) -> float | None:
