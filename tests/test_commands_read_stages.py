@@ -5,8 +5,8 @@ it; BK8 Session B's build choice 4). Before the ruling the command read the hunt
 `Store` for each arm's count, to plan a resumed or asked-again stage (point 54) and to refuse before any plan (point
 14). Held here three ways:
 
-- **BK8.8's check, widened** (the follow-up's brief): no module of the command holds the file's name, read from its
-  source. The modules read are those `test_commands_cli.py` reads: `cli.py` and whatever of the
+- **BK8.8's check, widened** (the follow-up's brief): no module of the command holds the file's name or reaches Prove's
+  store, read from its source. The modules read are those `test_commands_cli.py` reads: `cli.py` and whatever of the
   package it reaches that is not one of the library's own.
 - **What the command opens**, watched in its child by an audit hook: no frame of the command itself opens
   `confirm.json` or anything in the store folder of a confirm arm, in each of five states, while the confirm module's
@@ -50,7 +50,7 @@ from tests.test_commands_cli import LIBRARY, _command_modules
 
 
 # ---------------------------------------------------------------------------
-# BK8.8's check, widened: the file's name, read from the source
+# BK8.8's check, widened: the file's name and Prove's store, read from the source
 # ---------------------------------------------------------------------------
 
 
@@ -83,6 +83,41 @@ def _confirm_json(source: str) -> list[str]:
     return sorted(set(found))
 
 
+def _store(source: str) -> list[str]:
+    """Each way a command's source reaches Prove's store: the module imported in any form, a name taken from it, the
+    module reached as an attribute of Prove's package, or imported by its name at run time."""
+    found: list[str] = []
+    tree = ast.parse(source)
+    prove: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "poisson_prove.store" or alias.name.startswith("poisson_prove.store."):
+                    found.append(f"imports {alias.name}")
+                elif alias.name == "poisson_prove":
+                    prove.add(alias.asname or alias.name)
+                elif alias.name.startswith("poisson_prove.") and alias.asname is None:
+                    prove.add("poisson_prove")
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            if node.module == "poisson_prove.store" or node.module.startswith("poisson_prove.store."):
+                found.append(f"imports from {node.module}")
+            elif node.module == "poisson_prove":
+                found += [f"imports poisson_prove.{alias.name}" for alias in node.names
+                          if alias.name in ("store", "Store")]
+        elif isinstance(node, ast.Call):
+            func = node.func
+            called = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
+            if called in ("import_module", "__import__") and node.args:
+                text = _text(node.args[0])
+                if text is not None and text.startswith("poisson_prove.store"):
+                    found.append(f"imports {text} at run time")
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Attribute) and node.attr in ("store", "Store")
+                and isinstance(node.value, ast.Name) and node.value.id in prove):
+            found.append(f"reaches {node.value.id}.{node.attr}")
+    return found
+
+
 def test_no_module_of_the_command_spells_confirm_json() -> None:
     """The command reads its stages through `read_stages`, so the file's name is nowhere in it."""
     modules = _command_modules()
@@ -109,6 +144,38 @@ def test_the_check_takes_a_command_on_read_stages() -> None:
              'latest = stages[-1] if stages else None\nprint(f"confirm stage {latest.number}")\n'
              'look.Row("design", "once with no change and once under each candidate")\n')
     assert _confirm_json(clean) == []
+
+
+def test_no_module_of_the_command_reaches_prove_s_store() -> None:
+    """BK8.8's check as the follow-up's brief widens it: no read of Prove's `Store` from the command module, for a
+    confirm stage or anything else."""
+    modules = _command_modules()
+    assert modules and modules[0].name == "cli.py"
+    wrong = [f"{path.name}: {what}" for path in modules for what in _store(path.read_text(encoding="utf-8"))]
+    assert wrong == []
+
+
+@pytest.mark.parametrize("source", [
+    "from poisson_prove.store import Store",
+    "from poisson_prove.store import Store as S",
+    "import poisson_prove.store",
+    "import poisson_prove.store as s",
+    "from poisson_prove import store",
+    "import poisson_prove\npoisson_prove.store.Store('x')",
+    "import poisson_prove as p\np.store",
+    "import importlib\nimportlib.import_module('poisson_prove.store')",
+    "__import__('poisson_prove.store')",
+    "def f():\n    from poisson_prove.store import Store\n    return Store(h.store).count('r')",
+])
+def test_the_check_finds_each_way_prove_s_store_is_reached(source: str) -> None:
+    assert _store(source), source
+
+
+def test_the_check_takes_prove_s_other_public_names_and_a_hunt_s_own_store_attribute() -> None:
+    """`hunt.store` is the hunt's folder, a path, and Prove's `Episode` is no read of the store."""
+    clean = ("from poisson_prove import Episode\nimport poisson_prove\npoisson_prove.__version__\n"
+             "folder = hunt.store\nexists = hunt.store.exists()\n")
+    assert _store(clean) == []
 
 
 # ---------------------------------------------------------------------------
