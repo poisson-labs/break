@@ -95,7 +95,7 @@ def test_the_printed_command_is_the_settings_module_s_equivalent_command(tmp_pat
     proj = empty(tmp_path)
     ran = cli(proj, "init", "--yes", *words)
     want = equivalent_init_command(settings_from_init_args(words), prog=PROG)
-    assert shlex.split(want) == printed_command(ran)
+    assert printed_command(ran) in (shlex.split(want), [*shlex.split(want), "--yes"])  # point 47: one trailing --yes
     assert any(want == line.strip() or want in line for line in strip(ran.out + ran.err).splitlines()), \
         "the command is printed whole, on one line"
 
