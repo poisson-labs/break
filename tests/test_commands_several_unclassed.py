@@ -7,10 +7,11 @@ the settings' own equivalent command with a `--tool '<tool> = "off"'` for each n
 names them, then `--yes --force` (points 44 and 45), and the resume line comes second. The `init` line, run as
 printed, writes the settings back with each of those tools `off` and nothing else changed.
 
-The desk (`tests/commands_targets.py`) calls `lookup_order` and then `check_policy` on every run. Here neither has a
-line in `[tools]`, so the control's stop names both. `hunt` meets it when its control stage ends, and `confirm` when it
-reads the control it confirms against; `recheck` runs no control stage, so it meets such a tool as the applier's own
-refusal, one tool at a time, which point 51's test holds.
+The desk (`tests/commands_targets.py`) calls `lookup_order` and then `check_policy` on every run. The control stage
+ran with both classed; then both lose their lines in `[tools]`, so the finished control names both when it is read
+again: by `hunt --hunt NAME`, taking the hunt up again, and by `confirm`, reading the control it confirms against. A
+stage that runs meets such a tool as the applier's own refusal, at the first call, one tool at a time, which point 51's
+test holds.
 """
 
 from __future__ import annotations
@@ -97,16 +98,15 @@ def the_next_writes_the_tools_in_as_off(proj: Project, command: str, tools: tupl
 @pytest.mark.parametrize("verb", ["hunt", "confirm"])
 def test_a_stop_naming_several_tools_nobody_classed_prints_one_init_line_classing_them_all_off(
         tmp_path: Path, verb: str) -> None:
-    """Point 59: neither of the desk's two tools has a line in `[tools]`, and the desk calls both on every run. The
-    stage stops, its `stopped` line names both tools, and exactly two `next:` lines follow: first one `init` command
-    with a `--tool` line for each of the two, in the order the stop names them and no other `--tool` line, then the
-    resume line. The `init` line, run as printed, writes the settings back with both tools `off` and nothing else
-    changed."""
+    """Point 59: a hunt whose control stage ran, then both of the desk's tools lose their line in `[tools]`. Taken up
+    again by `hunt --hunt NAME`, or confirmed, the stage stops, its `stopped` line names both tools, and exactly two
+    `next:` lines follow: first one `init` command with a `--tool` line for each of the two, in the order the stop
+    names them and no other `--tool` line, then the resume line. The `init` line, run as printed, writes the settings
+    back with both tools `off` and nothing else changed."""
     proj = project(tmp_path, MIXED, **MIXED_SETTINGS)
-    if verb == "confirm":
-        prepared(proj, MIXED_CANDIDATES)
+    prepared(proj, MIXED_CANDIDATES)
     without_both_tools(proj)
-    ran = cli(proj, verb, "--yes")
+    ran = cli(proj, verb, "--yes", *(["--hunt", "desk-1"] if verb == "hunt" else []))
     assert ran.exit not in (CODES["done"], CODES["usage"]), ran
     stop = [line for line in strip(ran.out).splitlines() if line.startswith("stopped  ")]
     assert len(stop) == 1, ran
