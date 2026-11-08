@@ -35,6 +35,7 @@ Taylor's rulings on points 31 to 40 (2026-11-07) settle the rest of the form, an
   catalogue's order, and a no writes none;
 - point 46: when a case has turns, the command `init` prints states the conversation's setting, even when empty, so
   that run as printed, every question it leaves to a default taken, it writes the same file;
+- point 47: that command runs exactly as printed with no terminal, as §9.3's "non-interactive" says;
 - point 40: the install command is the one `poisson_break.settings.install_command` hands back.
 
 Invariants held here (Break — Plan, the commands module): BK8.3 (the dialogue under scripted answers and the equivalent
@@ -806,14 +807,14 @@ def taking_every_default(asked: Asked) -> str:
     return ""
 
 
-@pytest.mark.parametrize("how", ["turns, the dialogue's yes", "turns, the dialogue's no", "turns, init --yes",
-                                 "turns, one move by flag", "no turns, init --yes"])
-def test_the_printed_command_run_as_printed_writes_the_same_file(tmp_path: Path, how: str) -> None:
-    """Point 46: `init` in a project whose case has turns, the conversation answered yes or no, taken by `--yes`, or
-    given one move by its flag; and, beside them, a case with no turns. The command `init` prints, where a case has
-    turns, says `--vary-conversation` itself. Run as printed in another folder holding the same cases, on terminals
-    with every question it leaves to a default answered with Enter, it exits 0 and writes a byte-identical file, and
-    that folder holds only the two files."""
+HOWS = ["turns, the dialogue's yes", "turns, the dialogue's no", "turns, init --yes", "turns, one move by flag",
+        "no turns, init --yes"]
+
+
+def first_init(tmp_path: Path, how: str) -> tuple[Any, list[str]]:
+    """`init` in a project whose case has turns, the conversation answered yes or no, taken by `--yes`, or given one
+    move by its flag; or, beside them, a case with no turns. Hands back the project and the command `init` printed, as
+    words; where a case has turns, the command says `--vary-conversation` itself (point 46)."""
     turns = how.startswith("turns")
     proj = empty(tmp_path / "first", turns=turns)
     default = ["", ENTRY, "", "", "", "", "", "", "", "", "", "", ""]
@@ -830,9 +831,36 @@ def test_the_printed_command_run_as_printed_writes_the_same_file(tmp_path: Path,
     words = printed_init(ran)
     if turns:
         assert "--vary-conversation" in words[:-1] or any(w.startswith("--vary-conversation=") for w in words), words
-    other = empty(tmp_path / "again", turns=turns)
+    return proj, words
+
+
+def written_alike(proj: Any, other: Any, cases_before: bytes) -> None:
+    assert other.settings.read_bytes() == proj.settings.read_bytes()
+    assert files_under(other.folder) == {"break.toml": proj.settings.read_bytes(), "cases.jsonl": cases_before}
+
+
+@pytest.mark.parametrize("how", HOWS)
+def test_the_printed_command_run_as_printed_writes_the_same_file(tmp_path: Path, how: str) -> None:
+    """Point 46: run as printed in another folder holding the same cases, on terminals with every question it leaves
+    to a default answered with Enter, the command exits 0 and writes a byte-identical file, and that folder holds only
+    the two files."""
+    proj, words = first_init(tmp_path, how)
+    other = empty(tmp_path / "again", turns=how.startswith("turns"))
     cases_before = (other.folder / "cases.jsonl").read_bytes()
     again, _ = converse(other, words[1:], taking_every_default)
     assert again.exit == CODES["done"], again
-    assert other.settings.read_bytes() == proj.settings.read_bytes()
-    assert files_under(other.folder) == {"break.toml": proj.settings.read_bytes(), "cases.jsonl": cases_before}
+    written_alike(proj, other, cases_before)
+
+
+@pytest.mark.parametrize("how", HOWS)
+def test_the_printed_command_runs_as_printed_with_no_terminal(tmp_path: Path, how: str) -> None:
+    """Point 47 (Taylor's yes, 2026-11-08): §9.3's "one non-interactive command". Run exactly as printed in another
+    folder holding the same cases, its streams pipes and no terminal anywhere, it asks nothing, exits 0 and writes a
+    byte-identical file, and that folder holds only the two files."""
+    proj, words = first_init(tmp_path, how)
+    other = empty(tmp_path / "again", turns=how.startswith("turns"))
+    cases_before = (other.folder / "cases.jsonl").read_bytes()
+    again = cli(other, *words[1:])
+    assert again.exit == CODES["done"], again
+    assert "[y/N]" not in strip(again.err) and "[Y/n]" not in strip(again.err), again
+    written_alike(proj, other, cases_before)

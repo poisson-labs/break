@@ -17,7 +17,8 @@ case that failed in the control, with its failed runs of its runs and its kinds,
 shows no plan, but prints the "Break calls your tools for real" note on stderr (point 17, with Taylor's addition); a
 replay whose run was not counted says `stopped` with the run's one line of error as the sentence, and exits 3 (point
 18), that line being `Replayed.error` (point 37); the schemas `poisson_break.findings-result/1` and
-`poisson_break.replay-result/1` (point 11).
+`poisson_break.replay-result/1` (point 11). `findings` writes nothing, listing or one finding (point 55, Taylor's yes,
+2026-11-08).
 """
 
 from __future__ import annotations
@@ -486,3 +487,22 @@ def test_each_document_is_named_after_its_verb(two: Project, words: list[str], s
     ran = cli(two, *words, "--json")
     assert ran.exit == CODES["done"], ran
     assert json_document(ran)["schema"] == f"poisson_break.{schema}/1"
+
+
+# ---------------------------------------------------------------------------
+# point 55: findings writes nothing
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("words", [["findings"], ["findings", "1"], ["findings", "--json"], ["findings", "1", "--json"],
+                                   ["findings", "--hunt", "desk-1"]],
+                         ids=["the listing", "one finding", "the listing under --json", "one under --json",
+                              "the listing by name"])
+def test_findings_writes_nothing_and_runs_nothing(two: Project, words: list[str]) -> None:
+    """Point 55 (Taylor's yes, 2026-11-08): `findings`, listing or one finding, in either form, leaves every file of the
+    project as it was, adds none, and makes no run."""
+    before, runs = files_under(two.folder), len(two.runs())
+    ran = cli(two, *words)
+    assert ran.exit == CODES["done"], ran
+    assert files_under(two.folder) == before
+    assert len(two.runs()) == runs
