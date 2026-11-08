@@ -16,9 +16,10 @@ access to that repository), and checks, from an empty folder with its own HOME:
     tree declares;
   * `python -m poisson_break --version` prints the same line;
   * `poisson-break --help` exits 0 and names the command;
-  * `poisson-break hunt` exits 2 with one `error:` line on stderr and nothing on stdout;
+  * `poisson-break bogus`, a word that is no verb, exits 2 with one `error:` line on stderr and
+    nothing on stdout;
   * `poisson-break --plain --version` prints the same line as `--version`;
-  * on a terminal `poisson-break hunt` draws the same `error:` line with colour, and with
+  * on a terminal `poisson-break bogus` draws the same `error:` line with colour, and with
     `--plain` draws it as text;
   * the package is imported from the fresh environment, not from the checkout;
   * a hunt of one run is opened and stored there, and Prove's own store reads the row back, so
@@ -159,21 +160,22 @@ def main() -> int:
     done = run([str(bin_), "--help"], folder, env)
     check(done.returncode == 0 and done.stdout.startswith("usage: poisson-break")
           and done.stderr == "", "poisson-break --help exits 0 and names the command")
-    done = run([str(bin_), "hunt"], folder, env)
+    # a word that is no verb: `hunt` is one, and in an empty folder it is refused with exit 1
+    done = run([str(bin_), "bogus"], folder, env)
     err = done.stderr.splitlines()
     check(done.returncode == 2 and done.stdout == "" and len(err) >= 1
           and err[0].startswith("error: ") and sum(e.startswith("error:") for e in err) == 1,
-          "poisson-break hunt exits 2 with one error: line and nothing on stdout")
+          "poisson-break bogus exits 2 with one error: line and nothing on stdout")
     said = done.stderr
     done = run([str(bin_), "--plain", "--version"], folder, env)
     check(done.returncode == 0 and done.stdout.strip() == line and done.stderr == "",
           "poisson-break --plain --version prints the same line")
-    code, drawn = on_a_terminal([str(bin_), "hunt"], folder, env)
+    code, drawn = on_a_terminal([str(bin_), "bogus"], folder, env)
     check(code == 2 and "\x1b[" in drawn and ESCAPE.sub("", drawn) == said,
-          "on a terminal poisson-break hunt draws the same error: line, with colour")
-    code, drawn = on_a_terminal([str(bin_), "hunt", "--plain"], folder, env)
+          "on a terminal poisson-break bogus draws the same error: line, with colour")
+    code, drawn = on_a_terminal([str(bin_), "bogus", "--plain"], folder, env)
     check(code == 2 and drawn == said,
-          "on a terminal poisson-break hunt --plain draws it as text")
+          "on a terminal poisson-break bogus --plain draws it as text")
     check(not any(folder.iterdir()), "nothing was written into the folder the command ran in")
     return finish(work, results)
 
