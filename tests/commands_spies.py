@@ -48,6 +48,21 @@ def run_once(settings, *, target, case):
 _hunt.run_once = run_once
 '''
 
+#: `hunt.run_once` stood in for: the case is not run, and a tool no settings file names is refused (point 42).
+RUN_ONCE_REFUSED = '''
+import poisson_break.hunt as _hunt
+from poisson_break.apply import ToolRefused as _ToolRefused
+
+
+def run_once(settings, *, target, case):
+    _log(name="run_once", case=dict(case) if hasattr(case, "keys") else case)
+    raise _ToolRefused('the agent called "spied_tool", which the settings do not class as read, write or off',
+                       tool="spied_tool")
+
+
+_hunt.run_once = run_once
+'''
+
 #: `settings.install_command` stood in for: every kind, the core's own too, gets a line no table holds.
 INSTALL_COMMAND = '''
 import poisson_break.settings as _settings
@@ -112,4 +127,4 @@ def spied(env: dict[str, str]) -> list[dict[str, Any]]:
     return [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines() if line]
 
 
-__all__ = ["INSTALL_COMMAND", "NOTHING_TO_INSTALL", "REPLAY_ERROR", "RUN_ONCE", "SPIED_ERROR", "spied", "spying"]
+__all__ = ["INSTALL_COMMAND", "NOTHING_TO_INSTALL", "REPLAY_ERROR", "RUN_ONCE", "RUN_ONCE_REFUSED", "SPIED_ERROR", "spied", "spying"]

@@ -31,6 +31,8 @@ Taylor's rulings on points 31 to 40 (2026-11-07) settle the rest of the form, an
 - point 35: a yes to model calls is `vary.model` set to every model fault of the catalogue; a yes to settings of one's
   own is a text prompt per setting in `--env`'s form, until an empty answer;
 - point 36: the conversation question is `[Y/n]`;
+- point 43: a yes to the conversation is `vary.conversation` set to every conversation move of the catalogue, in the
+  catalogue's order, and a no writes none;
 - point 40: the install command is the one `poisson_break.settings.install_command` hands back.
 
 Invariants held here (Break — Plan, the commands module): BK8.3 (the dialogue under scripted answers and the equivalent
@@ -39,9 +41,6 @@ run under scripted answers in both renderings).
 
 Every dialogue runs on three pseudo-terminals (`tests/commands_dialogue.py`). Plain is the terminals with `NO_COLOR`;
 pretty is the terminals with the switch holding, where a menu is questionary's and is answered with the arrow keys.
-
-**Not held here, put to Taylor (OWED, point 43):** what a yes to the conversation writes. The tests hold only that it
-turns the conversation on with moves of the catalogue's, and that a no writes none.
 """
 
 from __future__ import annotations
@@ -318,9 +317,18 @@ def test_question_9_is_not_asked_without_the_prices(tmp_path: Path) -> None:
     assert proj.settings.read_text(encoding="utf-8") == expected(words)
 
 
+def every_conversation_move() -> str:
+    """Point 43: every conversation move of the catalogue, in the catalogue's order, as `--vary-conversation` takes
+    them."""
+    from poisson_break.changes import CATALOG
+
+    return ",".join(e.name for e in CATALOG if e.surface == "user")
+
+
 def test_the_conversation_is_asked_only_when_a_case_has_turns_and_defaults_to_yes(tmp_path: Path) -> None:
     """Question 6 asks one yes/no more when a case is a conversation, third of its five, and it is `[Y/n]` (point 36);
-    Enter takes it, and the conversation is varied with moves of the catalogue's."""
+    Enter takes it, and the file is the one `--vary-conversation` with every move of the catalogue writes, in the
+    catalogue's order (point 43)."""
     from poisson_break.changes import CATALOG
     from poisson_break.settings import loads
 
@@ -330,8 +338,12 @@ def test_the_conversation_is_asked_only_when_a_case_has_turns_and_defaults_to_ye
     assert ran.exit == CODES["done"], (ran, asked)
     assert [a.bracket for a in asked if a.yes_no] == ["[Y/n]", "[Y/n]", "[Y/n]", "[y/N]", "[y/N]"], [a.text for a in
                                                                                                       asked]
-    moves = loads(proj.settings.read_text(encoding="utf-8")).vary.conversation
-    assert moves and set(moves) <= {e.name for e in CATALOG if e.surface == "user"}, moves
+    text = proj.settings.read_text(encoding="utf-8")
+    assert loads(text).vary.conversation == tuple(e.name for e in CATALOG if e.surface == "user")
+    words = ["--kind", "rollout", "--entry", ENTRY, "--cases", "cases.jsonl", "--tool", 'lookup_order = "read"',
+             "--tool", f'check_policy = {{ class = "write", stand_in = "{STAND_IN}" }}',
+             "--vary-conversation", every_conversation_move()]
+    assert text == expected(words)
 
 
 def test_the_conversation_answered_no_is_not_varied(tmp_path: Path) -> None:
@@ -584,7 +596,8 @@ def test_init_yes_takes_every_default_the_yes_no_ones_as_no(tmp_path: Path, stre
 
 
 def test_init_yes_with_conversations_takes_the_conversation_s_default_yes(tmp_path: Path) -> None:
-    """Points 31 and 36: the conversation's default is yes, so `--yes` turns it on."""
+    """Points 31, 36 and 43: the conversation's default is yes, so `--yes` turns it on with every conversation move of
+    the catalogue, in the catalogue's order, and nothing else."""
     from poisson_break.changes import CATALOG
     from poisson_break.settings import loads
 
@@ -592,7 +605,7 @@ def test_init_yes_with_conversations_takes_the_conversation_s_default_yes(tmp_pa
     ran = cli(proj, "init", "--yes", "--entry", ENTRY)
     assert ran.exit == CODES["done"], ran
     vary = loads(proj.settings.read_text(encoding="utf-8")).vary
-    assert vary.conversation and set(vary.conversation) <= {e.name for e in CATALOG if e.surface == "user"}
+    assert vary.conversation == tuple(e.name for e in CATALOG if e.surface == "user")
     assert (vary.model, vary.env) == ((), ())
 
 

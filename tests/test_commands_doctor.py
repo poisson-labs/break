@@ -9,12 +9,17 @@ Invariants held here (Break — Plan, the commands module; spec §9.1):
 Taylor's rulings on BK8's open points (2026-11-07), held here: `doctor --run` asks `[y/N]` (`--yes` answers), runs
 the first case once with no change, stores nothing, and adds its outcome as a detail line; `doctor` alone runs nothing
 and asks nothing (point 23, and point 26 (a)); the run is `poisson_break.hunt.run_once`'s (point 39); the schema
-`poisson_break.doctor-result/1` (point 11).
+`poisson_break.doctor-result/1` (point 11). A tool nobody classed, met in that run, is `not ready`, exit 4, in one line
+naming the tool, with a `next:` that is an `init` command whose `--tool` line classes it (point 42).
+
+Not held here, put to Taylor (OWED, point 44): which class that `--tool` line gives the tool, and what else the `init`
+command carries.
 """
 
 from __future__ import annotations
 
 import shlex
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -36,7 +41,7 @@ from tests.commands_support import (
     result_of,
     verdict,
 )
-from tests.commands_spies import RUN_ONCE, spied, spying
+from tests.commands_spies import RUN_ONCE, RUN_ONCE_REFUSED, spied, spying
 from tests.look_support import Streams, strip
 
 
@@ -268,4 +273,60 @@ def test_doctor_run_without_a_terminal_and_without_yes_is_refused_and_runs_nothi
     ran = cli(proj, "doctor", "--run")
     assert ran.exit == CODES["refused"], ran
     assert len(errors(ran)) == 1 and "--yes" in errors(ran)[0], ran
+    assert proj.runs() == []
+
+
+# ---------------------------------------------------------------------------
+# point 42: a tool nobody classed, met by doctor --run
+# ---------------------------------------------------------------------------
+
+
+def classing_nexts(ran: Any, tool: str) -> list[str]:
+    """The `next:` commands that are `init` with a `--tool` line whose key is `tool`."""
+    found = []
+    for command in nexts(ran):
+        words = shlex.split(command)
+        if words[:2] != [PROG, "init"]:
+            continue
+        lines = [words[i + 1] for i, w in enumerate(words[:-1]) if w == "--tool"]
+        if any(list(tomllib.loads(line)) == [tool] for line in lines):
+            found.append(command)
+    return found
+
+
+def test_doctor_run_meeting_a_tool_nobody_classed_is_not_ready_naming_it(tmp_path: Path) -> None:
+    """Point 42: `check_policy` has no line in `[tools]`, and the desk calls it on every run. `doctor --run` meets the tool, says `not ready` in one line naming it, exits 4, stores nothing, and
+    its `next:` is the `init` command that classes the tool."""
+    proj = project(tmp_path, tools={"lookup_order": "read"})
+    before, paths = files_under(proj.folder), paths_under(proj.folder)
+    ran = cli(proj, "doctor", "--run", "--yes", PYTHONDONTWRITEBYTECODE="1")
+    not_ready(ran)
+    assert "check_policy" in verdict(ran)[1], ran
+    assert detail(result_of(ran, "not ready")) == [], ran
+    assert not [line for line in strip(ran.err).splitlines() if line.startswith("error: ")], ran
+    assert classing_nexts(ran, "check_policy"), nexts(ran)
+    assert files_under(proj.folder) == before
+    assert paths_under(proj.folder) == paths
+    assert not proj.hunts.exists()
+
+
+def test_a_tool_nobody_classed_under_json_is_one_document_and_still_exits_4(tmp_path: Path) -> None:
+    proj = project(tmp_path, tools={"lookup_order": "read"})
+    ran = cli(proj, "doctor", "--run", "--yes", "--json")
+    assert ran.exit == CODES["check"], ran
+    document = json_document(ran)
+    assert (document["schema"], document["verdict"]) == ("poisson_break.doctor-result/1", "not ready")
+    assert "check_policy" in document["sentence"], document
+
+
+def test_doctor_run_reports_the_tool_run_once_refuses(tmp_path: Path) -> None:
+    """Point 42 through `hunt.run_once`: stood in for so that it refuses `spied_tool`, which no settings file names,
+    without running the case. `doctor --run` is `not ready`, exit 4, naming that tool, and classes it in its `next:`."""
+    proj = project(tmp_path / "proj")
+    env = spying(proj, tmp_path / "spy", RUN_ONCE_REFUSED)
+    ran = cli(proj, "doctor", "--run", "--yes", **env)
+    not_ready(ran)
+    assert "spied_tool" in verdict(ran)[1], ran
+    assert classing_nexts(ran, "spied_tool"), nexts(ran)
+    assert [c["name"] for c in spied(env)] == ["run_once"]
     assert proj.runs() == []

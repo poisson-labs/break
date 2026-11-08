@@ -7,11 +7,10 @@ arm and which BK8.8 does not let the command reach. So the hunt module gets one 
 stored run. BK8 Session B adds it; this file holds what it does.
 
 `case` is one case as `read_cases` hands it, a mapping with its `id`: the signature has no hunt to hold the cases, and
-the row names the case by its id (point 41, OWED). Every call here goes through `once`, so the other answer changes one
-line.
+the row names the case by its id (Taylor's yes to point 41, 2026-11-07). A tool nobody classed raises the applier's
+`ToolRefused`, as a replayed run does, naming the tool, and nothing is stored (Taylor's yes to point 42, 2026-11-07).
 
-Not held here, since point 39 does not say: which seed the run is on, and what a tool nobody classed does (point 42,
-OWED).
+Not held here, since point 39 does not say: which seed the run is on.
 """
 
 from __future__ import annotations
@@ -23,7 +22,7 @@ from typing import Any
 
 import pytest
 
-from tests.hunt_support import case, changes, desk, hunt, settings_for, targets
+from tests.hunt_support import apply_module, case, changes, desk, hunt, settings_for, settings_module, targets
 
 
 def once(settings: Any, target: Any, one: dict[str, Any]) -> Any:
@@ -123,3 +122,49 @@ def test_the_settings_own_rollout_target_runs_once(tmp_path: Path) -> None:
     row = once(settings, hunt().load_target(settings), case("c1"))
     assert (row.case, row.outcome) == ("c1", "ok")
     assert [cfg["id"] for cfg, _ in targets().ROLLOUTS] == ["c1"]
+
+
+# ---------------------------------------------------------------------------
+# point 41: the case as `read_cases` hands it
+# ---------------------------------------------------------------------------
+
+
+def test_run_once_takes_the_case_mapping_as_read_cases_hands_it(tmp_path: Path) -> None:
+    """Point 41: what the settings' case reader hands back for a line of the case file goes to `run_once` as it is.
+    The target is handed that mapping, its own keys with it, and the row names the case by its `id`."""
+    path = tmp_path / "cases.jsonl"
+    path.write_text('{"id": "c1", "input": "Where is my order?", "note": "kept as written"}\n'
+                    '{"id": "c2", "input": "Refund it.", "does": "crash"}\n', encoding="utf-8")
+    read = settings_module().read_cases(path)
+    settings = settings_for(tmp_path / "hunts")
+    target = desk()
+    rows = [hunt().run_once(settings, target=target, case=one) for one in read]
+    assert [(r.case, r.outcome, r.kind) for r in rows] == [("c1", "ok", None), ("c2", "failed", "crashed")]
+    assert [handed.case for handed in target.handed] == [dict(one) for one in read]
+
+
+# ---------------------------------------------------------------------------
+# point 42: a tool nobody classed
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("way", ["a way in", "a plain Prove target"])
+def test_a_tool_nobody_classed_raises_tool_refused_naming_it_and_stores_nothing(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, way: str) -> None:
+    """Point 42: the agent calls `mystery`, which the settings do not class. `run_once` raises the applier's
+    `ToolRefused` naming it, the tool never ran, nothing is left in the output folder or the temporary folder, and the
+    next call runs its case as if nothing had happened."""
+    scratch, hunts = tmp_path / "tmp", tmp_path / "hunts"
+    scratch.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(scratch))
+    targets().reset()
+    settings = settings_for(hunts)
+    target = desk() if way == "a way in" else hunt().load_target(settings)
+    with pytest.raises(apply_module().ToolRefused) as refused:
+        once(settings, target, case("c1", does="mystery"))
+    assert refused.value.tool == "mystery"
+    assert "mystery" not in [tool for tool, _args in targets().EXECUTED]
+    assert everything_under(hunts) == []
+    assert everything_under(scratch) == []
+    row = once(settings, target, case("c2"))
+    assert (row.case, row.outcome) == ("c2", "ok")
