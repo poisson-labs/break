@@ -21,9 +21,10 @@ prints goes through, pretty on a terminal and plain anywhere else, the runs them
 on Prove: a hunt's folder, its control stage, its caps and resuming it, the search a hunt
 runs after its control, with the two strategies that learn nothing, and the confirm stage:
 candidates tested against one shared control with Trace's test, findings written as files, each
-with its reference run, replaying a finding and rechecking a fix. Those stages are run from
-Python today. The `hunt`, `confirm`, `replay` and `recheck` commands that run them for you come
-in the module after it.
+with its reference run, replaying a finding and rechecking a fix, and the eight commands that
+run all of this for you: `init`, `doctor`, `hunt`, `confirm`, `findings`, `replay`, `recheck`
+and `catalog`. The core ships one way in, a plain Prove target; the adapters for the agent
+frameworks, the MCP proxy and the adaptive strategy are not built yet.
 
 ## Install, from this tree
 
@@ -42,17 +43,95 @@ it from its repository at one commit: that needs git, and read access to
 ## The command
 
 ```
-poisson-break --version
-poisson-break --help
+poisson-break init        # asks a few questions and writes break.toml
+poisson-break doctor      # checks the settings, loads the agent and lists its tools
+poisson-break hunt        # the control, search and shrink stages; writes the candidates
+poisson-break confirm     # tests the candidates against a control; writes the findings
+poisson-break findings    # lists the findings; `findings 2` shows one
+poisson-break replay 2    # runs finding 2 once and shows what the agent did, call by call
+poisson-break recheck     # runs the findings on the agent as it is now; Trace's answer for each
+poisson-break catalog     # every change Break knows, one line each
 ```
 
-`--version` prints one line with the versions of Break, Prove, Trace and Python. A mistake on
-the command line is one `error:` line on stderr and exit 2. A failure inside the command is one
-line that names the log its details went to, and exit 3. Two options are the tool's own and go
-before or after a verb: `--plain` prints plain text on a terminal too, and `--debug` prints the
-details of such a failure as well as logging them. The look every Poisson Labs command shares
-is written down in [docs/cli-look.md](docs/cli-look.md), and [How Break prints](#how-break-prints)
-is Break's build of it.
+| Verb | What it does | Spends | Verdict words |
+|---|---|---|---|
+| `init` | asks at most nine questions, each with a default and a flag, and writes `break.toml`; ends with the one command that writes the same file | nothing | `wrote` |
+| `doctor` | reads the settings and the cases, loads the target and lists its tools, finds the first problem; `--run` runs the first case once, asked first, and stores nothing | one run, if asked | `ready`, `not ready` |
+| `hunt` | the control stage, the search and the shrink stage; writes the candidates, best first | yes | `found`, `nothing found`, `stopped` |
+| `confirm` | the confirm stage against one shared control on fresh runs, Trace's test for each candidate, the findings written and their reference runs; `--repeats N` asks again about what was too small to tell | yes | `confirmed`, `nothing confirmed`, `stopped` |
+| `findings` | lists the latest hunt's findings, and each case that failed in the control under its own heading; `findings 2` shows one finding whole | nothing | `ok` |
+| `replay` | runs one finding once, on the case that failed most under it, and shows each call with the change applied to it; `--case ID` picks another | one run | `failed`, `did not fail`, `stopped` |
+| `recheck` | runs every finding on the agent as it is now, over the cases and repeats of its reference run, and reads Trace's answer; `--old MODULE:NAME` runs the old agent beside it; `--check` exits 4 when a finding fails more, `--strict` adds too small to tell | yes | `rechecked`, `stopped` |
+| `catalog` | lists every change Break knows, the ones that need an adapter marked | nothing | `ok` |
+
+Every verb follows the shared look: the verdict line first on stdout, problems on stderr as one
+`error:` line with the command to run next under it, `--json` as one strict document whose
+first keys are `schema`, `verdict` and `sentence` (named `poisson_break.<verb>-result/1`), and
+the shared exit codes: 0 done, 1 refused before anything was spent or written, 2 a mistake on
+the command line, 3 stopped after work started, 4 a check you asked for did not pass, 130
+interrupted. A verb's own options follow the verb; `--plain` and `--debug` are the tool's own
+and may come first. No abbreviated flag is taken.
+
+**Before anything is spent** a verb shows its plan and asks `start? [y/N]` on stderr. `--yes`
+answers, `--dry-run` shows the plan and runs nothing, and a stdin that is not a terminal
+without `--yes` prints the plan and refuses in one line. After every plan, and in `init`'s and
+`doctor`'s output, Break says that it calls your tools for real: run it against a test
+environment. A stage that stops short, at a cap or on Ctrl-C, says what was kept and prints the
+command that goes on with the same hunt (`hunt --hunt NAME`, `confirm --hunt NAME`,
+`recheck --hunt NAME`, with `--old`, `--check` and `--strict` as they were given), and that
+command, run at a terminal, asks before it spends again. A tool the agent called that the
+settings do not class stops the stage naming it, and prints first the `init` command that
+writes the settings back as they are with that tool classed `off`, so the hunt can go on, and
+then the command that goes on with it.
+
+**Names, never hashes.** A hunt is named with `--name` or numbered from the target's name
+(`refund-agent-1`); `findings`, `replay`, `confirm` and `recheck` take the latest hunt, and
+`--hunt NAME` another. A finding is a number within its hunt. Nothing any verb prints asks you
+to paste a hash.
+
+```
+$ poisson-break hunt
+plan  a hunt of refund_agent on 12 cases, at most 400 runs
+  target      my_app.agents:refund_agent (rollout)
+  tools       lookup_order (read), check_policy (read), issue_refund (write, stand-in)
+  may change  tool behaviour (3 faults), inputs (0 operators)
+  strategy    screen
+  stages      control 60 runs, search and shrink up to 340
+  cap         $5.00, 400 runs, 2 hours
+  estimate    not known until the control stage has run; the cap is $5.00, from the control
+              stage's measured cost a run, once it has run
+note: Break calls your tools for real: run it against a test environment, never against anything that matters
+start? [y/N] y
+found  2 candidates in 118 runs ($0.47)
+  control  60 runs · 6 failed (0.100) · $0.0040 a run
+  search   58 runs · 21 conditions tried on 4 cases each
+     condition                       failed         kind
+  1  tool:lookup_order#1=error       4 of 4 failed  wrong
+  2  tool:lookup_order#1=timeout     3 of 4 failed  ran_out
+  not looked at: faults turned off: slow, empty, cut_off, malformed, stale, lost_reply,
+      planted_instruction; 0 single changes and 7 pairs of them untried
+  these are candidates, not findings: a few runs each, chosen for having failed
+next: poisson-break confirm
+```
+
+The figures are made up to show the shape. `init`'s questions, in order: what the agent is
+built with (a menu of the six kinds; the core ships `rollout`, a function Break can call, and
+a kind whose adapter is not installed is still written, with the `pip install` line printed
+first); where it is (`module:name`, imported to find its tools, never run); where the cases are
+(and whether to write a starter file of three); for each tool found, whether it changes things
+outside your test environment (`read`, `write`, `off`; a `write` tool is asked whether it is
+safe to repeat or has a stand-in); what counts as a failure; what Break may change (tool
+behaviour and inputs yes, the conversation when a case has turns, model calls and settings of
+your own no); how many runs a hunt may use; what your model's tokens cost; and, with prices,
+the most a hunt may spend. `--yes` takes every default, the yes/no ones as no. Every answer has
+a flag ([`init`'s flags](#inits-flags-and-the-command-that-writes-the-same-file)), and `init`
+ends with the one command that writes the same file, which runs as printed with no terminal.
+
+`--version` prints one line with the versions of Break, Prove, Trace and Python. A failure
+inside the command is one line that names the log its details went to, and exit 3; `--debug`
+prints the details as well. The look every Poisson Labs command shares is written down in
+[docs/cli-look.md](docs/cli-look.md), and [How Break prints](#how-break-prints) is Break's build
+of it.
 
 ## What Break varies
 
@@ -98,6 +177,8 @@ from poisson_break.apply import Session, wrap
 from poisson_break.changes import parse
 
 lookup_order = wrap("lookup_order", lookup_order)   # one line per tool, where it is defined
+# wrapped_while("my_app.agents") imports the module and names the tools wrapped while it loads:
+# how `init` lists an agent's tools without running it.
 
 session = Session(parse("tool:lookup_order#2=timeout"), seed=7, tools={"lookup_order": "read"})
 with session:
@@ -401,7 +482,9 @@ has that `[tools]` does not class, something in `[vary]` your way in cannot do, 
 own that cannot be loaded, and a stand-in that cannot be loaded. A name is letters, digits, `.`,
 `_` and `-`, starting with a letter or a digit, at most 64 characters, and is used as given. With
 none, hunts are numbered from the last part of the target's entry: `refund-agent-1`, then
-`refund-agent-2`. `latest_hunt(settings)` names the hunt made last.
+`refund-agent-2`. `latest_hunt(settings)` names the hunt made last. `run_once(settings,
+target=, case=)` runs one case once with no change, through the same applier and failure check
+as a stored run, and stores nothing: no hunt, no store, no cap; it is what `doctor --run` runs.
 
 **Break decides every row.** Each run goes through the applier and the failure check. Its row's
 outcome is `ok` or `failed`: an agent that raises is a `failed` row with the kind `crashed`, and
@@ -638,7 +721,11 @@ failure kinds and the signals counted over its arm, whether a failed run was jud
 check, the cases Trace flagged and left out, the cases, the repeats and the two arms, its
 reference arm, the command that replays it and the Trace command for its full report. The file
 is plain TOML that can be committed, and `read_finding(hunt, n)` reads it back as the finding it
-was written from. A candidate that is not confirmed never gets a file.
+was written from; `read_findings(hunt)` reads every finding the hunt has a file for, in number
+order, and one file that cannot be read as a finding refuses the whole call. A candidate that
+is not confirmed never gets a file. Each confirm stage is written to `confirm.json` with the
+`q` and `max_difference` it was begun under, and is judged under those however the settings
+read later.
 
 **The reference run.** A finding is selected for having failed more than the control, so its
 confirm-stage share overstates how often it fails. Each finding therefore gets a reference arm,
@@ -650,7 +737,8 @@ runs whatever is missing of them after a stop.
 the finding's cases with the most failed runs in its confirm arm, on the seed of that case's
 first failed run, so an agent that decides by its seed fails the same way; `case=` picks another
 case, on the seed of its first run. It hands back the outcome, the kind and every call in order
-with the change applied to it.
+with the change applied to it, and, for a run that was not counted, the run's one line of error
+(`Replayed.error`).
 
 **Recheck.** After the agent is changed, open the hunt again on it and call `recheck`. Each
 finding's condition is run over the cases and repeats of its reference arm, in the arm
@@ -695,6 +783,7 @@ result = look.Result(
 )
 mode = look.mode_for(sys.stdout, sys.stderr, os.environ, sys.argv[1:])
 look.render(result, stream=sys.stdout, mode=mode)
+look.show(result)   # inside look.run: the way the current run prints one; outside: plain
 ```
 
 ```

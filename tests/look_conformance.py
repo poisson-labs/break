@@ -133,6 +133,40 @@ def _first(text: str) -> str:
     return text.split("\n", 1)[0]
 
 
+def _last_verdict(text: str) -> str:
+    """The last result's verdict line: the last line that is a verdict line, so a plan printed before a result is not
+    read as the result. With one result it is the first line."""
+    found = [line for line in text.split("\n") if VERDICT_LINE.match(line)]
+    return found[-1] if found else ""
+
+
+def _set_aside(text: str, other: str | None) -> str:
+    """Text with what the invocation declares beside its problems set aside (progress, a question): each piece of a
+    line between line ends and carriage returns that matches the pattern, as a terminal draws progress in place."""
+    if not other:
+        return text
+    pattern = re.compile(other)
+    return "\n".join("\r".join(piece for piece in line.split("\r") if not pattern.search(piece))
+                     for line in strip(text).split("\n"))
+
+
+def _set_aside_drawn(text: str, other: str | None) -> str:
+    """Text byte for byte, with what the invocation declares beside its problems set aside where a terminal draws it
+    in place: in each line, every piece between carriage returns that matches the pattern, and, in a line that held
+    one, every piece of spaces alone, which is how a line drawn in place is rubbed out."""
+    if not other:
+        return text
+    pattern = re.compile(other)
+    lines = []
+    for line in text.split("\n"):
+        pieces = line.split("\r")
+        if any(pattern.search(piece) for piece in pieces):
+            pieces = [piece for piece in pieces
+                      if not pattern.search(piece) and not (piece and not piece.strip(" "))]
+        lines.append("\r".join(pieces))
+    return "\n".join(lines)
+
+
 # ---------- the checks ----------
 
 
@@ -196,12 +230,15 @@ def plain_is_text(inv: Invocation) -> list[str]:
 
 
 def same_facts(inv: Invocation) -> list[str]:
-    """Every rendering carries the same words and numbers in the same order."""
+    """Every rendering carries the same words and numbers in the same order; on stderr, with what the invocation
+    declares beside its problems set aside, since a terminal shows progress a pipe never does."""
     base = run_way(inv, "piped")
     wrong = []
     for way in ("terminal", "terminal_plain", "no_rich"):
         ran = run_way(inv, way)
-        for stream, ours, theirs in (("stdout", ran.out, base.out), ("stderr", ran.err, base.err)):
+        for stream, ours, theirs in (("stdout", ran.out, base.out),
+                                     ("stderr", _set_aside(ran.err, inv.other_stderr),
+                                      _set_aside(base.err, inv.other_stderr))):
             if words_of(ours) != words_of(theirs):
                 wrong.append(f"{way}: {stream} says other facts:\n{strip(ours)!r}\npiped:\n{theirs!r}")
     return wrong
@@ -256,7 +293,8 @@ def no_hash_to_paste(inv: Invocation) -> list[str]:
 
 def json_way(inv: Invocation) -> list[str]:
     """`--json` makes stdout one strict document, the same on a pipe and on a terminal, with `schema`,
-    `verdict` and `sentence` first, carrying the verdict line's word and sentence."""
+    `verdict` and `sentence` first, carrying the last result's verdict line's word and sentence: a plan printed before
+    the result is not the document."""
     if not inv.has_json:
         return []
     piped = run_way(inv, "json")
@@ -273,9 +311,9 @@ def json_way(inv: Invocation) -> list[str]:
         return [*wrong, f"not one strict document: {why}: {piped.out!r}"]
     if not isinstance(document, dict) or list(document)[:3] != ["schema", "verdict", "sentence"]:
         return [*wrong, f"the first keys are not schema, verdict, sentence: {piped.out!r}"]
-    match = VERDICT_LINE.match(_first(plain.out))
+    match = VERDICT_LINE.match(_last_verdict(plain.out))
     if match is None or (document["verdict"], document["sentence"]) != match.groups():
-        wrong.append(f"the document's verdict and sentence are not the first line's: {piped.out!r}")
+        wrong.append(f"the document's verdict and sentence are not the last result's: {piped.out!r}")
     if "\x1b" in terminal.out:
         wrong.append("an escape sequence in the document")
     return wrong
@@ -306,13 +344,15 @@ def help_can_be_acted_on(inv: Invocation) -> list[str]:
 
 def rich_absent_means_plain(inv: Invocation) -> list[str]:
     """With Rich and questionary failing to import, on a terminal: plain, the same exit code, and nothing
-    said about it."""
+    said about it; on stderr, with what the invocation declares beside its problems set aside, since both ways
+    redraw progress at most every tenth of a second and so may draw it a different number of times."""
     ran = run_way(inv, "no_rich")
     plain = run_way(inv, "terminal_plain")
     wrong = []
     if "\x1b" in ran.out or "\x1b" in ran.err:
         wrong.append(f"an escape sequence without Rich: {ran}")
-    if (ran.out, ran.err) != (plain.out, plain.err):
+    if (ran.out, _set_aside_drawn(ran.err, inv.other_stderr)) != (plain.out,
+                                                                  _set_aside_drawn(plain.err, inv.other_stderr)):
         wrong.append(f"without Rich the terminal shows something other than plain:\n{ran}\n{plain}")
     return wrong
 

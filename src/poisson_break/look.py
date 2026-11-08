@@ -83,6 +83,7 @@ __all__ = [
     "out",
     "render",
     "run",
+    "show",
     "word",
 ]
 
@@ -734,6 +735,17 @@ def _show(result: Result) -> None:
         _write(sys.stdout, as_json(result))
     else:
         render(result, stream=sys.stdout, mode=_session.mode)
+
+
+def show(result: Result) -> None:
+    """Print ``result`` on stdout the way the current run prints one: under ``--json`` as its
+    document (:func:`as_json`), else rendered in the mode :func:`run` chose when the run began,
+    which no later change to the environment moves. Outside a run it renders plain, as
+    :func:`error` and :func:`note` print plain there, whatever the streams and the command line
+    say. A verb prints each of its results with this, and prints a result once."""
+    if not isinstance(result, Result):
+        raise TypeError(f"show prints a Result, not {type(result).__name__}")
+    _show(result)
 
 
 def run(tool: str, argv: Sequence[str], body: Callable[[], int | None]) -> int:

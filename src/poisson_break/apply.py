@@ -120,6 +120,7 @@ __all__ = [
     "Seen",
     "Applied",
     "InstrumentError",
+    "wrapped_while",
 ]
 
 ENDED = ("returned", "raised", "limit")
@@ -956,6 +957,8 @@ def wrap(tool_name: str, fn: Callable[..., _T]) -> Callable[..., _T]:
         raise ToolRefused(f'"{tool_name}" is async, and Break calls a tool and reads what it '
                           "returns: wrap a tool that is not", tool=tool_name)
     signature = _signature(fn)
+    for listening in _WRAPPED_WHILE:
+        listening.append(tool_name)
 
     @functools.wraps(fn)
     def wrapped(*positional: Any, **named: Any) -> _T:
@@ -966,3 +969,26 @@ def wrap(tool_name: str, fn: Callable[..., _T]) -> Callable[..., _T]:
                                  lambda: fn(*positional, **named)))
 
     return wrapped
+
+
+# Each list here is one `wrapped_while` that is importing: `wrap` adds every name it wraps to
+# every list, so an import inside an import is heard by both.
+_WRAPPED_WHILE: list[list[str]] = []
+
+
+def wrapped_while(import_path: str) -> tuple[str, ...]:
+    """The names of the tools wrapped while the module ``import_path`` is imported, in the
+    order they were wrapped, each once: what a module that wraps its tools at its top gives,
+    and what a module it imports wraps while it loads. A tool wrapped inside a function that the
+    import does not run is not among them. The module is imported as ``import`` imports it, so
+    one that is already imported runs nothing and gives none, and one that cannot be imported
+    raises as ``import`` raises. Nothing is called and no agent is run beyond the import."""
+    if not isinstance(import_path, str) or not import_path:
+        raise TypeError(f"a module is named by its import path, not {_shown(import_path)}")
+    heard: list[str] = []
+    _WRAPPED_WHILE.append(heard)
+    try:
+        importlib.import_module(import_path)
+    finally:
+        _WRAPPED_WHILE.remove(heard)
+    return tuple(dict.fromkeys(heard))

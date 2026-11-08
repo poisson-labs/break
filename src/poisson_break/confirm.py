@@ -108,6 +108,7 @@ __all__ = [
     "Finding",
     "write_finding",
     "read_finding",
+    "read_findings",
     "reference",
     "replay",
     "Replayed",
@@ -307,6 +308,9 @@ class Replayed:
     outcome: str
     kind: str | None
     calls: tuple[records.Call, ...]
+    error: str | None = None
+    """For a run that was not counted, its one line of error, the line a stored row of it
+    carries; ``None`` for a run that was counted."""
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -752,12 +756,15 @@ def read_candidates(hunt: Hunt) -> tuple[Condition, ...]:
 
 @dataclass(frozen=True)
 class _Stage:
-    """One confirm stage as ``confirm.json`` holds it."""
+    """One confirm stage as ``confirm.json`` holds it: with the ``q`` and ``max_difference`` it
+    was written under, which it is judged under however the settings read later."""
 
     number: int
     repeats: int
     cases: tuple[str, ...]
     arms: tuple[tuple[str, str], ...]
+    q: float
+    max_difference: float
 
     @property
     def cells(self) -> int:
@@ -788,7 +795,8 @@ def _first_stage(names: Sequence[str], settings: Settings, summary: ControlSumma
         raise ConfirmError("there is no candidate to confirm", reason="no candidates")
     arms = (("confirm-control", ""),
             *((f"confirm-{number}", name) for number, name in enumerate(names, start=1)))
-    return _Stage(number=1, repeats=settings.confirm.repeats, cases=cases, arms=arms)
+    return _Stage(number=1, repeats=settings.confirm.repeats, cases=cases, arms=arms,
+                  q=settings.confirm.q, max_difference=settings.confirm.max_difference)
 
 
 def design(candidates: Sequence[Condition | str], settings: Settings,
@@ -825,8 +833,12 @@ def _read_stages(hunt: Hunt) -> list[_Stage]:
         stages = []
         for number, held in enumerate(data["stages"], start=1):
             arms = tuple((str(arm["arm"]), str(arm["condition"])) for arm in held["arms"])
+            q, most = held["q"], held["max_difference"]
+            if not all(isinstance(value, float) and 0 < value < 1 for value in (q, most)):
+                raise ValueError(number)
             stage = _Stage(number=int(held["number"]), repeats=int(held["repeats"]),
-                           cases=tuple(str(case) for case in held["cases"]), arms=arms)
+                           cases=tuple(str(case) for case in held["cases"]), arms=arms,
+                           q=q, max_difference=most)
             if stage.number != number or stage.repeats < 1 or not stage.cases or len(arms) < 2:
                 raise ValueError(number)
             stages.append(stage)
@@ -840,7 +852,8 @@ def _write_stages(hunt: Hunt, stages: Sequence[_Stage]) -> None:
     _write_json(hunt.folder / _CONFIRM_FILE, {
         "schema": CONFIRM_SCHEMA,
         "stages": [{"number": stage.number, "repeats": stage.repeats,
-                    "cases": list(stage.cases),
+                    "cases": list(stage.cases), "q": stage.q,
+                    "max_difference": stage.max_difference,
                     "arms": [{"arm": word, "condition": name} for word, name in stage.arms]}
                    for stage in stages],
     })
@@ -922,21 +935,21 @@ def _flagged(doc: Mapping[str, Any]) -> tuple[str, ...]:
 
 def _judge(hunt: Hunt, stage: _Stage, stored: _Stored) -> tuple[Tested, ...]:
     """Put each candidate's arm to Trace once, against the stage's control arm, and read the
-    verdicts off Trace's words and Prove's adjustment across the candidates Trace answered."""
-    settings = hunt.settings.confirm
+    verdicts off Trace's words and Prove's adjustment across the candidates Trace answered,
+    under the stage's own ``q`` and ``max_difference``."""
     control_run = f"{hunt.name}-{stage.arms[0][0]}"
     asked: list[tuple[str, str, str, Mapping[str, Any] | None, tuple[str, ...]]] = []
     for word, name in stage.arms[1:]:
         run_id = f"{hunt.name}-{word}"
         doc = ask_trace(hunt.store, control_run, run_id,
-                        max_difference=settings.max_difference, folder=hunt.folder)
+                        max_difference=stage.max_difference, folder=hunt.folder)
         missing = stored.no_outcome((control_run, run_id), stage.cases)
         if doc is None and len(missing) < len(stage.cases):
             # Trace printed nothing while there are cases with an outcome in both arms.
             raise _no_answer("it printed nothing", control_run, run_id)
         asked.append((word, name, run_id, doc, missing))
 
-    adjusted = iter(_adjusted([doc for _, _, _, doc, _ in asked if doc is not None], settings.q))
+    adjusted = iter(_adjusted([doc for _, _, _, doc, _ in asked if doc is not None], stage.q))
     tested: list[Tested] = []
     for word, name, run_id, doc, missing in asked:
         number = int(word.rsplit("-", 1)[1])
@@ -954,7 +967,7 @@ def _judge(hunt: Hunt, stage: _Stage, stored: _Stored) -> tuple[Tested, ...]:
             verdict = "too small to tell"
         elif said == _DIFFERENT and direction == _LESS:
             verdict, note = "not confirmed", "failed less"
-        elif said == _DIFFERENT and after <= settings.q:
+        elif said == _DIFFERENT and after <= stage.q:
             verdict = "confirmed"
         elif said == _DIFFERENT:
             verdict, note = "not confirmed", "not after the correction"
@@ -994,12 +1007,11 @@ def _new_finding(hunt: Hunt, stage: _Stage, tested: Tested, number: int,
         repeats=stage.repeats, stage=stage.number, arm=tested.arm, control_arm=control_run,
         rate=tested.rate, control_rate=tested.control_rate, difference=tested.difference,
         lo=tested.lo, hi=tested.hi, p=tested.p, adjusted_p=tested.adjusted_p,
-        q=hunt.settings.confirm.q, kinds=_read_only(kinds), signals=_read_only(counted),
+        q=stage.q, kinds=_read_only(kinds), signals=_read_only(counted),
         judged_by=judged_by, flagged=tested.flagged, left_out=tested.left_out,
         reference=f"{hunt.name}-reference-{number}",
         replay=shlex.join(["poisson-break", "replay", str(number), "--hunt", hunt.name]),
-        trace=_shown_command(control_run, tested.arm, hunt.store,
-                             hunt.settings.confirm.max_difference))
+        trace=_shown_command(control_run, tested.arm, hunt.store, stage.max_difference))
 
 
 def _findings_of(hunt: Hunt, stage: _Stage, tested: Sequence[Tested],
@@ -1103,7 +1115,9 @@ def confirm(hunt: Hunt, *, repeats: int | None = None,
         stage = _Stage(number=number, repeats=repeats, cases=latest.cases,
                        arms=((f"confirm-{number}-control", ""),
                              *((f"confirm-{number}-{one.number}", one.condition)
-                               for one in small)))
+                               for one in small)),
+                       q=hunt.settings.confirm.q,
+                       max_difference=hunt.settings.confirm.max_difference)
         _write_stages(hunt, [*stages, stage])
     return _run_stage(hunt, stage, stored, on_progress)
 
@@ -1238,6 +1252,15 @@ def read_finding(hunt: Hunt, number: int) -> Finding:
     return _read_finding_file(hunt, number)
 
 
+def read_findings(hunt: Hunt) -> tuple[Finding, ...]:
+    """Every finding the hunt has a file for, read from its file, in the order of their
+    numbers: ``findings/<n>.toml`` for each plain whole number ``n`` from 1, whatever stage
+    wrote it, a missing number passed over. What is on disk decides, so a hunt opened again
+    gives the same. A hunt with no finding gives an empty tuple and does nothing. One file that
+    cannot be read as a finding refuses the whole call (``unknown finding``), naming it."""
+    return tuple(_written(_of(hunt)))
+
+
 def _written(hunt: Hunt) -> list[Finding]:
     """Every finding the hunt has a file for, in the order of their numbers."""
     folder = hunt.folder / _FINDINGS_FOLDER
@@ -1334,9 +1357,9 @@ def replay(hunt: Hunt, finding: int | Finding, *, case: str | None = None) -> Re
                            f"{found.arm}, holds no run of the case to take a seed from",
                            reason="unknown finding")
     seed = pool[0].seed
-    ran, calls = _run_unstored(hunt, found.arm, chosen, found.condition, seed=seed)
+    ran, calls, error = _run_unstored(hunt, found.arm, chosen, found.condition, seed=seed)
     return Replayed(finding=found.number, case=chosen, seed=seed, outcome=ran.outcome,
-                    kind=ran.kind, calls=calls)
+                    kind=ran.kind, calls=calls, error=error)
 
 
 # ---------------------------------------------------------------------------

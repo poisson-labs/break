@@ -32,9 +32,10 @@ jobs:
   tests:
     name: ruff, mypy and the tests on ${{ matrix.python }}
     runs-on: ubuntu-24.04
-    # The suite is 9 to 10 minutes on one Python locally and took up to 17:20 on these runners with
-    # the three jobs side by side (2026-11-06), so 20 minutes left too little room for a slow runner.
-    timeout-minutes: 30
+    # The suite is about 35 minutes on one Python locally and the commands' tests, which start the
+    # command in a child process each time, run about half as fast again on these runners: the
+    # first run with them was cancelled at 30 minutes a third of the way through (2026-11-08).
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -69,7 +70,7 @@ jobs:
   clean-install:
     name: clean install of the wheel
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:

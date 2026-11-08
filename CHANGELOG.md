@@ -2,13 +2,69 @@
 
 ## Unreleased
 
-The first nine modules of Poisson Break: the repository, the package and its command, the
+The first ten modules of Poisson Break: the repository, the package and its command, the
 record every stored run carries, the four extension points, the catalogue of what Break varies
 with the ten launch faults, the applier that puts a condition on one run's tool calls, the
 failure check that decides whether a run failed, the settings file with the plan shown before
 spending, the look everything Break prints goes through, the runs themselves, stored on Prove,
-the search a hunt runs after its control, and the confirm stage with its findings, replay and
-recheck. A hunt's stages run from Python; the commands that run them come next.
+the search a hunt runs after its control, the confirm stage with its findings, replay and
+recheck, and the eight commands that run all of it.
+
+- The commands: `init`, `doctor`, `hunt`, `confirm`, `findings`, `replay`, `recheck` and
+  `catalog`, each with its own `--help`. The command computes nothing: every number it prints
+  is the settings module's, the runs module's, the search module's or the confirm module's, and
+  what is in `poisson_break.cli` is the command line, the words on screen and the order of the
+  calls. Every verb prints one result through the look, takes `--json` for one strict document
+  named `poisson_break.<verb>-result/1`, and keeps the shared exit codes. A verb that spends
+  shows its plan and asks `start?` first; `--yes` answers, `--dry-run` runs nothing and writes
+  nothing, and no terminal without `--yes` is the plan and a refusal in one line. After every
+  plan, and in `init`'s and `doctor`'s output, the note that Break calls your tools for real.
+- `init` asks at most nine questions, each with a default and a flag, skipped when its flag is
+  given; `--yes` takes every default, the yes/no ones as no. The kind is a menu of the six, the
+  tools of a `rollout` target are the ones its module wraps while it is imported (never run),
+  a `write` tool is asked whether it is safe to repeat or has a stand-in, the conversation is
+  asked only when a case has turns and a yes writes every conversation move, a yes to model
+  calls every model fault. It writes `break.toml`, refuses to write over one without `--force`,
+  writes `cases.jsonl` only when the starter file was asked for, and ends with the one command
+  that writes the same file, which runs as printed with no terminal; a kind whose adapter is
+  not installed is still written, with the `pip install` line first. A line it prints back
+  (`--force`, `--entry MODULE:NAME`) is the user's own words.
+- `doctor` finds the first problem of the settings, the cases, the target, the strategy, the
+  changes the way in cannot make, each tool line and stand-in and your own check, and says
+  `not ready`, exit 4, in one line with the command to run next: `init` when there is no
+  settings file, `doctor` once the line it names is mended. `--run` runs the first case once
+  with no change, asked first, and stores nothing; a tool the agent calls that nobody classed
+  is `not ready` naming it, with the `init` command that writes the settings back with that
+  tool `off`.
+- `hunt` runs the control, the search and the shrink stage, writes the candidates best first,
+  and shows each with how many of its runs failed and the kind most of them had; a hunt that
+  finds nothing prints what it did not look at first. A cap's stop and Ctrl-C say what was
+  kept and print `hunt --hunt NAME`, which goes on with the same hunt and runs no stored cell
+  again. A control that fails more than half its runs is a `note:` carrying its rate.
+- `confirm` plans from the control stage's measured cost, runs the stage or finishes the one on
+  disk under its written design (its plan then says what is left), asks Trace about each
+  candidate and writes the findings; `--repeats N` asks again about the candidates too small to
+  tell, and is refused before any plan when there is nothing to ask again. `findings` lists them
+  with each case that failed in the control under a `control` heading, and `findings N` shows
+  one with its numbers as the look prints them, the command that replays it and Trace's
+  command for its full report. `replay` asks nothing before its one run. `recheck` prints one
+  of Trace's four phrases a finding with the rates before and now, the gap in days since the
+  reference runs, and `--check` exits 4 on a finding that fails more, `--strict` adding too
+  small to tell. `catalog` needs no settings file.
+- A stage stopped by a tool nobody classed names it, and prints first the `init` command that
+  writes the settings back as they are with every such tool classed `off`, then the resume.
+  A refusal over a finding file that cannot be read names the file by a path that leads to it,
+  and prints no `next:`.
+- `poisson_break.apply`: `wrapped_while(import_path)` names the tools wrapped while a module is
+  imported, in order, each once. `poisson_break.hunt`: `run_once(settings, target=, case=)`
+  runs one case once with no change, stored nowhere; a tool nobody classed raises
+  `ToolRefused`. `poisson_break.settings`: `install_command(kind)` is the `pip install` line
+  for a kind whose way in is not installed, or `None`; `load`'s refusal names the same line.
+  `poisson_break.confirm`: `Replayed.error` carries a run not counted's one line of error;
+  `read_findings(hunt)` reads every finding file in number order and refuses the whole call on
+  one it cannot read; each confirm stage in `confirm.json` carries the `q` and
+  `max_difference` it was begun under, and is judged under those. `poisson_break.look`:
+  `show(result)` prints a result the way the current run prints one, and plain outside a run.
 
 - `poisson_break.confirm`: confirming findings. `write_candidates(hunt, conditions)` keeps a
   hunt's candidates, best first, in its `candidates.json`, and `read_candidates(hunt)` reads
