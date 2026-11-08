@@ -14,10 +14,10 @@ naming the tool, with a `next:` that is an `init` command whose `--tool` line cl
 as printed in the project, writes a `break.toml` that reads back as the settings it was printed from with that one
 tool added, classed `off`, and nothing else changed (point 44, Taylor's yes, 2026-11-08).
 
-"Run as printed" is read here as the ruling's "when run": with no terminal and with `break.toml` already there, so the
-command must answer what it leaves to defaults and write over the file (point 45, OWED; the tests assume yes). Not
-held here, put to Taylor (OWED, point 46): a project whose cases have turns, where `--yes` turns the conversation on
-and the equivalent command, which leaves a default out, does not say it is off.
+The `next:` carries `--yes` and `--force` and runs exactly as printed: with no terminal, and with `break.toml` already
+there (point 45, Taylor's yes, 2026-11-08). When a case has turns it states the conversation's setting, even when
+empty, so that `--yes`, whose conversation default is yes (point 43), changes nothing else (point 46, Taylor's yes,
+2026-11-08): held with no move set and with one.
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ from tests.commands_support import (
     result_of,
     verdict,
 )
-from tests.commands_spies import RUN_ONCE, RUN_ONCE_REFUSED, spied, spying
+from tests.commands_spies import CAPABILITIES_TAKEN, RUN_ONCE, RUN_ONCE_REFUSED, spied, spying
 from tests.look_support import Streams, strip
 
 
@@ -366,4 +366,42 @@ def test_doctor_run_reports_the_tool_run_once_refuses(tmp_path: Path) -> None:
     (command,) = classing_nexts(ran, "spied_tool")
     assert [c["name"] for c in spied(env)] == ["run_once"]
     assert proj.runs() == []
+    the_next_writes_the_tool_in_as_off(proj, command, "spied_tool")
+
+
+# ---------------------------------------------------------------------------
+# point 46: the `next:` in a project whose cases have turns
+# ---------------------------------------------------------------------------
+
+
+def states_the_conversation(command: str) -> bool:
+    """Point 46: the command says the conversation's setting itself, `--vary-conversation` with a value."""
+    words = shlex.split(command)
+    return any(w == "--vary-conversation" for w in words[:-1]) or any(w.startswith("--vary-conversation=")
+                                                                      for w in words)
+
+
+def test_with_turns_and_no_move_the_next_states_the_conversation_and_keeps_it_off(tmp_path: Path) -> None:
+    """Point 46: the cases are conversations and `[vary] conversation` is empty, the default. The `next:` says so, and
+    run as printed under its `--yes` (whose conversation default is yes) the conversation stays off."""
+    turns = [{**c, "turns": [c["input"], "And the refund?"]} for c in cases(3)]
+    proj = project(tmp_path, turns, tools={"lookup_order": "read"})
+    ran = cli(proj, "doctor", "--run", "--yes")
+    not_ready(ran)
+    (command,) = classing_nexts(ran, "check_policy")
+    assert states_the_conversation(command), command
+    the_next_writes_the_tool_in_as_off(proj, command, "check_policy")
+
+
+def test_with_turns_and_moves_set_the_next_keeps_those_moves(tmp_path: Path) -> None:
+    """Point 46 with moves set: `[vary] conversation = ["interrupts", "repeats"]`. `doctor` is let past the check of
+    those moves on a `rollout` target (a stand-in takes every change) and `run_once` refuses `spied_tool` (a stand-in).
+    The `next:` states the two moves, and run as printed, outside the stand-ins, keeps them, in their order."""
+    turns = [{**c, "turns": [c["input"], "And the refund?"]} for c in cases(3)]
+    proj = project(tmp_path / "proj", turns, vary={"conversation": ["interrupts", "repeats"]})
+    env = spying(proj, tmp_path / "spy", CAPABILITIES_TAKEN + RUN_ONCE_REFUSED)
+    ran = cli(proj, "doctor", "--run", "--yes", **env)
+    not_ready(ran)
+    (command,) = classing_nexts(ran, "spied_tool")
+    assert states_the_conversation(command), command
     the_next_writes_the_tool_in_as_off(proj, command, "spied_tool")

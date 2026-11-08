@@ -33,6 +33,8 @@ Taylor's rulings on points 31 to 40 (2026-11-07) settle the rest of the form, an
 - point 36: the conversation question is `[Y/n]`;
 - point 43: a yes to the conversation is `vary.conversation` set to every conversation move of the catalogue, in the
   catalogue's order, and a no writes none;
+- point 46: when a case has turns, the command `init` prints states the conversation's setting, even when empty, so
+  that run as printed, every question it leaves to a default taken, it writes the same file;
 - point 40: the install command is the one `poisson_break.settings.install_command` hands back.
 
 Invariants held here (Break — Plan, the commands module): BK8.3 (the dialogue under scripted answers and the equivalent
@@ -786,3 +788,51 @@ def test_a_yes_to_model_calls_and_to_settings_of_one_s_own(tmp_path: Path) -> No
              "--tool", f'check_policy = {{ class = "write", stand_in = "{STAND_IN}" }}',
              "--vary-model", model, "--env", inventory, "--env", region]
     assert proj.settings.read_text(encoding="utf-8") == expected(words)
+
+
+# ---------------------------------------------------------------------------
+# point 46: the printed command, run as printed, when the cases have turns
+# ---------------------------------------------------------------------------
+
+
+def printed_init(ran: Any) -> list[str]:
+    """The one `init` command among the `next:` lines, as words."""
+    found = [shlex.split(n) for n in nexts(ran) if shlex.split(n)[:2] == [PROG, "init"]]
+    assert len(found) == 1, nexts(ran)
+    return found[0]
+
+
+def taking_every_default(asked: Asked) -> str:
+    return ""
+
+
+@pytest.mark.parametrize("how", ["turns, the dialogue's yes", "turns, the dialogue's no", "turns, init --yes",
+                                 "turns, one move by flag", "no turns, init --yes"])
+def test_the_printed_command_run_as_printed_writes_the_same_file(tmp_path: Path, how: str) -> None:
+    """Point 46: `init` in a project whose case has turns, the conversation answered yes or no, taken by `--yes`, or
+    given one move by its flag; and, beside them, a case with no turns. The command `init` prints, where a case has
+    turns, says `--vary-conversation` itself. Run as printed in another folder holding the same cases, on terminals
+    with every question it leaves to a default answered with Enter, it exits 0 and writes a byte-identical file, and
+    that folder holds only the two files."""
+    turns = how.startswith("turns")
+    proj = empty(tmp_path / "first", turns=turns)
+    default = ["", ENTRY, "", "", "", "", "", "", "", "", "", "", ""]
+    if how == "turns, the dialogue's yes":
+        ran, asked = converse(proj, ["init"], answering(dict(CLASSES), default))
+    elif how == "turns, the dialogue's no":
+        ran, asked = converse(proj, ["init"], answering(dict(CLASSES), [*default[:7], "n", *default[8:]]))
+        assert [a.answer for a in asked if a.yes_no] == ["", "", "n", "", ""], [a.text for a in asked]
+    elif how == "turns, one move by flag":
+        ran = cli(proj, "init", "--yes", "--entry", ENTRY, "--vary-conversation", "interrupts")
+    else:
+        ran = cli(proj, "init", "--yes", "--entry", ENTRY)
+    assert ran.exit == CODES["done"], ran
+    words = printed_init(ran)
+    if turns:
+        assert "--vary-conversation" in words[:-1] or any(w.startswith("--vary-conversation=") for w in words), words
+    other = empty(tmp_path / "again", turns=turns)
+    cases_before = (other.folder / "cases.jsonl").read_bytes()
+    again, _ = converse(other, words[1:], taking_every_default)
+    assert again.exit == CODES["done"], again
+    assert other.settings.read_bytes() == proj.settings.read_bytes()
+    assert files_under(other.folder) == {"break.toml": proj.settings.read_bytes(), "cases.jsonl": cases_before}

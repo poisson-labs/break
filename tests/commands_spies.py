@@ -63,6 +63,20 @@ def run_once(settings, *, target, case):
 _hunt.run_once = run_once
 '''
 
+#: `changes.check_capabilities` stood in for: every change is one the way in can make, so `doctor` gets past the
+#: conversation's moves on a `rollout` target and on to its run (point 46). Put before another body.
+CAPABILITIES_TAKEN = '''
+import poisson_break.changes as _changes
+
+
+def check_capabilities(condition, capabilities):
+    _log(name="check_capabilities", condition=str(condition))
+    return None
+
+
+_changes.check_capabilities = check_capabilities
+'''
+
 #: `settings.install_command` stood in for: every kind, the core's own too, gets a line no table holds.
 INSTALL_COMMAND = '''
 import poisson_break.settings as _settings
@@ -127,4 +141,4 @@ def spied(env: dict[str, str]) -> list[dict[str, Any]]:
     return [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines() if line]
 
 
-__all__ = ["INSTALL_COMMAND", "NOTHING_TO_INSTALL", "REPLAY_ERROR", "RUN_ONCE", "RUN_ONCE_REFUSED", "SPIED_ERROR", "spied", "spying"]
+__all__ = ["CAPABILITIES_TAKEN", "INSTALL_COMMAND", "NOTHING_TO_INSTALL", "REPLAY_ERROR", "RUN_ONCE", "RUN_ONCE_REFUSED", "SPIED_ERROR", "spied", "spying"]
