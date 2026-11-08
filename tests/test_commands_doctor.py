@@ -10,16 +10,22 @@ Taylor's rulings on BK8's open points (2026-11-07), held here: `doctor --run` as
 the first case once with no change, stores nothing, and adds its outcome as a detail line; `doctor` alone runs nothing
 and asks nothing (point 23, and point 26 (a)); the run is `poisson_break.hunt.run_once`'s (point 39); the schema
 `poisson_break.doctor-result/1` (point 11). A tool nobody classed, met in that run, is `not ready`, exit 4, in one line
-naming the tool, with a `next:` that is an `init` command whose `--tool` line classes it (point 42).
+naming the tool, with a `next:` that is an `init` command whose `--tool` line classes it (point 42). That `next:`, run
+as printed in the project, writes a `break.toml` that reads back as the settings it was printed from with that one
+tool added, classed `off`, and nothing else changed (point 44, Taylor's yes, 2026-11-08).
 
-Not held here, put to Taylor (OWED, point 44): which class that `--tool` line gives the tool, and what else the `init`
-command carries.
+"Run as printed" is read here as the ruling's "when run": with no terminal and with `break.toml` already there, so the
+command must answer what it leaves to defaults and write over the file (point 45, OWED; the tests assume yes). Not
+held here, put to Taylor (OWED, point 46): a project whose cases have turns, where `--yes` turns the conversation on
+and the equivalent command, which leaves a default out, does not say it is off.
 """
 
 from __future__ import annotations
 
+import json
 import shlex
 import tomllib
+from dataclasses import fields
 from pathlib import Path
 from typing import Any
 
@@ -281,10 +287,11 @@ def test_doctor_run_without_a_terminal_and_without_yes_is_refused_and_runs_nothi
 # ---------------------------------------------------------------------------
 
 
-def classing_nexts(ran: Any, tool: str) -> list[str]:
-    """The `next:` commands that are `init` with a `--tool` line whose key is `tool`."""
+def classing_nexts(ran: Any, tool: str, commands: list[str] | None = None) -> list[str]:
+    """The `next:` commands that are `init` with a `--tool` line whose key is `tool`; `commands` in place of the printed
+    `next:` lines, for a document under `--json`."""
     found = []
-    for command in nexts(ran):
+    for command in nexts(ran) if commands is None else commands:
         words = shlex.split(command)
         if words[:2] != [PROG, "init"]:
             continue
@@ -294,9 +301,33 @@ def classing_nexts(ran: Any, tool: str) -> list[str]:
     return found
 
 
+def the_next_writes_the_tool_in_as_off(proj: Any, command: str, tool: str) -> None:
+    """Point 44: `command`, run as printed in the project, exits 0 and writes a `break.toml` that reads back equal to the
+    settings that were there with one more line in `[tools]`, `tool` classed `off`: every other table and key as it was,
+    every other tool's line as it was. Every other file of the project is as it was, and no file is added. The order of
+    `[tools]`'s lines is not held."""
+    from poisson_break.settings import loads
+
+    text = proj.settings.read_text(encoding="utf-8")
+    assert "\n[tools]\n" in text
+    wanted = loads(text.replace("\n[tools]\n", f'\n[tools]\n{json.dumps(tool)} = "off"\n', 1))
+    others = {name: data for name, data in files_under(proj.folder).items() if name != "break.toml"}
+    words = shlex.split(command)
+    assert words[:2] == [PROG, "init"], command
+    ran = cli(proj, *words[1:])
+    assert ran.exit == CODES["done"], ran
+    written = loads(proj.settings.read_text(encoding="utf-8"))
+    assert {t.name: t for t in written.tools} == {t.name: t for t in wanted.tools}
+    for field in fields(wanted):
+        if field.name != "tools":
+            assert getattr(written, field.name) == getattr(wanted, field.name), field.name
+    assert {name: data for name, data in files_under(proj.folder).items() if name != "break.toml"} == others
+
+
 def test_doctor_run_meeting_a_tool_nobody_classed_is_not_ready_naming_it(tmp_path: Path) -> None:
-    """Point 42: `check_policy` has no line in `[tools]`, and the desk calls it on every run. `doctor --run` meets the tool, says `not ready` in one line naming it, exits 4, stores nothing, and
-    its `next:` is the `init` command that classes the tool."""
+    """Point 42: `check_policy` has no line in `[tools]`, and the desk calls it on every run. `doctor --run` meets the
+    tool, says `not ready` in one line naming it, exits 4, stores nothing, and its `next:` is the `init` command that
+    classes the tool: run, it writes the settings back with `check_policy` added as `off` (point 44)."""
     proj = project(tmp_path, tools={"lookup_order": "read"})
     before, paths = files_under(proj.folder), paths_under(proj.folder)
     ran = cli(proj, "doctor", "--run", "--yes", PYTHONDONTWRITEBYTECODE="1")
@@ -304,29 +335,35 @@ def test_doctor_run_meeting_a_tool_nobody_classed_is_not_ready_naming_it(tmp_pat
     assert "check_policy" in verdict(ran)[1], ran
     assert detail(result_of(ran, "not ready")) == [], ran
     assert not [line for line in strip(ran.err).splitlines() if line.startswith("error: ")], ran
-    assert classing_nexts(ran, "check_policy"), nexts(ran)
+    (command,) = classing_nexts(ran, "check_policy")
     assert files_under(proj.folder) == before
     assert paths_under(proj.folder) == paths
     assert not proj.hunts.exists()
+    the_next_writes_the_tool_in_as_off(proj, command, "check_policy")
 
 
 def test_a_tool_nobody_classed_under_json_is_one_document_and_still_exits_4(tmp_path: Path) -> None:
+    """The same under `--json`: the document's `next` holds the one `init` command, and run it writes the same."""
     proj = project(tmp_path, tools={"lookup_order": "read"})
     ran = cli(proj, "doctor", "--run", "--yes", "--json")
     assert ran.exit == CODES["check"], ran
     document = json_document(ran)
     assert (document["schema"], document["verdict"]) == ("poisson_break.doctor-result/1", "not ready")
     assert "check_policy" in document["sentence"], document
+    (command,) = classing_nexts(ran, "check_policy", list(document["next"]))
+    the_next_writes_the_tool_in_as_off(proj, command, "check_policy")
 
 
 def test_doctor_run_reports_the_tool_run_once_refuses(tmp_path: Path) -> None:
     """Point 42 through `hunt.run_once`: stood in for so that it refuses `spied_tool`, which no settings file names,
-    without running the case. `doctor --run` is `not ready`, exit 4, naming that tool, and classes it in its `next:`."""
+    without running the case. `doctor --run` is `not ready`, exit 4, naming that tool, and classes it `off` in its `next:`, every other
+    setting kept."""
     proj = project(tmp_path / "proj")
     env = spying(proj, tmp_path / "spy", RUN_ONCE_REFUSED)
     ran = cli(proj, "doctor", "--run", "--yes", **env)
     not_ready(ran)
     assert "spied_tool" in verdict(ran)[1], ran
-    assert classing_nexts(ran, "spied_tool"), nexts(ran)
+    (command,) = classing_nexts(ran, "spied_tool")
     assert [c["name"] for c in spied(env)] == ["run_once"]
     assert proj.runs() == []
+    the_next_writes_the_tool_in_as_off(proj, command, "spied_tool")
