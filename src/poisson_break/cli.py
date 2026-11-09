@@ -783,6 +783,13 @@ def _hunt(call: _Call) -> int:
         rows.append(look.Row("left", f"{look.fmt_count(left)} runs of "
                                      f"{look.fmt_count(plan.runs)}"))
         data["runs"] = left
+        if _priced(settings) and _control_complete(hunt):
+            # its control has run, so what is left is priced at what one control run cost, as
+            # confirm prices a stage
+            summary = _control_summary(call, settings, hunt, "hunt")
+            if summary.dollars_per_run is not None:
+                estimate, source = _spend_estimate(settings, summary, left)
+                data["dollars"] = _spend_dollars(settings, summary, left)
     data = {"dollars": data.pop("dollars"), "hunt": hunt.name, **data}
     try:
         if not _start(call, look.Plan(sentence, estimate=estimate, source=source,
