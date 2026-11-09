@@ -70,6 +70,7 @@ from poisson_break import __version__, records
 from poisson_break.apply import RunOutOfTime, RunResult, Session, ToolInfo, ToolRefused
 from poisson_break.changes import Change, ChangeError, Condition, InstrumentError, marker, parse
 from poisson_break.changes import check_capabilities as _check_capabilities
+from poisson_break.changes import check_registered as _check_registered
 from poisson_break.changes import name as _name_of
 from poisson_break.checks import _check as _load_check
 from poisson_break.checks import judge, signals, watch
@@ -650,6 +651,7 @@ def _asked_of(target: Target, settings: Settings) -> tuple[tuple[str, ...], Capa
         if tool not in classed:
             raise HuntError(f'the agent has the tool "{tool}", and [tools] has no line for it: '
                             "class it read, write or off")
+    _check_registered(settings.vary.tools)
     for change in _varied(settings):
         _check_capabilities(Condition(changes=(change,)), capabilities)
     return listed, capabilities

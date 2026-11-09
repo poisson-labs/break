@@ -56,6 +56,7 @@ from poisson_break.changes import (
     Condition,
     InstrumentError,
     check_capabilities,
+    check_registered,
     parse,
 )
 from poisson_break.changes import name as condition_name
@@ -769,6 +770,11 @@ def _hunt(call: _Call) -> int:
     except _refusals() as wrong:
         raise look.Refused(_one_line(wrong), nexts=(_ours(call.prog, "doctor"),)) from None
     target = _target(call, settings)
+    try:
+        # the target's module is imported now, and with it any fault of the user's own
+        check_registered(settings.vary.tools)
+    except ChangeError as wrong:
+        raise look.Refused(_one_line(wrong), nexts=(_ours(call.prog, "doctor"),)) from None
     word = settings.target.entry.rsplit(":", 1)[-1].split(".")[-1]
     rows: list[look.Row | look.Line | look.Table] = [
         look.Row("target", f"{settings.target.entry} ({settings.target.kind})"),
@@ -1661,6 +1667,7 @@ def _doctor(call: _Call) -> int:
         return problem(refused.sentence, again)
     try:
         load_strategy(settings.search.strategy)
+        check_registered(settings.vary.tools)
         capabilities = target.capabilities()
         for move in settings.vary.conversation:
             check_capabilities(parse(f"user:{move}@1"), capabilities)

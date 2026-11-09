@@ -61,7 +61,7 @@ import json
 import math
 import random
 import re
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any
@@ -80,12 +80,14 @@ __all__ = [
     "CATALOG",
     "ChangeError",
     "NeedsAdapter",
+    "UnknownFault",
     "InstrumentError",
     "parse",
     "name",
     "applies",
     "register",
     "check_capabilities",
+    "check_registered",
     "run_fault",
     "marker",
     "typos",
@@ -145,6 +147,14 @@ class NeedsAdapter(ChangeError):
     def __init__(self, message: str, *, change: str) -> None:
         super().__init__(message)
         self.change = change
+
+
+class UnknownFault(ChangeError):
+    """The settings name a tool fault the catalogue does not hold; ``fault`` is the name."""
+
+    def __init__(self, message: str, *, fault: str, suggestion: str | None = None) -> None:
+        super().__init__(message, suggestion)
+        self.fault = fault
 
 
 class InstrumentError(Exception):
@@ -820,6 +830,30 @@ def check_capabilities(condition: Condition, capabilities: Capabilities) -> None
             raise NeedsAdapter(
                 f'"{text}" needs a way in that can {doing}, and this one cannot', change=text)
     return None
+
+
+def check_registered(faults: Iterable[str]) -> None:
+    """Refuse, before any run, a tool fault's name the catalogue does not hold.
+
+    Reading the settings takes a name it does not know in ``[vary] tools``, since the fault may
+    be one a user's module registers and reading imports no module. This is asked once the
+    target is loaded, which imports the module that calls ``register``: a name still unknown
+    then is ``UnknownFault``, naming it, with the nearest known name within two edits."""
+    known = [line.name for line in CATALOG if line.surface == "tool"]
+    for fault in faults:
+        if fault in known:
+            continue
+        near: str | None = None
+        best = 3
+        for candidate in known:
+            distance = _edits(str(fault), candidate, 2)
+            if distance < best:
+                near, best = candidate, distance
+        nearest = "" if near is None else f"; the nearest is {near}"
+        raise UnknownFault(
+            f'vary.tools names "{fault}", which is not a tool fault: the catalogue has none of '
+            f"that name, and no module the target loads registers one{nearest}",
+            fault=str(fault), suggestion=near)
 
 
 # ---------------------------------------------------------------------------
