@@ -642,21 +642,11 @@ def _days(days: float) -> str:
     return f"{days:.1f}" if days < 10 else f"{round(days)}"
 
 
-def _store(hunt: Any) -> Any:
-    from poisson_prove.store import Store
-
-    return Store(hunt.store)
-
-
-def _counted(store: Any, run_id: str) -> int:
-    return int(store.count(run_id)) if run_id in store.runs() else 0
-
-
 def _control_complete(hunt: Any) -> bool:
-    """Whether the hunt's control arm holds every run it was made for, read from the store, so
-    that asking the runs module for the control runs nothing."""
+    """Whether the hunt's control arm holds every run it was made for, as the runs module reads
+    its store, so that asking it for the control runs nothing."""
     cells = int(len(hunt.cases)) * int(hunt.settings.search.control_repeats)
-    return bool(_counted(_store(hunt), f"{hunt.name}-control") >= cells)
+    return bool(hunt.stored().get("control", 0) >= cells)
 
 
 def _progress(label: str, total: int) -> tuple[look.Progress, Callable[[int, int], None]]:
@@ -978,26 +968,11 @@ def _hunt_result(call: _Call, settings: Settings, hunt: Any, summary: Any, stage
 # ---------------------------------------------------------------------------
 
 
-def _stages(hunt: Any) -> list[dict[str, Any]]:
-    """The confirm stages the hunt has on disk, as its ``confirm.json`` holds them; none for a
-    hunt with no file. Read for the plan only: the confirm module reads them for itself."""
-    path = hunt.folder / "confirm.json"
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        stages = data["stages"]
-        return [stage for stage in stages if isinstance(stage, dict)]
-    except (OSError, ValueError, KeyError, TypeError):
-        return []
-
-
-def _stage_left(hunt: Any, stage: Mapping[str, Any]) -> int:
-    """How many runs a confirm stage has left, counted from the store."""
-    store = _store(hunt)
-    cells = len(stage.get("cases", ())) * int(stage.get("repeats", 0))
-    left = 0
-    for arm in stage.get("arms", ()):
-        left += max(cells - _counted(store, f"{hunt.name}-{arm['arm']}"), 0)
-    return left
+def _stage_left(stage: Any) -> int:
+    """How many runs a confirm stage has left: each arm's runs less the rows the confirm module
+    read in it."""
+    cells = len(stage.cases) * stage.repeats
+    return sum(max(cells - count, 0) for count in stage.counts.values())
 
 
 def _control_summary(call: _Call, settings: Settings, hunt: Any, verb: str) -> Any:
@@ -1017,7 +992,7 @@ def _control_summary(call: _Call, settings: Settings, hunt: Any, verb: str) -> A
 
 
 def _confirm(call: _Call) -> int:
-    from poisson_break.confirm import ConfirmError, confirm, design, read_candidates
+    from poisson_break.confirm import ConfirmError, confirm, design, read_candidates, read_stages
     from poisson_break.hunt import HuntStopped
 
     args = call.args
@@ -1025,7 +1000,11 @@ def _confirm(call: _Call) -> int:
     name = _which(call, settings)
     hunt = _open(call, settings, name=name, existing=True)
     resume = _ours(call.prog, "confirm", "--hunt", hunt.name)
-    stages = _stages(hunt)
+    try:
+        stages = read_stages(hunt)
+    except _refusals() as wrong:
+        # no command mends a stages file that cannot be read, and each would meet it again
+        raise look.Refused(_one_line(wrong)) from None
     latest = stages[-1] if stages else None
 
     if args.repeats is not None:
@@ -1035,8 +1014,8 @@ def _confirm(call: _Call) -> int:
         if latest is None:
             raise look.Refused(f'the hunt "{hunt.name}" has no confirm stage yet, so nothing was '
                                "too small to tell: confirm first", nexts=(resume,))
-        if _stage_left(hunt, latest):
-            raise look.Refused(f"confirm stage {latest.get('number')} of the hunt "
+        if _stage_left(latest):
+            raise look.Refused(f"confirm stage {latest.number} of the hunt "
                                f'"{hunt.name}" has runs missing: finish it before asking again',
                                nexts=(resume,))
         try:
@@ -1061,22 +1040,22 @@ def _confirm(call: _Call) -> int:
 
     rows: list[look.Row | look.Line | look.Table] = []
     data: dict[str, Any] = {"hunt": hunt.name, "candidates": len(candidates)}
-    left = _stage_left(hunt, latest) if latest is not None and args.repeats is None else 0
+    left = _stage_left(latest) if latest is not None and args.repeats is None else 0
     if left:
         assert latest is not None
-        arms = len(latest.get("arms", ())) - 1
-        sentence = (f"go on with confirm stage {latest.get('number')} of {hunt.name}: "
+        arms = len(latest.arms) - 1
+        sentence = (f"go on with confirm stage {latest.number} of {hunt.name}: "
                     f"{look.fmt_count(arms)} candidates against a control")
-        rows += [look.Row("design", f"{look.fmt_count(len(latest.get('cases', ())))} cases × "
-                                    f"{look.fmt_count(int(latest.get('repeats', 0)))} repeats, "
+        rows += [look.Row("design", f"{look.fmt_count(len(latest.cases))} cases × "
+                                    f"{look.fmt_count(latest.repeats)} repeats, "
                                     "once with no change and once under each candidate, as "
                                     "written"),
                  look.Row("left", f"{look.fmt_count(left)} runs")]
         runs = left
-        data.update(stage=latest.get("number"), left=left, repeats=latest.get("repeats"))
+        data.update(stage=latest.number, left=left, repeats=latest.repeats)
     elif args.repeats is not None:
         assert latest is not None
-        cases = len(latest.get("cases", ()))
+        cases = len(latest.cases)
         again = plan_confirm(dataclasses.replace(
             settings, confirm=dataclasses.replace(settings.confirm, repeats=args.repeats)),
             cases=max(cases, 1), candidates=len(small))
@@ -1090,7 +1069,7 @@ def _confirm(call: _Call) -> int:
                                        f"{look.fmt_count(again.reference_per_finding)} for each "
                                        "candidate that is confirmed")]
         runs = again.runs
-        data.update(stage=int(latest.get("number", 0)) + 1, repeats=args.repeats,
+        data.update(stage=latest.number + 1, repeats=args.repeats,
                     asked_again=[one.condition for one in small], runs=again.runs)
     else:
         sentence = f"confirm {look.fmt_count(len(candidates))} candidates against a control"
@@ -1384,29 +1363,34 @@ def _replay(call: _Call) -> int:
 
 def _recheck_left(hunt: Any, findings: Sequence[Any]) -> tuple[int, int, bool] | None:
     """A recheck that stopped short, if the store holds one: its number, the runs it has left
-    over these findings, and whether it was begun with the old agent beside the new one. The
-    confirm module finishes such a recheck before it begins another."""
-    store = _store(hunt)
-    prefix = f"{hunt.name}-recheck-"
-    numbers = []
-    for run_id in store.runs():
-        if run_id.startswith(prefix):
-            head = run_id[len(prefix):].split("-", 1)[0]
-            if head.isdigit():
-                numbers.append(int(head))
-    if not numbers:
+    over these findings, and whether it was begun with the old agent beside the new one, read
+    from the arms the runs module says the store holds. The confirm module finishes such a
+    recheck before it begins another."""
+    held = hunt.stored()
+    number = max(_recheck_numbers(held), default=0)
+    if not number:
         return None
-    number = max(numbers)
-    arms = [run_id for run_id in store.runs() if run_id.startswith(f"{prefix}{number}-")]
-    with_old = any(run_id.endswith("-old") for run_id in arms)
+    prefix = f"recheck-{number}-"
+    with_old = any(word.startswith(prefix) and word.endswith("-old") for word in held)
     left = 0
     for finding in findings:
         cells = len(finding.cases) * finding.repeats
-        now = f"{prefix}{number}-{finding.number}"
-        left += max(cells - _counted(store, now), 0)
+        now = f"{prefix}{finding.number}"
+        left += max(cells - held.get(now, 0), 0)
         if with_old:
-            left += max(cells - _counted(store, f"{now}-old"), 0)
+            left += max(cells - held.get(f"{now}-old", 0), 0)
     return (number, left, with_old) if left else None
+
+
+def _recheck_numbers(held: Mapping[str, int]) -> list[int]:
+    """The number of every recheck an arm of the store is of, from its words."""
+    numbers = []
+    for word in held:
+        if word.startswith("recheck-"):
+            head = word[len("recheck-"):].split("-", 1)[0]
+            if head.isascii() and head.isdigit():
+                numbers.append(int(head))
+    return numbers
 
 
 def _recheck(call: _Call) -> int:
