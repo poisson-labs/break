@@ -568,11 +568,73 @@ def _stopped(call: _Call, settings: Settings, hunt: Any, stop: Any, verb: str,
                                     schema=_schema(verb), data=data), code=EXIT_STOPPED)
 
 
-def _interrupted(call: _Call, hunt: Any, verb: str, kept: str, resume: str) -> look.Stopped:
-    """Ctrl-C after work started: what was kept, and how to go on; exit 130."""
-    return look.Stopped(look.Result("stopped", f"interrupted: {kept}", nexts=(resume,),
-                                    schema=_schema(verb), data={"hunt": hunt.name}),
+def _interrupted(call: _Call, hunt: Any, verb: str, resume: str, *, kept: int,
+                 arm: str | None) -> look.Stopped:
+    """Ctrl-C after work started: the runs kept, and how to go on; exit 130. The document
+    carries a stop's keys: the reason ``interrupted``, the Prove run whose run was interrupted
+    (``None`` between two), and ``kept``, the runs the stage's own arms hold."""
+    data = {"hunt": hunt.name, "reason": "interrupted",
+            "arm": None if arm is None else f"{hunt.name}-{arm}", "kept": kept, "unclassed": []}
+    return look.Stopped(look.Result("stopped", f"interrupted: kept {_n(kept, 'run')}",
+                                    nexts=(resume,), schema=_schema(verb), data=data),
                         code=EXIT_INTERRUPTED)
+
+
+def _arm_running(order: Sequence[tuple[str, int]], held: Mapping[str, int]) -> str | None:
+    """Of arms run one after another, in ``order`` with the runs each is made for, the one whose
+    run was under way: the first the store holds with runs missing. ``None`` between two arms,
+    when the next has not begun."""
+    for word, cells in order:
+        if word in held and held[word] < cells:
+            return word
+        if word not in held:
+            return None
+    return None
+
+
+def _confirm_kept(hunt: Any, number: int) -> tuple[int, str | None]:
+    """What a confirm stage stopped by Ctrl-C keeps: the rows its own arms hold (its arms, and
+    the reference arms of the findings it confirmed), and the arm whose run was under way, in
+    the order the confirm module runs them, the reference arms of every finding written last.
+    Read through the confirm module and the runs module, after the stop."""
+    from poisson_break.confirm import read_findings, read_stages
+
+    try:
+        stage = next((one for one in read_stages(hunt) if one.number == number), None)
+        findings = read_findings(hunt)
+    except _refusals():
+        return 0, None
+    if stage is None:  # stopped before the stage was written: none of its runs were made
+        return 0, None
+    held = hunt.stored()
+    cells = len(stage.cases) * stage.repeats
+    own = [word for word, _ in stage.arms]
+    order = [(word, cells) for word in own]
+    for finding in findings:
+        reference = finding.reference[len(hunt.name) + 1:]
+        order.append((reference, len(finding.cases) * finding.repeats))
+        if finding.stage == number:
+            own.append(reference)
+    return sum(held.get(word, 0) for word in own), _arm_running(order, held)
+
+
+def _recheck_kept(hunt: Any, findings: Sequence[Any], number: int,
+                  with_old: bool) -> tuple[int, str | None]:
+    """What a recheck stopped by Ctrl-C keeps: the rows its arms hold, both sides beside the old
+    agent, and the arm whose run was under way, in the order the confirm module runs them.
+    ``number`` is the recheck the plan began or took up; one numbered past it is the one the
+    confirm module began instead. Read through the runs module, after the stop."""
+    held = hunt.stored()
+    number = max([number, *_recheck_numbers(held)])
+    prefix = f"recheck-{number}-"
+    order = []
+    for finding in findings:
+        cells = len(finding.cases) * finding.repeats
+        if with_old:
+            order.append((f"{prefix}{finding.number}-old", cells))
+        order.append((f"{prefix}{finding.number}", cells))
+    kept = sum(rows for word, rows in held.items() if word.startswith(prefix))
+    return kept, _arm_running(order, held)
 
 
 def _start(call: _Call, plan: look.Plan) -> bool:
@@ -735,6 +797,7 @@ def _hunt(call: _Call) -> int:
 
     search_rows: list[Any] = []
     shrink_rows: list[Any] = []
+    arm = "control"  # the stage under way, and the arm its runs are stored in
     try:
         bar, tell = _progress("control", plan.control_runs)
         with bar:
@@ -743,14 +806,15 @@ def _hunt(call: _Call) -> int:
             look.note(f"the agent fails {look.fmt_rate(summary.rate)} of its control runs: a "
                       "search can at best find failures about twice as fast as chance here, "
                       "and those failures are the first thing to fix")
+        arm = "search"
         stage = _search(hunt, settings, strategy, summary, plan, search_rows)
+        arm = "shrink"
         found = _candidates(hunt, settings, stage.seen, summary, shrink_rows)
     except HuntStopped as stop:
         raise _stopped(call, settings, hunt, stop, "hunt", resume) from None
     except KeyboardInterrupt:
-        kept = hunt.budget().runs_spent
-        raise _interrupted(call, hunt, "hunt", f"kept {_n(kept, 'run')}", resume) \
-            from None
+        raise _interrupted(call, hunt, "hunt", resume, kept=hunt.budget().runs_spent,
+                           arm=arm if arm in hunt.stored() else None) from None
     except _refusals() as wrong:
         raise look.Refused(_one_line(wrong), nexts=(resume,)) from None
 
@@ -1064,7 +1128,8 @@ def _confirm(call: _Call) -> int:
                                     "written"),
                  look.Row("left", f"{look.fmt_count(left)} runs")]
         runs = left
-        data.update(candidates=arms, stage=latest.number, repeats=latest.repeats, runs=left)
+        number = latest.number
+        data.update(candidates=arms, stage=number, repeats=latest.repeats, runs=left)
     elif args.repeats is not None:
         assert latest is not None
         cases = len(latest.cases)
@@ -1081,7 +1146,8 @@ def _confirm(call: _Call) -> int:
                                        f"{look.fmt_count(again.reference_per_finding)} for each "
                                        "candidate that is confirmed")]
         runs = again.runs
-        data.update(candidates=len(small), stage=latest.number + 1, repeats=args.repeats,
+        number = latest.number + 1
+        data.update(candidates=len(small), stage=number, repeats=args.repeats,
                     asked_again=[one.condition for one in small], runs=again.runs)
     else:
         sentence = f"confirm {_n(len(candidates), 'candidate')} against a control"
@@ -1093,6 +1159,8 @@ def _confirm(call: _Call) -> int:
                                        f"runs, {look.fmt_count(planned.reference_per_finding)} "
                                        "for each candidate that is confirmed")]
         runs = planned.runs
+        # a finished stage asked again is judged again, its references finished
+        number = latest.number if latest is not None else 1
         data.update(stage=1, repeats=planned.repeats, runs=planned.runs)
     rows.append(look.Row("cap", _cap(settings)))
     rows.append(look.Line("Trace will say if this is too small to see a difference of "
@@ -1111,7 +1179,8 @@ def _confirm(call: _Call) -> int:
     except HuntStopped as stop:
         raise _stopped(call, settings, hunt, stop, "confirm", resume) from None
     except KeyboardInterrupt:
-        raise _interrupted(call, hunt, "confirm", "the runs made are kept", resume) from None
+        kept, arm = _confirm_kept(hunt, number)
+        raise _interrupted(call, hunt, "confirm", resume, kept=kept, arm=arm) from None
     except _refusals() as wrong:
         raise look.Refused(_one_line(wrong), nexts=(resume,)) from None
     look.show(_confirm_result(call, settings, hunt, done))
@@ -1446,6 +1515,7 @@ def _recheck(call: _Call) -> int:
                             "findings": [finding.number for finding in findings],
                             "runs": runs, "old": args.old}
     pending = _recheck_left(hunt, findings)
+    number = max(_recheck_numbers(hunt.stored()), default=0) + 1
     if pending is not None:
         number, left, with_old = pending
         sentence = f"go on with recheck {look.fmt_count(number)} of {hunt.name}, as it was begun"
@@ -1483,7 +1553,8 @@ def _recheck(call: _Call) -> int:
     except HuntStopped as stop:
         raise _stopped(call, settings, hunt, stop, "recheck", resume) from None
     except KeyboardInterrupt:
-        raise _interrupted(call, hunt, "recheck", "the runs made are kept", resume) from None
+        kept, arm = _recheck_kept(hunt, findings, number, old is not None)
+        raise _interrupted(call, hunt, "recheck", resume, kept=kept, arm=arm) from None
     except _refusals() as wrong:
         raise look.Refused(_one_line(wrong), nexts=(resume,)) from None
 
