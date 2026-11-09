@@ -142,7 +142,15 @@ def _ours(prog: str, *words: str) -> str:
     return look.command(prog, *(look.word(word) for word in words))
 
 
-_PLAN_SCHEMA = "poisson_break.plan/1"
+def _n(count: int, noun: str) -> str:
+    """A count and its noun, as a verdict sentence says it: the noun singular for one."""
+    return f"{look.fmt_count(count)} {noun if count == 1 else noun + 's'}"
+
+
+def _plan_schema(verb: str) -> str:
+    """The name of the document ``--json`` writes for a verb's plan: one name a verb, since
+    each verb's plan has its own fields."""
+    return f"poisson_break.{verb}-plan/1"
 
 
 # ---------------------------------------------------------------------------
@@ -560,11 +568,73 @@ def _stopped(call: _Call, settings: Settings, hunt: Any, stop: Any, verb: str,
                                     schema=_schema(verb), data=data), code=EXIT_STOPPED)
 
 
-def _interrupted(call: _Call, hunt: Any, verb: str, kept: str, resume: str) -> look.Stopped:
-    """Ctrl-C after work started: what was kept, and how to go on; exit 130."""
-    return look.Stopped(look.Result("stopped", f"interrupted: {kept}", nexts=(resume,),
-                                    schema=_schema(verb), data={"hunt": hunt.name}),
+def _interrupted(call: _Call, hunt: Any, verb: str, resume: str, *, kept: int,
+                 arm: str | None) -> look.Stopped:
+    """Ctrl-C after work started: the runs kept, and how to go on; exit 130. The document
+    carries a stop's keys: the reason ``interrupted``, the Prove run whose run was interrupted
+    (``None`` between two), and ``kept``, the runs the stage's own arms hold."""
+    data = {"hunt": hunt.name, "reason": "interrupted",
+            "arm": None if arm is None else f"{hunt.name}-{arm}", "kept": kept, "unclassed": []}
+    return look.Stopped(look.Result("stopped", f"interrupted: kept {_n(kept, 'run')}",
+                                    nexts=(resume,), schema=_schema(verb), data=data),
                         code=EXIT_INTERRUPTED)
+
+
+def _arm_running(order: Sequence[tuple[str, int]], held: Mapping[str, int]) -> str | None:
+    """Of arms run one after another, in ``order`` with the runs each is made for, the one whose
+    run was under way: the first the store holds with runs missing. ``None`` between two arms,
+    when the next has not begun."""
+    for word, cells in order:
+        if word in held and held[word] < cells:
+            return word
+        if word not in held:
+            return None
+    return None
+
+
+def _confirm_kept(hunt: Any, number: int) -> tuple[int, str | None]:
+    """What a confirm stage stopped by Ctrl-C keeps: the rows its own arms hold (its arms, and
+    the reference arms of the findings it confirmed), and the arm whose run was under way, in
+    the order the confirm module runs them, the reference arms of every finding written last.
+    Read through the confirm module and the runs module, after the stop."""
+    from poisson_break.confirm import read_findings, read_stages
+
+    try:
+        stage = next((one for one in read_stages(hunt) if one.number == number), None)
+        findings = read_findings(hunt)
+    except _refusals():
+        return 0, None
+    if stage is None:  # stopped before the stage was written: none of its runs were made
+        return 0, None
+    held = hunt.stored()
+    cells = len(stage.cases) * stage.repeats
+    own = [word for word, _ in stage.arms]
+    order = [(word, cells) for word in own]
+    for finding in findings:
+        reference = finding.reference[len(hunt.name) + 1:]
+        order.append((reference, len(finding.cases) * finding.repeats))
+        if finding.stage == number:
+            own.append(reference)
+    return sum(held.get(word, 0) for word in own), _arm_running(order, held)
+
+
+def _recheck_kept(hunt: Any, findings: Sequence[Any], number: int,
+                  with_old: bool) -> tuple[int, str | None]:
+    """What a recheck stopped by Ctrl-C keeps: the rows its arms hold, both sides beside the old
+    agent, and the arm whose run was under way, in the order the confirm module runs them.
+    ``number`` is the recheck the plan began or took up; one numbered past it is the one the
+    confirm module began instead. Read through the runs module, after the stop."""
+    held = hunt.stored()
+    number = max([number, *_recheck_numbers(held)])
+    prefix = f"recheck-{number}-"
+    order = []
+    for finding in findings:
+        cells = len(finding.cases) * finding.repeats
+        if with_old:
+            order.append((f"{prefix}{finding.number}-old", cells))
+        order.append((f"{prefix}{finding.number}", cells))
+    kept = sum(rows for word, rows in held.items() if word.startswith(prefix))
+    return kept, _arm_running(order, held)
 
 
 def _start(call: _Call, plan: look.Plan) -> bool:
@@ -642,21 +712,11 @@ def _days(days: float) -> str:
     return f"{days:.1f}" if days < 10 else f"{round(days)}"
 
 
-def _store(hunt: Any) -> Any:
-    from poisson_prove.store import Store
-
-    return Store(hunt.store)
-
-
-def _counted(store: Any, run_id: str) -> int:
-    return int(store.count(run_id)) if run_id in store.runs() else 0
-
-
 def _control_complete(hunt: Any) -> bool:
-    """Whether the hunt's control arm holds every run it was made for, read from the store, so
-    that asking the runs module for the control runs nothing."""
+    """Whether the hunt's control arm holds every run it was made for, as the runs module reads
+    its store, so that asking it for the control runs nothing."""
     cells = int(len(hunt.cases)) * int(hunt.settings.search.control_repeats)
-    return bool(_counted(_store(hunt), f"{hunt.name}-control") >= cells)
+    return bool(hunt.stored().get("control", 0) >= cells)
 
 
 def _progress(label: str, total: int) -> tuple[look.Progress, Callable[[int, int], None]]:
@@ -702,29 +762,40 @@ def _hunt(call: _Call) -> int:
                            f"shrink up to {look.fmt_count(plan.search_runs)}"),
         look.Row("cap", _cap(settings)),
     ]
-    sentence = (f"a hunt of {word} on {look.fmt_count(len(cases))} cases, at most "
-                f"{look.fmt_count(plan.runs)} runs")
+    sentence = f"a hunt of {word} on {_n(len(cases), 'case')}, at most {_n(plan.runs, 'run')}"
     estimate, source = _hunt_estimate(settings, plan)
-    data: dict[str, Any] = {"target": settings.target.entry, "kind": settings.target.kind,
-                            "cases": len(cases), "runs": plan.runs,
+    data: dict[str, Any] = {"dollars": None, "target": settings.target.entry,
+                            "kind": settings.target.kind, "cases": len(cases), "runs": plan.runs,
                             "control_runs": plan.control_runs, "search_runs": plan.search_runs}
-    if args.dry_run:
+    resumed = args.hunt is not None
+    if args.dry_run and not resumed:
+        # a new hunt's dry run opens none, since opening one makes its folder
         _start(call, look.Plan(sentence, estimate=estimate, source=source, detail=tuple(rows),
-                               schema=_PLAN_SCHEMA, data=data))
+                               schema=_plan_schema("hunt"), data=data))
         return EXIT_DONE
 
-    resumed = args.hunt is not None
+    # a hunt taken up is opened even for a dry run, so its plan is what is left: opening one
+    # that is there writes nothing, and a name that is not a hunt is refused
     hunt = _open(call, settings, name=args.hunt if resumed else args.name, existing=resumed,
                  target=target)
     if resumed:
         left = max(plan.runs - hunt.budget().runs_spent, 0)
         rows.append(look.Row("left", f"{look.fmt_count(left)} runs of "
                                      f"{look.fmt_count(plan.runs)}"))
-        data["left"] = left
-    data["hunt"] = hunt.name
+        data["runs"] = left
+        if _priced(settings) and _control_complete(hunt):
+            # its control has run, so what is left is priced at what one control run cost, as
+            # confirm prices a stage
+            summary = _control_summary(call, settings, hunt, "hunt")
+            if summary.dollars_per_run is not None:
+                estimate, source = _spend_estimate(settings, summary, left)
+                data["dollars"] = _spend_dollars(settings, summary, left)
+    data = {"dollars": data.pop("dollars"), "hunt": hunt.name, **data}
     try:
-        _start(call, look.Plan(sentence, estimate=estimate, source=source, detail=tuple(rows),
-                               schema=_PLAN_SCHEMA, data=data))
+        if not _start(call, look.Plan(sentence, estimate=estimate, source=source,
+                                      detail=tuple(rows), schema=_plan_schema("hunt"),
+                                      data=data)):
+            return EXIT_DONE
     except (look.Refused, _Exit):
         if not resumed:
             _discard_unused(hunt)
@@ -733,6 +804,7 @@ def _hunt(call: _Call) -> int:
 
     search_rows: list[Any] = []
     shrink_rows: list[Any] = []
+    arm = "control"  # the stage under way, and the arm its runs are stored in
     try:
         bar, tell = _progress("control", plan.control_runs)
         with bar:
@@ -741,14 +813,15 @@ def _hunt(call: _Call) -> int:
             look.note(f"the agent fails {look.fmt_rate(summary.rate)} of its control runs: a "
                       "search can at best find failures about twice as fast as chance here, "
                       "and those failures are the first thing to fix")
+        arm = "search"
         stage = _search(hunt, settings, strategy, summary, plan, search_rows)
+        arm = "shrink"
         found = _candidates(hunt, settings, stage.seen, summary, shrink_rows)
     except HuntStopped as stop:
         raise _stopped(call, settings, hunt, stop, "hunt", resume) from None
     except KeyboardInterrupt:
-        kept = hunt.budget().runs_spent
-        raise _interrupted(call, hunt, "hunt", f"kept {look.fmt_count(kept)} runs", resume) \
-            from None
+        raise _interrupted(call, hunt, "hunt", resume, kept=hunt.budget().runs_spent,
+                           arm=arm if arm in hunt.stored() else None) from None
     except _refusals() as wrong:
         raise look.Refused(_one_line(wrong), nexts=(resume,)) from None
 
@@ -964,12 +1037,12 @@ def _hunt_result(call: _Call, settings: Settings, hunt: Any, summary: Any, stage
                           "pairs_untried": cover.pairs_untried},
     }
     if found:
-        return look.Result("found", f"{look.fmt_count(len(found))} candidates in "
-                                    f"{look.fmt_count(spent.runs_spent)} runs{money}",
+        return look.Result("found", f"{_n(len(found), 'candidate')} in "
+                                    f"{_n(spent.runs_spent, 'run')}{money}",
                            detail=tuple(detail), nexts=(_ours(call.prog, "confirm"),),
                            schema=_schema("hunt"), data=data)
     return look.Result("nothing found", f"no condition failed more than the control in "
-                                        f"{look.fmt_count(spent.runs_spent)} runs{money}",
+                                        f"{_n(spent.runs_spent, 'run')}{money}",
                        detail=tuple(detail), schema=_schema("hunt"), data=data)
 
 
@@ -978,26 +1051,11 @@ def _hunt_result(call: _Call, settings: Settings, hunt: Any, summary: Any, stage
 # ---------------------------------------------------------------------------
 
 
-def _stages(hunt: Any) -> list[dict[str, Any]]:
-    """The confirm stages the hunt has on disk, as its ``confirm.json`` holds them; none for a
-    hunt with no file. Read for the plan only: the confirm module reads them for itself."""
-    path = hunt.folder / "confirm.json"
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        stages = data["stages"]
-        return [stage for stage in stages if isinstance(stage, dict)]
-    except (OSError, ValueError, KeyError, TypeError):
-        return []
-
-
-def _stage_left(hunt: Any, stage: Mapping[str, Any]) -> int:
-    """How many runs a confirm stage has left, counted from the store."""
-    store = _store(hunt)
-    cells = len(stage.get("cases", ())) * int(stage.get("repeats", 0))
-    left = 0
-    for arm in stage.get("arms", ()):
-        left += max(cells - _counted(store, f"{hunt.name}-{arm['arm']}"), 0)
-    return left
+def _stage_left(stage: Any) -> int:
+    """How many runs a confirm stage has left: each arm's runs less the rows the confirm module
+    read in it."""
+    cells = len(stage.cases) * stage.repeats
+    return sum(max(cells - count, 0) for count in stage.counts.values())
 
 
 def _control_summary(call: _Call, settings: Settings, hunt: Any, verb: str) -> Any:
@@ -1017,7 +1075,7 @@ def _control_summary(call: _Call, settings: Settings, hunt: Any, verb: str) -> A
 
 
 def _confirm(call: _Call) -> int:
-    from poisson_break.confirm import ConfirmError, confirm, design, read_candidates
+    from poisson_break.confirm import ConfirmError, confirm, design, read_candidates, read_stages
     from poisson_break.hunt import HuntStopped
 
     args = call.args
@@ -1025,7 +1083,11 @@ def _confirm(call: _Call) -> int:
     name = _which(call, settings)
     hunt = _open(call, settings, name=name, existing=True)
     resume = _ours(call.prog, "confirm", "--hunt", hunt.name)
-    stages = _stages(hunt)
+    try:
+        stages = read_stages(hunt)
+    except _refusals() as wrong:
+        # no command mends a stages file that cannot be read, and each would meet it again
+        raise look.Refused(_one_line(wrong)) from None
     latest = stages[-1] if stages else None
 
     if args.repeats is not None:
@@ -1035,8 +1097,8 @@ def _confirm(call: _Call) -> int:
         if latest is None:
             raise look.Refused(f'the hunt "{hunt.name}" has no confirm stage yet, so nothing was '
                                "too small to tell: confirm first", nexts=(resume,))
-        if _stage_left(hunt, latest):
-            raise look.Refused(f"confirm stage {latest.get('number')} of the hunt "
+        if _stage_left(latest):
+            raise look.Refused(f"confirm stage {latest.number} of the hunt "
                                f'"{hunt.name}" has runs missing: finish it before asking again',
                                nexts=(resume,))
         try:
@@ -1060,28 +1122,29 @@ def _confirm(call: _Call) -> int:
         raise look.Refused(_one_line(wrong), nexts=(_ours(call.prog, "hunt"),)) from None
 
     rows: list[look.Row | look.Line | look.Table] = []
-    data: dict[str, Any] = {"hunt": hunt.name, "candidates": len(candidates)}
-    left = _stage_left(hunt, latest) if latest is not None and args.repeats is None else 0
+    data: dict[str, Any] = {"dollars": None, "hunt": hunt.name, "candidates": len(candidates)}
+    left = _stage_left(latest) if latest is not None and args.repeats is None else 0
     if left:
         assert latest is not None
-        arms = len(latest.get("arms", ())) - 1
-        sentence = (f"go on with confirm stage {latest.get('number')} of {hunt.name}: "
-                    f"{look.fmt_count(arms)} candidates against a control")
-        rows += [look.Row("design", f"{look.fmt_count(len(latest.get('cases', ())))} cases × "
-                                    f"{look.fmt_count(int(latest.get('repeats', 0)))} repeats, "
+        arms = len(latest.arms) - 1
+        sentence = (f"go on with confirm stage {latest.number} of {hunt.name}: "
+                    f"{_n(arms, 'candidate')} against a control")
+        rows += [look.Row("design", f"{look.fmt_count(len(latest.cases))} cases × "
+                                    f"{look.fmt_count(latest.repeats)} repeats, "
                                     "once with no change and once under each candidate, as "
                                     "written"),
                  look.Row("left", f"{look.fmt_count(left)} runs")]
         runs = left
-        data.update(stage=latest.get("number"), left=left, repeats=latest.get("repeats"))
+        number = latest.number
+        data.update(candidates=arms, stage=number, repeats=latest.repeats, runs=left)
     elif args.repeats is not None:
         assert latest is not None
-        cases = len(latest.get("cases", ()))
+        cases = len(latest.cases)
         again = plan_confirm(dataclasses.replace(
             settings, confirm=dataclasses.replace(settings.confirm, repeats=args.repeats)),
             cases=max(cases, 1), candidates=len(small))
-        sentence = (f"ask again about {look.fmt_count(len(small))} candidates too small to tell, "
-                    f"{look.fmt_count(args.repeats)} times each")
+        sentence = (f"ask again about {_n(len(small), 'candidate')} too small to tell, "
+                    f"{_n(args.repeats, 'time')} each")
         rows += [look.Row("design", f"{look.fmt_count(cases)} cases × "
                                     f"{look.fmt_count(args.repeats)} repeats, once with no change "
                                     f"and once under each candidate · "
@@ -1090,10 +1153,11 @@ def _confirm(call: _Call) -> int:
                                        f"{look.fmt_count(again.reference_per_finding)} for each "
                                        "candidate that is confirmed")]
         runs = again.runs
-        data.update(stage=int(latest.get("number", 0)) + 1, repeats=args.repeats,
+        number = latest.number + 1
+        data.update(candidates=len(small), stage=number, repeats=args.repeats,
                     asked_again=[one.condition for one in small], runs=again.runs)
     else:
-        sentence = f"confirm {look.fmt_count(len(candidates))} candidates against a control"
+        sentence = f"confirm {_n(len(candidates), 'candidate')} against a control"
         rows += [look.Row("design", f"{look.fmt_count(len(planned.cases))} cases × "
                                     f"{look.fmt_count(planned.repeats)} repeats, once with no "
                                     "change and once under each candidate · "
@@ -1102,14 +1166,17 @@ def _confirm(call: _Call) -> int:
                                        f"runs, {look.fmt_count(planned.reference_per_finding)} "
                                        "for each candidate that is confirmed")]
         runs = planned.runs
+        # a finished stage asked again is judged again, its references finished
+        number = latest.number if latest is not None else 1
         data.update(stage=1, repeats=planned.repeats, runs=planned.runs)
     rows.append(look.Row("cap", _cap(settings)))
     rows.append(look.Line("Trace will say if this is too small to see a difference of "
                           f"{look.fmt_rate(settings.confirm.max_difference)}, and how many "
                           "repeats would be enough"))
     estimate, source = _spend_estimate(settings, summary, runs)
+    data["dollars"] = _spend_dollars(settings, summary, runs)
     if not _start(call, look.Plan(sentence, estimate=estimate, source=source, detail=tuple(rows),
-                                  schema=_PLAN_SCHEMA, data=data)):
+                                  schema=_plan_schema("confirm"), data=data)):
         return EXIT_DONE
 
     try:
@@ -1119,11 +1186,20 @@ def _confirm(call: _Call) -> int:
     except HuntStopped as stop:
         raise _stopped(call, settings, hunt, stop, "confirm", resume) from None
     except KeyboardInterrupt:
-        raise _interrupted(call, hunt, "confirm", "the runs made are kept", resume) from None
+        kept, arm = _confirm_kept(hunt, number)
+        raise _interrupted(call, hunt, "confirm", resume, kept=kept, arm=arm) from None
     except _refusals() as wrong:
         raise look.Refused(_one_line(wrong), nexts=(resume,)) from None
     look.show(_confirm_result(call, settings, hunt, done))
     return EXIT_DONE
+
+
+def _spend_dollars(settings: Settings, summary: Any, runs: int) -> float | None:
+    """What the estimate puts in dollars, as a number: the runs at what the control stage
+    measured one to cost; ``None`` without prices or before the control has run."""
+    if summary is not None and _priced(settings) and summary.dollars_per_run is not None:
+        return float(runs * summary.dollars_per_run)
+    return None
 
 
 def _spend_estimate(settings: Settings, summary: Any, runs: int) -> tuple[str, str]:
@@ -1162,11 +1238,12 @@ def _confirm_result(call: _Call, settings: Settings, hunt: Any, done: Any) -> lo
                        "verdict": one.verdict, "note": one.note, "rate": one.rate,
                        "control_rate": one.control_rate, "difference": one.difference,
                        "lo": one.lo, "hi": one.hi, "p": one.p, "adjusted_p": one.adjusted_p,
-                       "repeats_needed": one.repeats_needed})
+                       "repeats_needed": one.repeats_needed,
+                       "no_outcome": list(one.no_outcome), "left_out": dict(one.left_out)})
     detail: list[look.Row | look.Line | look.Table] = [
         look.Table(("", "condition", "verdict", "numbers"), tuple(table))]
+    folder = Path(settings.output.folder) / hunt.name / "findings"
     if done.findings:
-        folder = Path(settings.output.folder) / hunt.name / "findings"
         paths = [f"{folder.as_posix()}/{done.findings[0].number}.toml"]
         paths += [f"{finding.number}.toml" for finding in done.findings[1:]]
         detail.append(look.Row("wrote", ", ".join(paths)))
@@ -1178,10 +1255,12 @@ def _confirm_result(call: _Call, settings: Settings, hunt: Any, done: Any) -> lo
              if done.findings else ())
     data = {"hunt": hunt.name, "stage": done.stage, "candidates": listed,
             "findings": [finding.number for finding in done.findings],
+            "wrote": [f"{folder.as_posix()}/{finding.number}.toml" for finding in done.findings],
             "reference_runs": len(done.findings) * done.design.reference_per_finding}
+    fail = "fails" if len(done.findings) == 1 else "fail"
     return look.Result(verdict, f"{look.fmt_count(len(done.findings))} of "
-                                f"{look.fmt_count(len(done.tested))} candidates fail more than "
-                                f"the control{shown}",
+                                f"{_n(len(done.tested), 'candidate')} {fail} more than the "
+                                f"control{shown}",
                        detail=tuple(detail), nexts=nexts, schema=_schema("confirm"), data=data)
 
 
@@ -1243,13 +1322,14 @@ def _findings(call: _Call) -> int:
     return EXIT_DONE
 
 
-def _control_failures(call: _Call, settings: Settings, hunt: Any
-                      ) -> tuple[list[look.Row | look.Line | look.Table], list[dict[str, Any]]]:
+def _control_failures(
+        call: _Call, settings: Settings, hunt: Any
+) -> tuple[list[look.Row | look.Line | look.Table], list[dict[str, Any]] | None]:
     """Each case that failed in the control, with its failed runs of its runs and its kinds,
     the cases set aside marked so, under a ``control`` heading; nothing when the control is
-    not finished, since asking for it would run it."""
+    not finished, since asking for it would run it, and ``None`` for the document then."""
     if not _control_complete(hunt):
-        return [], []
+        return [], None
     summary = _control_summary(call, settings, hunt, "findings")
     by_case: dict[str, list[Any]] = {}
     for row in summary.rows:
@@ -1287,7 +1367,7 @@ def _listing(call: _Call, settings: Settings, hunt: Any, found: Sequence[Any]) -
                           "rate": finding.rate, "difference": finding.difference}
                          for finding in found],
             "control": control_data}
-    return look.Result("ok", f"{look.fmt_count(len(found))} findings in {hunt.name}",
+    return look.Result("ok", f"{_n(len(found), 'finding')} in {hunt.name}",
                        detail=tuple(detail), nexts=nexts, schema=_schema("findings"), data=data)
 
 
@@ -1384,29 +1464,34 @@ def _replay(call: _Call) -> int:
 
 def _recheck_left(hunt: Any, findings: Sequence[Any]) -> tuple[int, int, bool] | None:
     """A recheck that stopped short, if the store holds one: its number, the runs it has left
-    over these findings, and whether it was begun with the old agent beside the new one. The
-    confirm module finishes such a recheck before it begins another."""
-    store = _store(hunt)
-    prefix = f"{hunt.name}-recheck-"
-    numbers = []
-    for run_id in store.runs():
-        if run_id.startswith(prefix):
-            head = run_id[len(prefix):].split("-", 1)[0]
-            if head.isdigit():
-                numbers.append(int(head))
-    if not numbers:
+    over these findings, and whether it was begun with the old agent beside the new one, read
+    from the arms the runs module says the store holds. The confirm module finishes such a
+    recheck before it begins another."""
+    held = hunt.stored()
+    number = max(_recheck_numbers(held), default=0)
+    if not number:
         return None
-    number = max(numbers)
-    arms = [run_id for run_id in store.runs() if run_id.startswith(f"{prefix}{number}-")]
-    with_old = any(run_id.endswith("-old") for run_id in arms)
+    prefix = f"recheck-{number}-"
+    with_old = any(word.startswith(prefix) and word.endswith("-old") for word in held)
     left = 0
     for finding in findings:
         cells = len(finding.cases) * finding.repeats
-        now = f"{prefix}{number}-{finding.number}"
-        left += max(cells - _counted(store, now), 0)
+        now = f"{prefix}{finding.number}"
+        left += max(cells - held.get(now, 0), 0)
         if with_old:
-            left += max(cells - _counted(store, f"{now}-old"), 0)
+            left += max(cells - held.get(f"{now}-old", 0), 0)
     return (number, left, with_old) if left else None
+
+
+def _recheck_numbers(held: Mapping[str, int]) -> list[int]:
+    """The number of every recheck an arm of the store is of, from its words."""
+    numbers = []
+    for word in held:
+        if word.startswith("recheck-"):
+            head = word[len("recheck-"):].split("-", 1)[0]
+            if head.isascii() and head.isdigit():
+                numbers.append(int(head))
+    return numbers
 
 
 def _recheck(call: _Call) -> int:
@@ -1433,19 +1518,20 @@ def _recheck(call: _Call) -> int:
     rows: list[look.Row | look.Line | look.Table] = [
         look.Row("findings", ", ".join(f"{finding.number} {finding.condition}"
                                        for finding in findings))]
-    data: dict[str, Any] = {"hunt": hunt.name,
+    data: dict[str, Any] = {"dollars": None, "hunt": hunt.name,
                             "findings": [finding.number for finding in findings],
                             "runs": runs, "old": args.old}
     pending = _recheck_left(hunt, findings)
+    number = max(_recheck_numbers(hunt.stored()), default=0) + 1
     if pending is not None:
         number, left, with_old = pending
         sentence = f"go on with recheck {look.fmt_count(number)} of {hunt.name}, as it was begun"
         rows.append(look.Row("left", f"{look.fmt_count(left)} runs"))
         runs = left
-        data.update(recheck=number, left=left, runs=left)
+        data.update(recheck=number, runs=left)
     else:
-        sentence = (f"recheck {look.fmt_count(len(findings))} findings on the agent as it is "
-                    "now" + (", beside the agent as it was" if old is not None else ""))
+        sentence = (f"recheck {_n(len(findings), 'finding')} on the agent as it is now"
+                    + (", beside the agent as it was" if old is not None else ""))
         rows.append(look.Row("runs", f"{look.fmt_count(runs)}: each finding over the cases and "
                                      "repeats of its reference run"
                                      + (", twice" if old is not None else "")))
@@ -1454,8 +1540,9 @@ def _recheck(call: _Call) -> int:
         else None
     estimate, source = (_spend_estimate(settings, summary, runs) if summary is not None
                         else (f"{look.fmt_count(runs)} runs", "the plan's counts"))
+    data["dollars"] = _spend_dollars(settings, summary, runs)
     if not _start(call, look.Plan(sentence, estimate=estimate, source=source, detail=tuple(rows),
-                                  schema=_PLAN_SCHEMA, data=data)):
+                                  schema=_plan_schema("recheck"), data=data)):
         return EXIT_DONE
 
     resume_words = ["recheck", "--hunt", hunt.name]
@@ -1473,7 +1560,8 @@ def _recheck(call: _Call) -> int:
     except HuntStopped as stop:
         raise _stopped(call, settings, hunt, stop, "recheck", resume) from None
     except KeyboardInterrupt:
-        raise _interrupted(call, hunt, "recheck", "the runs made are kept", resume) from None
+        kept, arm = _recheck_kept(hunt, findings, number, old is not None)
+        raise _interrupted(call, hunt, "recheck", resume, kept=kept, arm=arm) from None
     except _refusals() as wrong:
         raise look.Refused(_one_line(wrong), nexts=(resume,)) from None
 
@@ -1490,8 +1578,8 @@ def _recheck(call: _Call) -> int:
                        "difference": one.difference, "lo": one.lo, "hi": one.hi, "p": one.p,
                        "adjusted_p": one.adjusted_p, "repeats_needed": one.repeats_needed,
                        "gap_days": None if one.gap_days is None else float(_days(one.gap_days)),
-                       "before": one.before, "now": one.now,
-                       "trace": one.trace})
+                       "before": one.before, "now": one.now, "trace": one.trace,
+                       "no_outcome": list(one.no_outcome), "left_out": dict(one.left_out)})
     # one line a finding, not a table: the rates and the repeats make a row wider than a
     # terminal, and a table that folds says more words than its plain rendering
     detail += [look.Line("  ".join(row)) for row in table]
@@ -1501,8 +1589,9 @@ def _recheck(call: _Call) -> int:
     less = sum(one.phrase == "fails less" for one in done)
     failing = {"fails more"} | ({"too small to tell"} if args.strict else set())
     code = EXIT_CHECK if args.check and any(one.phrase in failing for one in done) else EXIT_DONE
-    look.show(look.Result("rechecked", f"{look.fmt_count(less)} of {look.fmt_count(len(done))} "
-                                       "findings now fail less",
+    fail = "fails" if less == 1 else "fail"
+    look.show(look.Result("rechecked", f"{look.fmt_count(less)} of {_n(len(done), 'finding')} "
+                                       f"now {fail} less",
                           detail=tuple(detail), nexts=tuple(one.trace for one in done),
                           schema=_schema("recheck"),
                           data={"hunt": hunt.name, "findings": listed, "old": args.old,
@@ -1525,8 +1614,10 @@ def _doctor(call: _Call) -> int:
     path = Path(SETTINGS_FILE)
 
     def problem(sentence: str, nexts: Sequence[str], **data: Any) -> int:
+        # one shape for every problem: each key null or empty where it does not apply
+        held = {"key": None, "line": None, "unclassed": [], **data}
         look.show(look.Result("not ready", sentence, nexts=tuple(nexts), schema=_schema("doctor"),
-                              data={"settings": SETTINGS_FILE, **data}))
+                              data={"settings": SETTINGS_FILE, **held}))
         return EXIT_CHECK
 
     try:
@@ -1573,8 +1664,7 @@ def _doctor(call: _Call) -> int:
         data["run"] = {"case": row.case, "outcome": row.outcome, "kind": row.kind}
     look.note(REAL)
     look.show(look.Result("ready", f"{settings.target.entry} loads, with "
-                                   f"{look.fmt_count(len(tools))} tools and "
-                                   f"{look.fmt_count(len(cases))} cases",
+                                   f"{_n(len(tools), 'tool')} and {_n(len(cases), 'case')}",
                           detail=tuple(detail), nexts=(_ours(call.prog, "hunt"),),
                           schema=_schema("doctor"), data=data))
     return EXIT_DONE
@@ -1616,7 +1706,7 @@ def _catalog(call: _Call) -> int:
         rows.append(look.Row(f"{entry.surface}:{entry.name}", what))
         listed.append({"surface": entry.surface, "name": entry.name,
                        "description": entry.description, "needs_adapter": entry.needs_adapter})
-    look.show(look.Result("ok", f"{look.fmt_count(len(rows))} changes Break knows",
+    look.show(look.Result("ok", f"{_n(len(rows), 'change')} Break knows",
                           detail=tuple(rows), schema=_schema("catalog"),
                           data={"changes": listed}))
     return EXIT_DONE
@@ -1906,7 +1996,7 @@ def _init(call: _Call) -> int:
         stated += ["--vary-conversation", look.word("[]")]
     nexts.append(" ".join([*stated, "--yes"]))
     data = {"file": SETTINGS_FILE, "kind": settings.target.kind, "entry": settings.target.entry,
-            "cases": settings.target.cases,
+            "cases_file": settings.target.cases,
             "tools": [{"name": tool.name, "class": tool.tool_class} for tool in settings.tools],
             "install": install}
     look.show(look.Result("wrote", SETTINGS_FILE, nexts=tuple(nexts), schema=_schema("init"),
