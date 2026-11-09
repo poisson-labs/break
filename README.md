@@ -66,18 +66,21 @@ poisson-break catalog     # every change Break knows, one line each
 
 Every verb follows the shared look: the verdict line first on stdout, problems on stderr as one
 `error:` line with the command to run next under it, `--json` as one strict document whose
-first keys are `schema`, `verdict` and `sentence` (named `poisson_break.<verb>-result/1`), and
-the shared exit codes: 0 done, 1 refused before anything was spent or written, 2 a mistake on
+first keys are `schema`, `verdict` and `sentence` (named `poisson_break.<verb>-result/1`, and a
+plan `poisson_break.<verb>-plan/1`, with `dollars` beside its estimate, null without prices or
+before the control has run), and the shared exit codes: 0 done, 1 refused before anything was spent or written, 2 a mistake on
 the command line, 3 stopped after work started, 4 a check you asked for did not pass, 130
 interrupted. A verb's own options follow the verb; `--plain` and `--debug` are the tool's own
 and may come first. No abbreviated flag is taken.
 
 **Before anything is spent** a verb shows its plan and asks `start? [y/N]` on stderr. `--yes`
-answers, `--dry-run` shows the plan and runs nothing, and a stdin that is not a terminal
-without `--yes` prints the plan and refuses in one line. After every plan, and in `init`'s and
+answers, `--dry-run` shows the plan and runs nothing (for `hunt --hunt NAME`, the plan of what
+the hunt has left), and a stdin that is not a terminal without `--yes` prints the plan and
+refuses in one line. After every plan, and in `init`'s and
 `doctor`'s output, Break says that it calls your tools for real: run it against a test
-environment. A stage that stops short, at a cap or on Ctrl-C, says what was kept and prints the
-command that goes on with the same hunt (`hunt --hunt NAME`, `confirm --hunt NAME`,
+environment. A stage that stops short, at a cap or on Ctrl-C, says how many runs were kept (on
+Ctrl-C, the runs the stage's own arms hold; under `--json`, with the reason and the run it
+stopped in) and prints the command that goes on with the same hunt (`hunt --hunt NAME`, `confirm --hunt NAME`,
 `recheck --hunt NAME`, with `--old`, `--check` and `--strict` as they were given), and that
 command, run at a terminal, asks before it spends again. A tool the agent called that the
 settings do not class stops the stage naming it, and prints first the `init` command that
@@ -473,6 +476,7 @@ summary = hunt.control(h)                            # every case, control_repea
 summary.rate, summary.calls, summary.set_aside       # the base rate, where a fault can land, cases that always fail
 rows = hunt.run_arm(h, "confirm-1", ["1", "2"], parse("tool:lookup_order#1=timeout"), repeats=5)
 h.budget()                                           # what the hunt may spend, and what it has spent
+h.stored()                                           # each arm the store holds, by its word, with its rows
 ```
 
 **Opening a hunt runs nothing, and refuses what could not work.** `open_hunt` makes the folder
@@ -725,7 +729,8 @@ was written from; `read_findings(hunt)` reads every finding the hunt has a file 
 order, and one file that cannot be read as a finding refuses the whole call. A candidate that
 is not confirmed never gets a file. Each confirm stage is written to `confirm.json` with the
 `q` and `max_difference` it was begun under, and is judged under those however the settings
-read later.
+read later. `read_stages(hunt)` reads the stages written, in order, each a `Stage` with the rows
+the store holds of each of its arms, and runs nothing.
 
 **The reference run.** A finding is selected for having failed more than the control, so its
 confirm-stage share overstates how often it fails. Each finding therefore gets a reference arm,

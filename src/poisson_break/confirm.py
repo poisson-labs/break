@@ -11,7 +11,8 @@ same number of times under that candidate; all on seeds no earlier stage used. E
 every arm, so no case is chosen for having failed, and the candidates share the one control arm.
 ``design`` works it out and runs nothing. ``confirm`` writes it to the hunt's ``confirm.json``
 before the stage's first run, and a stage that stopped is taken up again under what was written,
-whatever the settings say by then.
+whatever the settings say by then. ``read_stages`` reads the stages written, each a ``Stage``
+with the rows the store holds of each of its arms, and runs nothing.
 
 **Break computes none of the numbers.** The arms are Prove runs in the hunt's store. Each
 candidate's arm is put to Trace once, against the control arm, as a command::
@@ -104,6 +105,8 @@ __all__ = [
     "Design",
     "confirm",
     "Confirmation",
+    "read_stages",
+    "Stage",
     "Tested",
     "Finding",
     "write_finding",
@@ -846,6 +849,39 @@ def _read_stages(hunt: Hunt) -> list[_Stage]:
         raise HuntError(f'the confirm stages of the hunt "{hunt.name}" could not be read from '
                         f"its {_CONFIRM_FILE}") from None
     return stages
+
+
+@dataclass(frozen=True, kw_only=True)
+class Stage:
+    """One confirm stage as the hunt's ``confirm.json`` holds it, with what the store holds of
+    it: ``number``, from 1; ``repeats``, ``cases`` and ``arms`` as written, the arms as
+    ``Design.arms`` gives them (each arm's word and its condition's name, the control first
+    with ``""``); the ``q`` and ``max_difference`` it is judged under; and ``counts``, each
+    arm's word, in the arms' order, to the rows the store holds of it, runs not counted
+    included and 0 for an arm with no run. A stage holds ``len(cases) * repeats`` rows an arm
+    when it is finished. Nothing here can be changed."""
+
+    number: int
+    repeats: int
+    cases: tuple[str, ...]
+    arms: tuple[tuple[str, str], ...]
+    q: float
+    max_difference: float
+    counts: Mapping[str, int]
+
+
+def read_stages(hunt: Hunt) -> tuple[Stage, ...]:
+    """The confirm stages the hunt has written, in order, each with the rows the store holds of
+    its arms when asked: none for a hunt with no ``confirm.json``. A file that cannot be read is
+    the runs module's ``HuntError``, as ``confirm`` refuses it. Runs nothing, asks Trace
+    nothing and writes nothing."""
+    hunt = _of(hunt)
+    stages = _read_stages(hunt)
+    held = hunt.stored() if stages else {}
+    return tuple(Stage(number=stage.number, repeats=stage.repeats, cases=stage.cases,
+                       arms=stage.arms, q=stage.q, max_difference=stage.max_difference,
+                       counts=_read_only({word: held.get(word, 0) for word, _ in stage.arms}))
+                 for stage in stages)
 
 
 def _write_stages(hunt: Hunt, stages: Sequence[_Stage]) -> None:
