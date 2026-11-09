@@ -9,21 +9,26 @@ fields, with F1, F2, F4 to F10, F13 and F14 changed as recommended, F11 and F12 
 - F4  `confirm --repeats`'s plan counts as `candidates` the candidates it asks about again.
 - F5  Each tested candidate and each rechecked finding carries `no_outcome` (the cases with no outcome in an arm, in
       the cases' order) and `left_out` (Trace's counts).
-- F6  `gap_days` is the number of days, not rounded as the screen prints it.
+- F6  Taken back (R7, 2026-11-08): `gap_days` stays rounded as the screen prints it, since Trace's gap moves between
+      two readings of one recheck and two frozen tests hold those two documents byte for byte the same.
 - F7  The listing's `control` is null while the control is not finished.
-- F8  A Ctrl-C document carries the stop's keys: `reason` `interrupted`, `arm`, `kept`, `unclassed`.
+- F8  A Ctrl-C document carries the stop's keys: `reason` `interrupted`, `arm`, `kept`, `unclassed`. For `confirm` and
+      `recheck` (R5, 2026-11-08) `kept` is the rows the interrupted stage's own arms hold (the recheck's both sides
+      under `--old`), `arm` the arm whose run was interrupted, and the stop's sentence names the number, as `hunt`'s.
 - F9  Every `not ready` document carries `key`, `line` and `unclassed`, null or empty where they do not apply.
 - F10 Each plan has its verb's schema: `poisson_break.<verb>-plan/1`.
 - F13 `confirm` names the finding files it wrote, as `wrote`, from the project folder.
-- F14 Each plan carries `dollars` beside its estimate, null without prices or before the control has run.
+- F14 Each plan carries `dollars` beside its estimate, null without prices or before the control has run. A hunt
+      taken up after its control has run, with prices (R6, 2026-11-08), plans its runs left at the control's cost of
+      one, as `confirm` does, and `dollars` is that number.
 
 **What is held for each document.** Its first keys `schema`, `verdict`, `sentence` (BK8.2), a plan's `estimate` and
 `source` next, `next` last when there is one; its other keys, exactly the table's; and each value against a fact read
 for itself: the store, the hunt's files, the settings module's plan, the library's own answer. Every document is the
 command's own, made by running it under `--json` on pipes.
 
-Gaps writing these found, with no test written: the meaning of `kept` in a Ctrl-C document of `confirm` and `recheck`
-(the screen gives no number there): `open-points.md` R5. Only its being a whole number is held for those two.
+R5, R6 and R7 were found writing these and ruled yes as recommended (2026-11-08, `open-points.md`); their tests are
+here.
 """
 
 from __future__ import annotations
@@ -50,6 +55,7 @@ from tests.commands_support import (
     cases,
     child_env,
     cli,
+    holds_number,
     json_document,
     on,
     opened,
@@ -303,6 +309,28 @@ def test_hunt_plan_of_a_hunt_taken_up(capped: Any) -> None:
     assert document["dollars"] is None
 
 
+def test_hunt_plan_of_a_hunt_taken_up_after_its_control_is_priced_at_the_control_s_cost(tmp_path: Path) -> None:
+    """R6: priced, a hunt the cap stopped in its search plans the runs it has left at the control's cost of one run,
+    as `confirm` plans a stage: `dollars` is that number, the estimate says it and the source names the control's."""
+    from poisson_break.look import fmt_dollars
+
+    proj = project(tmp_path, cases(3, weak_to=["error"], tokens=[1000, 0]), limits={"dollars": 0.0085, **hunts.PRICES})
+    stopped = doc(cli(proj, "hunt", "--yes", "--json"), CODES["stopped"])
+    counts = hunts.stored_counts(proj)
+    assert (stopped["reason"], counts["control"]) == ("dollars", 6), (stopped, counts)
+    left = 60 - sum(counts.values())
+    assert 0 < left < 54, counts
+    document = doc(cli(proj, "hunt", "--hunt", "desk-1", "--dry-run", "--json"))
+    assert data_keys(document) == {"dollars", "hunt", "target", "kind", "cases", "runs", "control_runs",
+                                   "search_runs"}
+    assert (document["hunt"], document["runs"]) == ("desk-1", left)
+    per_run = control_summary(proj).dollars_per_run
+    assert per_run == pytest.approx(0.001)
+    assert document["dollars"] == pytest.approx(left * per_run)
+    assert fmt_dollars(left * per_run) in document["estimate"], document["estimate"]
+    assert fmt_dollars(per_run) in document["source"], document["source"]
+
+
 def test_hunt_result(road: Any) -> None:
     from poisson_break.confirm import read_candidates
     from poisson_break.changes import name
@@ -359,7 +387,8 @@ def test_hunt_ctrl_c_carries_the_stop_s_keys(tmp_path: Path) -> None:
 
 
 def test_confirm_ctrl_c_carries_the_stop_s_keys(tmp_path: Path) -> None:
-    """F8 for `confirm`; what `kept` counts there is R5, owed: only its being a whole number is held."""
+    """F8 for `confirm`, and R5: Ctrl-C while the second run of the stage's control arm runs. `kept` is the rows the
+    stage's own arms hold, not the hunt's control's; `arm` is the confirm control arm; the sentence names the number."""
     proj = project(tmp_path, cases(3, weak_to=["error"], nap=0.4), search={"control_repeats": 1})
     prepared(proj, (on("error"),))  # the candidate written through the library, as `hunt` leaves it
     made = len(proj.runs())
@@ -367,7 +396,42 @@ def test_confirm_ctrl_c_carries_the_stop_s_keys(tmp_path: Path) -> None:
     assert document["schema"] == "poisson_break.confirm-result/1" and document["verdict"] == "stopped"
     assert data_keys(document) == {"hunt", "reason", "arm", "kept", "unclassed"}
     assert (document["hunt"], document["reason"], document["unclassed"]) == ("desk-1", "interrupted", [])
-    assert isinstance(document["kept"], int) and not isinstance(document["kept"], bool)
+    counts = hunts.stored_counts(proj)
+    stage = {arm: rows for arm, rows in counts.items() if arm.startswith("confirm-")}
+    assert set(stage) == {"confirm-control"} and 1 <= stage["confirm-control"] < 3 * 3, counts
+    assert counts["control"] == 3, counts
+    assert document["kept"] == stage["confirm-control"]
+    assert document["arm"] == "desk-1-confirm-control"
+    assert holds_number(document["sentence"], str(document["kept"])), document["sentence"]
+
+
+@pytest.mark.parametrize("old", [False, True], ids=["now", "old-beside"])
+def test_recheck_ctrl_c_carries_the_stop_s_keys(tmp_path: Path, old: bool) -> None:
+    """F8 for `recheck`, and R5: finding 1 confirmed through the library, then each run naps 0.4 s and the recheck is
+    sent Ctrl-C during its second run of the agent as it is now. Beside the old agent that is after the old side's
+    twelve, so `kept` is both sides' rows; `arm` is the arm as it is now; the sentence names the number."""
+    from poisson_break.confirm import confirm
+
+    proj = project(tmp_path, cases(3, weak_to=["error"]), confirm={"repeats": 4}, search={"control_repeats": 1})
+    prepared(proj, (on("error"),))
+    with contextlib.chdir(proj.folder):
+        assert [f.number for f in confirm(opened(proj, "desk-1")).findings] == [1]
+    proj.write(case_list=cases(3, weak_to=["error"], nap=0.4))  # the same ids: the hunt opens as it was
+    before = hunts.stored_counts(proj)
+    made = len(proj.runs())
+    words = ["recheck", "--yes", "--json"] + (["--old", "tests.commands_targets:old_desk"] if old else [])
+    document = interrupted_json(proj, words, after_runs=made + (12 if old else 0) + 2)
+    assert document["schema"] == "poisson_break.recheck-result/1" and document["verdict"] == "stopped"
+    assert data_keys(document) == {"hunt", "reason", "arm", "kept", "unclassed"}
+    assert (document["hunt"], document["reason"], document["unclassed"]) == ("desk-1", "interrupted", [])
+    counts = hunts.stored_counts(proj)
+    assert {arm: rows for arm, rows in counts.items() if arm in before} == before, "nothing before the recheck moved"
+    stage = {arm: rows for arm, rows in counts.items() if arm.startswith("recheck-")}
+    assert set(stage) == ({"recheck-1-1-old", "recheck-1-1"} if old else {"recheck-1-1"}), counts
+    assert stage.get("recheck-1-1-old", 12) == 12 and 1 <= stage["recheck-1-1"] < 12, counts
+    assert document["kept"] == sum(stage.values())
+    assert document["arm"] == "desk-1-recheck-1-1"
+    assert holds_number(document["sentence"], str(document["kept"])), document["sentence"]
 
 
 # ---------------------------------------------------------------------------
@@ -553,9 +617,9 @@ def test_recheck_result(confirmed: Any) -> None:
     assert one["no_outcome"] == []
     assert set(one["left_out"]) == {"not re-run on the old version", "not re-run on the new version",
                                     "no outcome on the old version", "no outcome on the new version"}
-    # F6: the reference ran minutes before the recheck, so the days are a small number above 0, which the screen's
-    # rounding (one decimal under ten days) would write as 0.0
-    assert isinstance(one["gap_days"], float) and 0 < one["gap_days"] < 1
+    # F6 taken back (R7): the reference ran minutes before the recheck, and the days are rounded as the screen prints
+    # them, one decimal under ten days: 0.0
+    assert isinstance(one["gap_days"], float) and one["gap_days"] == 0.0
 
 
 # ---------------------------------------------------------------------------
