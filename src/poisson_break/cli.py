@@ -142,6 +142,11 @@ def _ours(prog: str, *words: str) -> str:
     return look.command(prog, *(look.word(word) for word in words))
 
 
+def _n(count: int, noun: str) -> str:
+    """A count and its noun, as a verdict sentence says it: the noun singular for one."""
+    return f"{look.fmt_count(count)} {noun if count == 1 else noun + 's'}"
+
+
 def _plan_schema(verb: str) -> str:
     """The name of the document ``--json`` writes for a verb's plan: one name a verb, since
     each verb's plan has its own fields."""
@@ -695,8 +700,7 @@ def _hunt(call: _Call) -> int:
                            f"shrink up to {look.fmt_count(plan.search_runs)}"),
         look.Row("cap", _cap(settings)),
     ]
-    sentence = (f"a hunt of {word} on {look.fmt_count(len(cases))} cases, at most "
-                f"{look.fmt_count(plan.runs)} runs")
+    sentence = f"a hunt of {word} on {_n(len(cases), 'case')}, at most {_n(plan.runs, 'run')}"
     estimate, source = _hunt_estimate(settings, plan)
     data: dict[str, Any] = {"dollars": None, "target": settings.target.entry,
                             "kind": settings.target.kind, "cases": len(cases), "runs": plan.runs,
@@ -745,7 +749,7 @@ def _hunt(call: _Call) -> int:
         raise _stopped(call, settings, hunt, stop, "hunt", resume) from None
     except KeyboardInterrupt:
         kept = hunt.budget().runs_spent
-        raise _interrupted(call, hunt, "hunt", f"kept {look.fmt_count(kept)} runs", resume) \
+        raise _interrupted(call, hunt, "hunt", f"kept {_n(kept, 'run')}", resume) \
             from None
     except _refusals() as wrong:
         raise look.Refused(_one_line(wrong), nexts=(resume,)) from None
@@ -962,12 +966,12 @@ def _hunt_result(call: _Call, settings: Settings, hunt: Any, summary: Any, stage
                           "pairs_untried": cover.pairs_untried},
     }
     if found:
-        return look.Result("found", f"{look.fmt_count(len(found))} candidates in "
-                                    f"{look.fmt_count(spent.runs_spent)} runs{money}",
+        return look.Result("found", f"{_n(len(found), 'candidate')} in "
+                                    f"{_n(spent.runs_spent, 'run')}{money}",
                            detail=tuple(detail), nexts=(_ours(call.prog, "confirm"),),
                            schema=_schema("hunt"), data=data)
     return look.Result("nothing found", f"no condition failed more than the control in "
-                                        f"{look.fmt_count(spent.runs_spent)} runs{money}",
+                                        f"{_n(spent.runs_spent, 'run')}{money}",
                        detail=tuple(detail), schema=_schema("hunt"), data=data)
 
 
@@ -1053,7 +1057,7 @@ def _confirm(call: _Call) -> int:
         assert latest is not None
         arms = len(latest.arms) - 1
         sentence = (f"go on with confirm stage {latest.number} of {hunt.name}: "
-                    f"{look.fmt_count(arms)} candidates against a control")
+                    f"{_n(arms, 'candidate')} against a control")
         rows += [look.Row("design", f"{look.fmt_count(len(latest.cases))} cases × "
                                     f"{look.fmt_count(latest.repeats)} repeats, "
                                     "once with no change and once under each candidate, as "
@@ -1067,8 +1071,8 @@ def _confirm(call: _Call) -> int:
         again = plan_confirm(dataclasses.replace(
             settings, confirm=dataclasses.replace(settings.confirm, repeats=args.repeats)),
             cases=max(cases, 1), candidates=len(small))
-        sentence = (f"ask again about {look.fmt_count(len(small))} candidates too small to tell, "
-                    f"{look.fmt_count(args.repeats)} times each")
+        sentence = (f"ask again about {_n(len(small), 'candidate')} too small to tell, "
+                    f"{_n(args.repeats, 'time')} each")
         rows += [look.Row("design", f"{look.fmt_count(cases)} cases × "
                                     f"{look.fmt_count(args.repeats)} repeats, once with no change "
                                     f"and once under each candidate · "
@@ -1080,7 +1084,7 @@ def _confirm(call: _Call) -> int:
         data.update(candidates=len(small), stage=latest.number + 1, repeats=args.repeats,
                     asked_again=[one.condition for one in small], runs=again.runs)
     else:
-        sentence = f"confirm {look.fmt_count(len(candidates))} candidates against a control"
+        sentence = f"confirm {_n(len(candidates), 'candidate')} against a control"
         rows += [look.Row("design", f"{look.fmt_count(len(planned.cases))} cases × "
                                     f"{look.fmt_count(planned.repeats)} repeats, once with no "
                                     "change and once under each candidate · "
@@ -1177,9 +1181,10 @@ def _confirm_result(call: _Call, settings: Settings, hunt: Any, done: Any) -> lo
             "findings": [finding.number for finding in done.findings],
             "wrote": [f"{folder.as_posix()}/{finding.number}.toml" for finding in done.findings],
             "reference_runs": len(done.findings) * done.design.reference_per_finding}
+    fail = "fails" if len(done.findings) == 1 else "fail"
     return look.Result(verdict, f"{look.fmt_count(len(done.findings))} of "
-                                f"{look.fmt_count(len(done.tested))} candidates fail more than "
-                                f"the control{shown}",
+                                f"{_n(len(done.tested), 'candidate')} {fail} more than the "
+                                f"control{shown}",
                        detail=tuple(detail), nexts=nexts, schema=_schema("confirm"), data=data)
 
 
@@ -1286,7 +1291,7 @@ def _listing(call: _Call, settings: Settings, hunt: Any, found: Sequence[Any]) -
                           "rate": finding.rate, "difference": finding.difference}
                          for finding in found],
             "control": control_data}
-    return look.Result("ok", f"{look.fmt_count(len(found))} findings in {hunt.name}",
+    return look.Result("ok", f"{_n(len(found), 'finding')} in {hunt.name}",
                        detail=tuple(detail), nexts=nexts, schema=_schema("findings"), data=data)
 
 
@@ -1448,8 +1453,8 @@ def _recheck(call: _Call) -> int:
         runs = left
         data.update(recheck=number, runs=left)
     else:
-        sentence = (f"recheck {look.fmt_count(len(findings))} findings on the agent as it is "
-                    "now" + (", beside the agent as it was" if old is not None else ""))
+        sentence = (f"recheck {_n(len(findings), 'finding')} on the agent as it is now"
+                    + (", beside the agent as it was" if old is not None else ""))
         rows.append(look.Row("runs", f"{look.fmt_count(runs)}: each finding over the cases and "
                                      "repeats of its reference run"
                                      + (", twice" if old is not None else "")))
@@ -1506,8 +1511,9 @@ def _recheck(call: _Call) -> int:
     less = sum(one.phrase == "fails less" for one in done)
     failing = {"fails more"} | ({"too small to tell"} if args.strict else set())
     code = EXIT_CHECK if args.check and any(one.phrase in failing for one in done) else EXIT_DONE
-    look.show(look.Result("rechecked", f"{look.fmt_count(less)} of {look.fmt_count(len(done))} "
-                                       "findings now fail less",
+    fail = "fails" if less == 1 else "fail"
+    look.show(look.Result("rechecked", f"{look.fmt_count(less)} of {_n(len(done), 'finding')} "
+                                       f"now {fail} less",
                           detail=tuple(detail), nexts=tuple(one.trace for one in done),
                           schema=_schema("recheck"),
                           data={"hunt": hunt.name, "findings": listed, "old": args.old,
@@ -1580,8 +1586,7 @@ def _doctor(call: _Call) -> int:
         data["run"] = {"case": row.case, "outcome": row.outcome, "kind": row.kind}
     look.note(REAL)
     look.show(look.Result("ready", f"{settings.target.entry} loads, with "
-                                   f"{look.fmt_count(len(tools))} tools and "
-                                   f"{look.fmt_count(len(cases))} cases",
+                                   f"{_n(len(tools), 'tool')} and {_n(len(cases), 'case')}",
                           detail=tuple(detail), nexts=(_ours(call.prog, "hunt"),),
                           schema=_schema("doctor"), data=data))
     return EXIT_DONE
@@ -1623,7 +1628,7 @@ def _catalog(call: _Call) -> int:
         rows.append(look.Row(f"{entry.surface}:{entry.name}", what))
         listed.append({"surface": entry.surface, "name": entry.name,
                        "description": entry.description, "needs_adapter": entry.needs_adapter})
-    look.show(look.Result("ok", f"{look.fmt_count(len(rows))} changes Break knows",
+    look.show(look.Result("ok", f"{_n(len(rows), 'change')} Break knows",
                           detail=tuple(rows), schema=_schema("catalog"),
                           data={"changes": listed}))
     return EXIT_DONE
