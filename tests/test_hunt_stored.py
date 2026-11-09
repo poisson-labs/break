@@ -32,6 +32,7 @@ from tests.confirm_support import (
     calls,
     confirm_module,
     hunt_module,
+    on,
     open_scenario,
     ready,
     rows,
@@ -85,6 +86,27 @@ def test_after_the_control_it_is_the_control_s_rows_by_the_arm_s_word(tmp_path: 
     hunt_module().control(h)
     cells = len(PLANTED.cases) * h.settings.search.control_repeats
     assert dict(h.stored()) == {"control": cells}
+
+
+class _Entry:
+    """One proposed condition on some cases, as the search hands `run_search` its entries."""
+
+    def __init__(self, text: str, case_ids: tuple[str, ...]) -> None:
+        from tests.confirm_support import condition, records
+
+        self.condition, self.cases = condition(text), case_ids
+        self.selection = records().Selection(strategy="screen", probability=1)
+
+
+def test_the_search_and_shrink_runs_are_there_by_their_words(tmp_path: Path) -> None:
+    """The search and shrink stages are one Prove run each, `search` and `shrink`: in the store, so in the answer."""
+    h = open_scenario(tmp_path / "hunts", PLANTED)
+    hunt_module().control(h)
+    hunt_module().run_search(h, [_Entry(on("error"), ("k1", "k2"))])
+    hunt_module().run_search(h, [_Entry(on("timeout"), ("k1",))], stage="shrink")
+    found = dict(h.stored())
+    assert found == _store_counts(h)
+    assert (found["search"], found["shrink"]) == (2, 1)
 
 
 def test_after_a_confirm_stage_every_arm_is_there_with_prove_s_count(tmp_path: Path, trace: Path) -> None:
