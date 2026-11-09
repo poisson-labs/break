@@ -204,17 +204,19 @@ def planted_package(tmp_path: Path, rows: list[dict[str, Any]]) -> Path:
 
 def test_catalog_labels_shows_what_the_table_holds_when_the_table_changes(tmp_path: Path) -> None:
     """The labels are read from the table, not written into the command: with one labelled
-    change's rows taken out and a row added to a change that had none (or to the last change),
-    the command shows the planted table, line by line and in `--json`."""
+    change's rows taken out and two rows added to a change that had none (or to the last change),
+    the command shows the planted table, line by line and in `--json`, the two in the table's
+    order."""
     rows = read_table()
     changes = catalogue()
     dropped = next(c for c in changes if of(rows, c))
     added = next((c for c in reversed(changes) if not of(rows, c)), changes[-1])
     planted = [r for r in rows if r["change"] != f"{dropped.surface}:{dropped.name}"]
-    planted.append({"change": f"{added.surface}:{added.name}", "scheme": "Planted list",
-                    "id": "PLANTED-7", "title": "A planted label",
-                    "source": "https://example.org/planted",
-                    "text": "A sentence planted for this test, which no published list holds."})
+    for n in (7, 8):
+        planted.append({"change": f"{added.surface}:{added.name}", "scheme": "Planted list",
+                        "id": f"PLANTED-{n}", "title": f"A planted label, number {n}",
+                        "source": "https://example.org/planted",
+                        "text": f"Sentence {n}, planted for this test, which no published list holds."})
     root = planted_package(tmp_path, planted)
     proj = project(tmp_path / "proj")
     path = f"{root}:{GUARD}:{REPO}"
@@ -224,6 +226,10 @@ def test_catalog_labels_shows_what_the_table_holds_when_the_table_changes(tmp_pa
     assert labelled.exit == plain.exit == as_json.exit == CODES["done"], (labelled, plain, as_json)
     check_lines(detail(result_of(labelled, "ok")), detail(result_of(plain, "ok")), planted)
     doc = json_document(as_json)
+    for entry, change in zip(doc["changes"], changes, strict=True):
+        assert entry["labels"] == [{k: v for k, v in r.items() if k != "change"}
+                                   for r in of(planted, change)], (change.surface, change.name)
     by_change = {(c["surface"], c["name"]): c["labels"] for c in doc["changes"]}
     assert by_change[(dropped.surface, dropped.name)] == []
-    assert [label["id"] for label in by_change[(added.surface, added.name)]][-1] == "PLANTED-7"
+    assert [label["id"] for label in by_change[(added.surface, added.name)]][-2:] == \
+        ["PLANTED-7", "PLANTED-8"]

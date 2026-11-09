@@ -115,8 +115,11 @@ def test_the_clean_install_script_lists_exactly_the_marked_commands(wheel: Path,
 INSTALL_FORMS = """# Installing
 
 ```sh
+# the published package, and the same with an extra
 pip install poisson-break
 pip3 install 'poisson-break[mcp]'
+.venv/bin/python -m pip install --upgrade \\
+    poisson-break
 python -m pip install "poisson-break==0.1.0"
 .venv/bin/python -m pip install --quiet poisson-break
 uv pip install poisson-break>=0.1
@@ -133,7 +136,8 @@ def test_each_form_of_an_install_installs_the_wheel_and_nothing_else_changes(
         wheel: Path, tmp_path: Path) -> None:
     """Every way an install of `poisson-break` can be written gets the wheel, keeping its quotes
     and extras; an install of something else, and a `poisson-break` command beside an install,
-    are run as written."""
+    are run as written. A comment is no command, and a command continued over two lines is one
+    command, listed at its first line with both lines."""
     root = planted_tree(tmp_path, GOOD_README, {"docs/install.md": INSTALL_FORMS})
     done = list_commands(root, wheel, tmp_path)
     assert done.returncode == 0, done.stderr
@@ -144,6 +148,10 @@ def test_each_form_of_an_install_installs_the_wheel_and_nothing_else_changes(
     assert [e["runs"] for e in listed] == [runs(c, str(wheel)) for c in expected]
     by_command = {e["command"]: e["runs"] for e in listed}
     w = str(wheel)
+    assert ".venv/bin/python -m pip install --upgrade \\\n    poisson-break" in by_command
+    assert by_command[".venv/bin/python -m pip install --upgrade \\\n    poisson-break"] == \
+        f".venv/bin/python -m pip install --upgrade \\\n    {w}"
+    assert not any(e["command"].startswith("#") for e in listed)
     assert by_command["pip3 install 'poisson-break[mcp]'"] == f"pip3 install '{w}[mcp]'"
     assert by_command['python -m pip install "poisson-break==0.1.0"'] == f'python -m pip install "{w}"'
     assert by_command["pip install poisson-break && poisson-break catalog"] == \

@@ -16,12 +16,14 @@ by Break itself, which is what spec §11 asks of every interface's test: an impl
 outside the package runs end to end through the core.
 
 - A fault: its `apply` is called by `poisson_break.changes` (`run_fault`), on an object that
-  answers to `interfaces.Fault`.
+  answers to `interfaces.Fault`, and returns a `Result` or a `ToolError`.
 - A way in: its `run` is called from a module of Break, on an object that answers to
-  `interfaces.Target`.
+  `interfaces.Target`, and returns a `RunResult`.
 - A strategy: its `propose` is called by `poisson_break.search`, on an object that answers to
-  `interfaces.Strategy`.
+  `interfaces.Strategy`, and returns a list.
 - A check: a function of the example is called by `poisson_break.checks` with a `RunView`.
+
+None of the four programs attempts a connection, even one it catches.
 """
 
 from __future__ import annotations
@@ -40,7 +42,8 @@ from tests.release_docs import INTERFACE_CONSTANTS, extension_pages, python_prog
 PROBE = REPO / "tests" / "release_probe"
 
 
-def run_example(constant: str, tmp_path: Path) -> tuple[subprocess.CompletedProcess[str], list[dict[str, Any]]]:
+def run_example(constant: str, tmp_path: Path) -> tuple[subprocess.CompletedProcess[str],
+                                                         list[dict[str, Any]], list[str]]:
     (page,) = extension_pages()[constant]
     program = python_program(page)
     assert program is not None, f"{rel(page)} has no Python block"
@@ -54,11 +57,14 @@ def run_example(constant: str, tmp_path: Path) -> tuple[subprocess.CompletedProc
     env["HOME"] = str(tmp_path)
     env["BREAK_TEST_PROBE_LOG"] = str(log)
     env["BREAK_TEST_PROBE_PROGRAM"] = str(path)
+    network = tmp_path / "network.log"
+    env["BREAK_TEST_NETWORK_LOG"] = str(network)
     done = subprocess.run([sys.executable, "example.py"], cwd=folder, env=env,
                           stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=600)
     calls = ([json.loads(line) for line in log.read_text(encoding="utf-8").splitlines() if line]
              if log.exists() else [])
-    return done, calls
+    attempts = network.read_text(encoding="utf-8").splitlines() if network.exists() else []
+    return done, calls, attempts
 
 
 @pytest.mark.parametrize("constant", INTERFACE_CONSTANTS)
@@ -69,25 +75,28 @@ def test_each_interface_has_one_page_with_an_example(constant: str) -> None:
 
 
 WHAT = {
-    "FAULT_INTERFACE_VERSION": ("apply", ("poisson_break.changes",), "Fault"),
-    "TARGET_INTERFACE_VERSION": ("run", ("poisson_break.",), "Target"),
-    "STRATEGY_INTERFACE_VERSION": ("propose", ("poisson_break.search",), "Strategy"),
+    "FAULT_INTERFACE_VERSION": ("apply", ("poisson_break.changes",), "Fault", {"Result", "ToolError"}),
+    "TARGET_INTERFACE_VERSION": ("run", ("poisson_break.",), "Target", {"RunResult"}),
+    "STRATEGY_INTERFACE_VERSION": ("propose", ("poisson_break.search",), "Strategy", {"list"}),
 }
 
 
 @pytest.mark.parametrize("constant", sorted(WHAT))
 def test_the_example_runs_and_break_calls_its_implementation(constant: str, tmp_path: Path) -> None:
-    done, calls = run_example(constant, tmp_path)
+    done, calls, attempts = run_example(constant, tmp_path)
     assert done.returncode == 0, done.stdout + done.stderr
-    method, callers, protocol = WHAT[constant]
+    assert attempts == []
+    method, callers, protocol, returns = WHAT[constant]
     called = [c for c in calls if c["name"] == method and c["caller"].startswith(callers)
               and protocol in c["self"]]
     assert called, {"calls": calls[:20]}
+    assert {c["returned"] for c in called} <= returns, called[:5]
 
 
 def test_the_check_example_runs_and_break_judges_with_it(tmp_path: Path) -> None:
-    done, calls = run_example("CHECK_INTERFACE_VERSION", tmp_path)
+    done, calls, attempts = run_example("CHECK_INTERFACE_VERSION", tmp_path)
     assert done.returncode == 0, done.stdout + done.stderr
+    assert attempts == []
     judged = [c for c in calls if c["caller"].startswith("poisson_break.checks")
               and c["args"][:1] == ["RunView"]]
     assert judged, {"calls": calls[:20]}
