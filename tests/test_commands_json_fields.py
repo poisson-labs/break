@@ -386,30 +386,37 @@ def test_hunt_ctrl_c_carries_the_stop_s_keys(tmp_path: Path) -> None:
     assert document["arm"] is None or document["arm"] == "desk-1-control"
 
 
-def test_confirm_ctrl_c_carries_the_stop_s_keys(tmp_path: Path) -> None:
-    """F8 for `confirm`, and R5: Ctrl-C while the second run of the stage's control arm runs. `kept` is the rows the
-    stage's own arms hold, not the hunt's control's; `arm` is the confirm control arm; the sentence names the number."""
+@pytest.mark.parametrize("arms_done", [0, 1], ids=["first-arm", "second-arm"])
+def test_confirm_ctrl_c_carries_the_stop_s_keys(tmp_path: Path, arms_done: int) -> None:
+    """F8 for `confirm`, and R5: Ctrl-C during the second run of the stage's first arm (its control arm) or of its
+    second (the candidate's), after the first's nine. `kept` is the rows the stage's own arms hold, both arms where
+    both have rows, not the hunt's control's; `arm` is the arm under way; the sentence names the number."""
     proj = project(tmp_path, cases(3, weak_to=["error"], nap=0.4), search={"control_repeats": 1})
     prepared(proj, (on("error"),))  # the candidate written through the library, as `hunt` leaves it
     made = len(proj.runs())
-    document = interrupted_json(proj, ["confirm", "--yes", "--json"], after_runs=made + 2)
+    document = interrupted_json(proj, ["confirm", "--yes", "--json"], after_runs=made + 9 * arms_done + 2)
     assert document["schema"] == "poisson_break.confirm-result/1" and document["verdict"] == "stopped"
     assert data_keys(document) == {"hunt", "reason", "arm", "kept", "unclassed"}
     assert (document["hunt"], document["reason"], document["unclassed"]) == ("desk-1", "interrupted", [])
     counts = hunts.stored_counts(proj)
     stage = {arm: rows for arm, rows in counts.items() if arm.startswith("confirm-")}
-    assert set(stage) == {"confirm-control"} and 1 <= stage["confirm-control"] < 3 * 3, counts
+    under_way = ["confirm-control", "confirm-1"][arms_done]
+    assert set(stage) == set(["confirm-control", "confirm-1"][: arms_done + 1]), counts
+    assert all(stage[arm] == 3 * 3 for arm in stage if arm != under_way), counts
+    assert 1 <= stage[under_way] < 3 * 3, counts
     assert counts["control"] == 3, counts
-    assert document["kept"] == stage["confirm-control"]
-    assert document["arm"] == "desk-1-confirm-control"
+    assert document["kept"] == sum(stage.values())
+    assert document["arm"] == f"desk-1-{under_way}"
     assert holds_number(document["sentence"], str(document["kept"])), document["sentence"]
 
 
-@pytest.mark.parametrize("old", [False, True], ids=["now", "old-beside"])
-def test_recheck_ctrl_c_carries_the_stop_s_keys(tmp_path: Path, old: bool) -> None:
+@pytest.mark.parametrize("old, sides_done", [(False, 0), (True, 0), (True, 1)],
+                         ids=["now", "old-side", "new-side-beside-old"])
+def test_recheck_ctrl_c_carries_the_stop_s_keys(tmp_path: Path, old: bool, sides_done: int) -> None:
     """F8 for `recheck`, and R5: finding 1 confirmed through the library, then each run naps 0.4 s and the recheck is
-    sent Ctrl-C during its second run of the agent as it is now. Beside the old agent that is after the old side's
-    twelve, so `kept` is both sides' rows; `arm` is the arm as it is now; the sentence names the number."""
+    sent Ctrl-C during the second run of a side. Beside the old agent the old side runs first: Ctrl-C during it, or
+    during the new side after the old side's twelve, where `kept` is both sides' rows. `arm` is the side under way; the
+    sentence names the number."""
     from poisson_break.confirm import confirm
 
     proj = project(tmp_path, cases(3, weak_to=["error"]), confirm={"repeats": 4}, search={"control_repeats": 1})
@@ -420,17 +427,19 @@ def test_recheck_ctrl_c_carries_the_stop_s_keys(tmp_path: Path, old: bool) -> No
     before = hunts.stored_counts(proj)
     made = len(proj.runs())
     words = ["recheck", "--yes", "--json"] + (["--old", "tests.commands_targets:old_desk"] if old else [])
-    document = interrupted_json(proj, words, after_runs=made + (12 if old else 0) + 2)
+    document = interrupted_json(proj, words, after_runs=made + 12 * sides_done + 2)
     assert document["schema"] == "poisson_break.recheck-result/1" and document["verdict"] == "stopped"
     assert data_keys(document) == {"hunt", "reason", "arm", "kept", "unclassed"}
     assert (document["hunt"], document["reason"], document["unclassed"]) == ("desk-1", "interrupted", [])
     counts = hunts.stored_counts(proj)
     assert {arm: rows for arm, rows in counts.items() if arm in before} == before, "nothing before the recheck moved"
     stage = {arm: rows for arm, rows in counts.items() if arm.startswith("recheck-")}
-    assert set(stage) == ({"recheck-1-1-old", "recheck-1-1"} if old else {"recheck-1-1"}), counts
-    assert stage.get("recheck-1-1-old", 12) == 12 and 1 <= stage["recheck-1-1"] < 12, counts
+    under_way = "recheck-1-1-old" if old and not sides_done else "recheck-1-1"
+    assert set(stage) == ({"recheck-1-1-old", "recheck-1-1"} if sides_done else {under_way}), counts
+    assert all(stage[arm] == 12 for arm in stage if arm != under_way), counts
+    assert 1 <= stage[under_way] < 12, counts
     assert document["kept"] == sum(stage.values())
-    assert document["arm"] == "desk-1-recheck-1-1"
+    assert document["arm"] == f"desk-1-{under_way}"
     assert holds_number(document["sentence"], str(document["kept"])), document["sentence"]
 
 
