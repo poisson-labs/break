@@ -102,8 +102,9 @@ def test_init_example_writes_exactly_the_example_s_files(name: str, folder: Path
     ran = init(folder, "--example", name)
     assert ran.exit == CODES["done"], ran
     assert ran.stdout.startswith("wrote  "), ran
-    written = files_of(folder)
-    assert written == files_of(EXAMPLES / name)
+    written = {p.relative_to(folder).as_posix(): p.read_bytes() for p in sorted(folder.rglob("*"))
+               if p.is_file()}
+    assert written == files_of(EXAMPLES / name), "the folder holds other files, or other bytes"
 
 
 def test_an_unknown_example_is_refused_and_nothing_is_written(folder: Path) -> None:
