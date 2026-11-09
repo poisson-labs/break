@@ -701,12 +701,15 @@ def _hunt(call: _Call) -> int:
     data: dict[str, Any] = {"dollars": None, "target": settings.target.entry,
                             "kind": settings.target.kind, "cases": len(cases), "runs": plan.runs,
                             "control_runs": plan.control_runs, "search_runs": plan.search_runs}
-    if args.dry_run:
+    resumed = args.hunt is not None
+    if args.dry_run and not resumed:
+        # a new hunt's dry run opens none, since opening one makes its folder
         _start(call, look.Plan(sentence, estimate=estimate, source=source, detail=tuple(rows),
                                schema=_plan_schema("hunt"), data=data))
         return EXIT_DONE
 
-    resumed = args.hunt is not None
+    # a hunt taken up is opened even for a dry run, so its plan is what is left: opening one
+    # that is there writes nothing, and a name that is not a hunt is refused
     hunt = _open(call, settings, name=args.hunt if resumed else args.name, existing=resumed,
                  target=target)
     if resumed:
@@ -716,8 +719,10 @@ def _hunt(call: _Call) -> int:
         data["runs"] = left
     data = {"dollars": data.pop("dollars"), "hunt": hunt.name, **data}
     try:
-        _start(call, look.Plan(sentence, estimate=estimate, source=source, detail=tuple(rows),
-                               schema=_plan_schema("hunt"), data=data))
+        if not _start(call, look.Plan(sentence, estimate=estimate, source=source,
+                                      detail=tuple(rows), schema=_plan_schema("hunt"),
+                                      data=data)):
+            return EXIT_DONE
     except (look.Refused, _Exit):
         if not resumed:
             _discard_unused(hunt)
