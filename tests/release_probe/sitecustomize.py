@@ -9,7 +9,10 @@ attempt the program swallows is still seen. With `BREAK_TEST_PROBE_LOG` and
 file that comes straight from a module of Break: the function's name, the calling module, which
 of the four interfaces its `self` answers to, the type of each positional argument, and the type
 of what it returned (`NoneType` when it raised). One JSON line a call, appended to the log when
-the call ends. It changes nothing the example does.
+the call ends. With `BREAK_TEST_TOOL_LOG` set, it writes one JSON line each time a run routes a
+call of a tool through Break (`{"routed": tool}`) and each time a tool's own function, the one
+handed to `poisson_break.apply.wrap`, runs (`{"real": tool}`), so a stand-in's runs and the real
+tool's are told apart. It changes nothing the example does.
 """
 
 from __future__ import annotations
@@ -39,6 +42,36 @@ if _NETWORK:
     socket.socket.connect_ex = _logged(socket.socket.connect_ex)  # type: ignore[method-assign]
     socket.create_connection = _logged(socket.create_connection)  # type: ignore[assignment]
     socket.getaddrinfo = _logged(socket.getaddrinfo)  # type: ignore[assignment]
+
+_TOOLS = os.environ.get("BREAK_TEST_TOOL_LOG")
+if _TOOLS:
+    import functools
+
+    from poisson_break import apply as _apply
+
+    def _note(**what: str) -> None:
+        with open(_TOOLS, "a", encoding="utf-8") as log:  # type: ignore[arg-type]
+            log.write(json.dumps(what) + "\n")
+
+    _wrap, _call = _apply.wrap, _apply.Session.call
+
+    def wrap(tool_name: Any, fn: Any) -> Any:
+        if not callable(fn):
+            return _wrap(tool_name, fn)
+
+        @functools.wraps(fn)
+        def real(*args: Any, **kwargs: Any) -> Any:
+            _note(real=str(tool_name))
+            return fn(*args, **kwargs)
+
+        return _wrap(tool_name, real)
+
+    def call(self: Any, tool: Any, *args: Any, **kwargs: Any) -> Any:
+        _note(routed=str(tool))
+        return _call(self, tool, *args, **kwargs)
+
+    _apply.wrap = wrap  # type: ignore[assignment]
+    _apply.Session.call = call  # type: ignore[method-assign]
 
 _LOG = os.environ.get("BREAK_TEST_PROBE_LOG")
 _PROGRAM = os.environ.get("BREAK_TEST_PROBE_PROGRAM")
