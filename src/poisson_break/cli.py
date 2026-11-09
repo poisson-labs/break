@@ -40,6 +40,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
+import os
 import random
 import sys
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -394,7 +395,18 @@ def main(argv: Sequence[str] | None = None, *, prog: str | None = None) -> int:
     the user typed it."""
     prog = prog or DEFAULT_PROG
     words = list(sys.argv[1:] if argv is None else argv)
+    _folder_first()
     return look.run(prog, words, lambda: _command(prog, words))
+
+
+def _folder_first() -> None:
+    """Put the folder the command runs in first on the import path, before any verb loads an
+    agent, a stand-in, a check or a strategy by its import path. ``python -m poisson_break``
+    starts with it there; the installed script starts with its own folder there instead, and
+    would not find a module that sits beside ``break.toml``."""
+    here = os.getcwd()
+    if sys.path[:1] not in ([""], [here]):
+        sys.path.insert(0, "")
 
 
 @dataclass(frozen=True)
