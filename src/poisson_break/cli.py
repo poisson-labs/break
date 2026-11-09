@@ -144,8 +144,13 @@ def _ours(prog: str, *words: str) -> str:
 
 
 def _n(count: int, noun: str) -> str:
-    """A count and its noun, as a verdict sentence says it: the noun singular for one."""
+    """A count and its noun, as every line says it: the noun singular for one."""
     return f"{look.fmt_count(count)} {noun if count == 1 else noun + 's'}"
+
+
+def _hours(hours: float) -> str:
+    """A cap in hours, the word singular for one."""
+    return f"{hours:g} {'hour' if hours == 1 else 'hours'}"
 
 
 def _plan_schema(verb: str) -> str:
@@ -677,9 +682,9 @@ def _start(call: _Call, plan: look.Plan) -> bool:
 def _cap(settings: Settings) -> str:
     limits = settings.limits
     if limits.dollars is not None:
-        return (f"{look.fmt_dollars(limits.dollars)}, {look.fmt_count(settings.search.runs)} "
-                f"runs, {limits.hours:g} hours")
-    return f"{look.fmt_count(settings.search.runs)} runs, {limits.hours:g} hours"
+        return (f"{look.fmt_dollars(limits.dollars)}, {_n(settings.search.runs, 'run')}, "
+                f"{_hours(limits.hours)}")
+    return f"{_n(settings.search.runs, 'run')}, {_hours(limits.hours)}"
 
 
 def _priced(settings: Settings) -> bool:
@@ -770,12 +775,12 @@ def _hunt(call: _Call) -> int:
         look.Row("tools", _tools_text(settings)),
         look.Row("may change", _may_change(settings)),
         look.Row("strategy", settings.search.strategy),
-        look.Row("stages", f"control {look.fmt_count(plan.control_runs)} runs, search and "
+        look.Row("stages", f"control {_n(plan.control_runs, 'run')}, search and "
                            f"shrink up to {look.fmt_count(plan.search_runs)}"),
         look.Row("cap", _cap(settings)),
     ]
     sentence = f"a hunt of {word} on {_n(len(cases), 'case')}, at most {_n(plan.runs, 'run')}"
-    estimate, source = _hunt_estimate(settings, plan)
+    estimate, source = _hunt_estimate(settings, plan.runs)
     data: dict[str, Any] = {"dollars": None, "target": settings.target.entry,
                             "kind": settings.target.kind, "cases": len(cases), "runs": plan.runs,
                             "control_runs": plan.control_runs, "search_runs": plan.search_runs}
@@ -792,16 +797,21 @@ def _hunt(call: _Call) -> int:
                  target=target)
     if resumed:
         left = max(plan.runs - hunt.budget().runs_spent, 0)
-        rows.append(look.Row("left", f"{look.fmt_count(left)} runs of "
-                                     f"{look.fmt_count(plan.runs)}"))
+        rows.append(look.Row("left", f"{_n(left, 'run')} of {look.fmt_count(plan.runs)}"))
         data["runs"] = left
-        if _priced(settings) and _control_complete(hunt):
+        measured = (_control_summary(call, settings, hunt, "hunt")
+                    if _control_complete(hunt) else None)
+        if _priced(settings):
             # its control has run, so what is left is priced at what one control run cost, as
             # confirm prices a stage
-            summary = _control_summary(call, settings, hunt, "hunt")
-            if summary.dollars_per_run is not None:
-                estimate, source = _spend_estimate(settings, summary, left)
-                data["dollars"] = _spend_dollars(settings, summary, left)
+            if measured is not None and measured.dollars_per_run is not None:
+                estimate, source = _spend_estimate(settings, measured, left)
+                data["dollars"] = _spend_dollars(settings, measured, left)
+        elif measured is not None and measured.seconds_per_run is not None:
+            # no prices: the runs left, timed at what one control run took
+            estimate, source = _spend_estimate(settings, measured, left)
+        else:
+            estimate, source = _hunt_estimate(settings, left)
     data = {"dollars": data.pop("dollars"), "hunt": hunt.name, **data}
     try:
         if not _start(call, look.Plan(sentence, estimate=estimate, source=source,
@@ -848,23 +858,23 @@ def _hunt(call: _Call) -> int:
 
 def _may_change(settings: Settings) -> str:
     vary = settings.vary
-    parts = [f"tool behaviour ({look.fmt_count(len(vary.tools))} faults)",
-             f"inputs ({look.fmt_count(len(vary.inputs))} operators)"]
+    parts = [f"tool behaviour ({_n(len(vary.tools), 'fault')})",
+             f"inputs ({_n(len(vary.inputs), 'operator')})"]
     if vary.conversation:
-        parts.append(f"the conversation ({look.fmt_count(len(vary.conversation))} moves)")
+        parts.append(f"the conversation ({_n(len(vary.conversation), 'move')})")
     if vary.model:
-        parts.append(f"model calls ({look.fmt_count(len(vary.model))} faults)")
+        parts.append(f"model calls ({_n(len(vary.model), 'fault')})")
     if vary.env:
         parts.append(f"settings of your own ({look.fmt_count(len(vary.env))})")
     return ", ".join(parts)
 
 
-def _hunt_estimate(settings: Settings, plan: Any) -> tuple[str, str]:
+def _hunt_estimate(settings: Settings, runs: int) -> tuple[str, str]:
     if _priced(settings):
         return (f"not known until the control stage has run; the cap is "
                 f"{look.fmt_dollars(settings.limits.dollars or 0.0)}",
                 "the control stage's measured cost a run, once it has run")
-    return (f"at most {look.fmt_count(plan.runs)} runs and {settings.limits.hours:g} hours, "
+    return (f"at most {_n(runs, 'run')} and {_hours(settings.limits.hours)}, "
             "with no prices to put in dollars", "the settings' limits")
 
 
@@ -981,12 +991,12 @@ def _coverage_line(settings: Settings, cover: Any) -> look.Line:
         bits.append("tools never called: " + ", ".join(cover.never_called))
     if cover.past_limit:
         bits.append(f"call numbers past {settings.vary.max_call}: "
-                    + ", ".join(f"{tool} ({look.fmt_count(count)} calls)"
+                    + ", ".join(f"{tool} ({_n(count, 'call')})"
                                 for tool, count in cover.past_limit.items()))
     if cover.set_aside:
         bits.append("cases set aside: " + ", ".join(cover.set_aside))
-    bits.append(f"{look.fmt_count(cover.singles_untried)} single changes and "
-                f"{look.fmt_count(cover.pairs_untried)} pairs of them untried")
+    bits.append(f"{_n(cover.singles_untried, 'single change')} and "
+                f"{_n(cover.pairs_untried, 'pair')} of them untried")
     return look.Line("not looked at: " + "; ".join(bits))
 
 
@@ -998,7 +1008,7 @@ def _hunt_result(call: _Call, settings: Settings, hunt: Any, summary: Any, stage
     spent = hunt.budget()
     money = (f" ({look.fmt_dollars(spent.dollars_spent)})"
              if _priced(settings) and spent.dollars_spent is not None else "")
-    control_text = (f"{look.fmt_count(summary.runs)} runs · {look.fmt_count(summary.failed)} "
+    control_text = (f"{_n(summary.runs, 'run')} · {look.fmt_count(summary.failed)} "
                     f"failed ({_rate(summary.rate)})")
     if summary.dollars_per_run is not None and _priced(settings):
         control_text += f" · {look.fmt_dollars(summary.dollars_per_run)} a run"
@@ -1008,9 +1018,9 @@ def _hunt_result(call: _Call, settings: Settings, hunt: Any, summary: Any, stage
         control_text += (f" · {look.fmt_count(count)} {fails} every time, set aside: "
                          f"{', '.join(summary.set_aside)}")
     conditions = {row.condition for row in search_rows if row.condition.changes}
-    search_text = (f"{look.fmt_count(len(search_rows))} runs · "
-                   f"{look.fmt_count(len(conditions))} conditions tried on "
-                   f"{look.fmt_count(settings.search.cases_per_condition)} cases each")
+    search_text = (f"{_n(len(search_rows), 'run')} · "
+                   f"{_n(len(conditions), 'condition')} tried on "
+                   f"{_n(settings.search.cases_per_condition, 'case')} each")
     cover = coverage(stage.seen)
     cover_line = _coverage_line(settings, cover)
     detail: list[look.Row | look.Line | look.Table] = []
@@ -1141,11 +1151,11 @@ def _confirm(call: _Call) -> int:
         arms = len(latest.arms) - 1
         sentence = (f"go on with confirm stage {latest.number} of {hunt.name}: "
                     f"{_n(arms, 'candidate')} against a control")
-        rows += [look.Row("design", f"{look.fmt_count(len(latest.cases))} cases × "
-                                    f"{look.fmt_count(latest.repeats)} repeats, "
+        rows += [look.Row("design", f"{_n(len(latest.cases), 'case')} × "
+                                    f"{_n(latest.repeats, 'repeat')}, "
                                     "once with no change and once under each candidate, as "
                                     "written"),
-                 look.Row("left", f"{look.fmt_count(left)} runs")]
+                 look.Row("left", _n(left, "run"))]
         runs = left
         number = latest.number
         data.update(candidates=arms, stage=number, repeats=latest.repeats, runs=left)
@@ -1157,11 +1167,11 @@ def _confirm(call: _Call) -> int:
             cases=max(cases, 1), candidates=len(small))
         sentence = (f"ask again about {_n(len(small), 'candidate')} too small to tell, "
                     f"{_n(args.repeats, 'time')} each")
-        rows += [look.Row("design", f"{look.fmt_count(cases)} cases × "
-                                    f"{look.fmt_count(args.repeats)} repeats, once with no change "
+        rows += [look.Row("design", f"{_n(cases, 'case')} × "
+                                    f"{_n(args.repeats, 'repeat')}, once with no change "
                                     f"and once under each candidate · "
-                                    f"{look.fmt_count(again.confirm_runs)} runs"),
-                 look.Row("reference", f"up to {look.fmt_count(again.reference_runs)} more runs, "
+                                    f"{_n(again.confirm_runs, 'run')}"),
+                 look.Row("reference", f"up to {_more(again.reference_runs)}, "
                                        f"{look.fmt_count(again.reference_per_finding)} for each "
                                        "candidate that is confirmed")]
         runs = again.runs
@@ -1170,12 +1180,12 @@ def _confirm(call: _Call) -> int:
                     asked_again=[one.condition for one in small], runs=again.runs)
     else:
         sentence = f"confirm {_n(len(candidates), 'candidate')} against a control"
-        rows += [look.Row("design", f"{look.fmt_count(len(planned.cases))} cases × "
-                                    f"{look.fmt_count(planned.repeats)} repeats, once with no "
+        rows += [look.Row("design", f"{_n(len(planned.cases), 'case')} × "
+                                    f"{_n(planned.repeats, 'repeat')}, once with no "
                                     "change and once under each candidate · "
-                                    f"{look.fmt_count(planned.confirm_runs)} runs"),
-                 look.Row("reference", f"up to {look.fmt_count(planned.reference_runs)} more "
-                                       f"runs, {look.fmt_count(planned.reference_per_finding)} "
+                                    f"{_n(planned.confirm_runs, 'run')}"),
+                 look.Row("reference", f"up to {_more(planned.reference_runs)}, "
+                                       f"{look.fmt_count(planned.reference_per_finding)} "
                                        "for each candidate that is confirmed")]
         runs = planned.runs
         # a finished stage asked again is judged again, its references finished
@@ -1218,13 +1228,18 @@ def _spend_estimate(settings: Settings, summary: Any, runs: int) -> tuple[str, s
     """A stage's estimate from what the control stage measured a run to cost."""
     if _priced(settings) and summary.dollars_per_run is not None:
         return (f"about {look.fmt_dollars(runs * summary.dollars_per_run)} for "
-                f"{look.fmt_count(runs)} runs",
+                f"{_n(runs, 'run')}",
                 f"the control stage's {look.fmt_dollars(summary.dollars_per_run)} a run")
     if summary.seconds_per_run is not None:
-        return (f"{look.fmt_count(runs)} runs, about "
+        return (f"{_n(runs, 'run')}, about "
                 f"{look.fmt_duration(runs * summary.seconds_per_run)}; no prices, so no dollars",
                 f"the control stage's {look.fmt_duration(summary.seconds_per_run)} a run")
-    return f"{look.fmt_count(runs)} runs", "the plan's counts"
+    return _n(runs, "run"), "the plan's counts"
+
+
+def _more(runs: int) -> str:
+    """A count of further runs, the noun singular for one."""
+    return f"{look.fmt_count(runs)} more {'run' if runs == 1 else 'runs'}"
 
 
 def _confirm_result(call: _Call, settings: Settings, hunt: Any, done: Any) -> look.Result:
@@ -1236,7 +1251,7 @@ def _confirm_result(call: _Call, settings: Settings, hunt: Any, done: Any) -> lo
             control_rate = one.control_rate
         verdict = one.verdict + (f", {one.note}" if one.note else "")
         if one.verdict == "too small to tell" and one.repeats_needed is not None:
-            numbers = f"{look.fmt_count(one.repeats_needed)} repeats would decide"
+            numbers = f"{_n(one.repeats_needed, 'repeat')} would decide"
         elif one.rate is None or one.difference is None:
             numbers = "no numbers"
         else:
@@ -1260,7 +1275,7 @@ def _confirm_result(call: _Call, settings: Settings, hunt: Any, done: Any) -> lo
         paths += [f"{finding.number}.toml" for finding in done.findings[1:]]
         detail.append(look.Row("wrote", ", ".join(paths)))
         reference_runs = len(done.findings) * done.design.reference_per_finding
-        detail.append(look.Row("reference", f"{look.fmt_count(reference_runs)} runs"))
+        detail.append(look.Row("reference", _n(reference_runs, "run")))
     shown = "" if control_rate is None else f" ({look.fmt_rate(control_rate)})"
     verdict = "confirmed" if done.findings else "nothing confirmed"
     nexts = ((_ours(call.prog, "findings", str(done.findings[0].number)),)
@@ -1404,8 +1419,8 @@ def _one_finding(call: _Call, hunt: Any, finding: Any) -> look.Result:
         look.Row("judged by", finding.judged_by),
         look.Row("flagged", ", ".join(finding.flagged) or "none"),
         look.Row("left out", _counts_text(finding.left_out)),
-        look.Row("cases", f"{look.fmt_count(len(finding.cases))} cases × "
-                          f"{look.fmt_count(finding.repeats)} repeats, in confirm stage "
+        look.Row("cases", f"{_n(len(finding.cases), 'case')} × "
+                          f"{_n(finding.repeats, 'repeat')}, in confirm stage "
                           f"{look.fmt_count(finding.stage)}"),
         look.Row("arms", f"{finding.arm} against {finding.control_arm}"),
         look.Row("reference", finding.reference),
@@ -1538,7 +1553,7 @@ def _recheck(call: _Call) -> int:
     if pending is not None:
         number, left, with_old = pending
         sentence = f"go on with recheck {look.fmt_count(number)} of {hunt.name}, as it was begun"
-        rows.append(look.Row("left", f"{look.fmt_count(left)} runs"))
+        rows.append(look.Row("left", _n(left, "run")))
         runs = left
         data.update(recheck=number, runs=left)
     else:
@@ -1551,7 +1566,7 @@ def _recheck(call: _Call) -> int:
     summary = _control_summary(call, settings, hunt, "recheck") if _control_complete(hunt) \
         else None
     estimate, source = (_spend_estimate(settings, summary, runs) if summary is not None
-                        else (f"{look.fmt_count(runs)} runs", "the plan's counts"))
+                        else (_n(runs, "run"), "the plan's counts"))
     data["dollars"] = _spend_dollars(settings, summary, runs)
     if not _start(call, look.Plan(sentence, estimate=estimate, source=source, detail=tuple(rows),
                                   schema=_plan_schema("recheck"), data=data)):
@@ -1583,7 +1598,7 @@ def _recheck(call: _Call) -> int:
     for one in done:
         numbers = f"{look.fmt_rate(one.rate_before)} before · {look.fmt_rate(one.rate_now)} now"
         if one.phrase == "too small to tell" and one.repeats_needed is not None:
-            numbers += f" · {look.fmt_count(one.repeats_needed)} repeats would decide"
+            numbers += f" · {_n(one.repeats_needed, 'repeat')} would decide"
         table.append((str(one.finding), one.condition, one.phrase, numbers))
         listed.append({"number": one.finding, "condition": one.condition, "phrase": one.phrase,
                        "rate_before": one.rate_before, "rate_now": one.rate_now,
