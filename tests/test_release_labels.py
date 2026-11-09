@@ -24,6 +24,11 @@ of each change the table labels, each label's `id`; the line of a change with no
 line `catalog` prints for it, spaces aside. Under `--json`, each change carries `labels`: its
 rows, in the table's order, each without `change`; `[]` for none. Plain `catalog` shows no label.
 
+Taylor's ruling 11A-8 (2026-11-09): the labels come from two published lists, each named with
+its version in `scheme`: the OWASP Top 10 for LLM Applications 2025, and NIST AI 100-2 E2025
+(Adversarial Machine Learning: a taxonomy and terminology). Held here as the two `scheme` texts.
+What each row says is not held here: the labels' content is the second reader's.
+
 That each row was checked by a second reader against the published text is a reading by a
 person, not something a test can do; it is owed, and its record is the vault's.
 """
@@ -44,6 +49,8 @@ from tests.conftest import GUARD, REPO
 
 TABLE = REPO / "src" / "poisson_break" / "labels.toml"
 ROW_KEYS = {"change", "scheme", "id", "title", "source", "text"}
+#: 11A-8: the two published lists, each with its version.
+SCHEMES = {"OWASP Top 10 for LLM Applications 2025", "NIST AI 100-2 E2025"}
 ONE_LINE = ("change", "scheme", "id", "title", "source")
 
 
@@ -103,6 +110,10 @@ def test_each_row_has_the_six_keys_each_text() -> None:
 def test_each_row_labels_a_change_of_the_catalogue() -> None:
     known = {f"{c.surface}:{c.name}" for c in catalogue()}
     assert [r["change"] for r in read_table() if r["change"] not in known] == []
+
+
+def test_each_row_comes_from_one_of_the_two_published_lists() -> None:
+    assert sorted({r["scheme"] for r in read_table()} - SCHEMES) == []
 
 
 def test_no_label_is_given_twice_to_one_change() -> None:

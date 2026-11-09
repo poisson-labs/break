@@ -28,13 +28,14 @@ from tests.conftest import REPO, guarded_env
 from tests.release_docs import (
     blocks,
     commands_of,
+    exit_of,
     marked,
     problems,
     runs,
 )
 
 SCRIPT = REPO / "scripts" / "clean_install.py"
-LISTED_KEYS = {"file", "line", "kind", "command", "runs"}
+LISTED_KEYS = {"file", "line", "kind", "command", "runs", "exit"}
 
 
 def list_commands(root: Path, wheel: Path, cwd: Path) -> subprocess.CompletedProcess[str]:
@@ -110,6 +111,7 @@ def test_the_clean_install_script_lists_exactly_the_marked_commands(wheel: Path,
     assert [(e["file"], e["line"], e["kind"], e["command"]) for e in listed] == \
         [(c.file, c.line, c.kind, c.command) for c in expected]
     assert [e["runs"] for e in listed] == [runs(c, str(wheel)) for c in expected]
+    assert [e["exit"] for e in listed] == [exit_of(c) for c in expected]
 
 
 INSTALL_FORMS = """# Installing
@@ -159,6 +161,35 @@ def test_each_form_of_an_install_installs_the_wheel_and_nothing_else_changes(
     assert by_command["pip install rich"] == "pip install rich"
     assert by_command["poisson-break doctor"] == "poisson-break doctor"
     assert by_command["python -m poisson_break catalog"] == "python -m poisson_break catalog"
+
+
+EXITS = """# Refusals
+
+```sh
+poisson-break catalog
+poisson-break bogus  # exits 2
+poisson-break findings 9 # exits 1
+poisson-break hunt \\
+    --name 'a b'  # exits 1
+# exits 3
+echo "# exits 4 is no comment here"
+```
+"""
+
+
+def test_a_command_shown_to_be_refused_carries_the_code_it_must_exit_with(
+        wheel: Path, tmp_path: Path) -> None:
+    """11A-14: a marked command whose last line ends in `# exits N` is listed with `exit` N, and
+    run by the job to that code; every other command and every program, 0. A comment line alone
+    is no command, and the words inside quotes are no comment."""
+    root = planted_tree(tmp_path, GOOD_README, {"docs/refusals.md": EXITS})
+    done = list_commands(root, wheel, tmp_path)
+    assert done.returncode == 0, done.stderr
+    listed = [(e["command"].split("\n")[0], e["exit"]) for e in json.loads(done.stdout)
+              if e["file"] == "docs/refusals.md"]
+    assert listed == [("poisson-break catalog", 0), ("poisson-break bogus  # exits 2", 2),
+                      ("poisson-break findings 9 # exits 1", 1), ("poisson-break hunt \\", 1),
+                      ('echo "# exits 4 is no comment here"', 0)]
 
 
 # ---------------------------------------------------------------------------

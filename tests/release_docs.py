@@ -18,7 +18,8 @@ test itself.
    it (`NO_COLOR=1 poisson-break`) included. A comment in TOML or Python starts with `#`, so a
    command written in one is not a command shown.
 5. The clean-install job runs every marked command from the installed wheel, outside the
-   checkout: each file's commands in the file's order, in one shell with `set -e`, in a fresh
+   checkout: each file's commands in the file's order, in one shell, each command required to
+   exit 0, or N when its last line ends in the comment `# exits N` (ruling 11A-14), in a fresh
    empty folder of the file's own, with a HOME of its own and no variable whose name says key,
    token, secret or password. In an install command (`pip`, `pip3`, `uv pip`, `pipx`, or
    `python -m pip`, followed by `install`), a word that names the requirement `poisson-break`
@@ -33,8 +34,9 @@ test itself.
    JSON list on stdout: per marked command, then per extension page's program, an object with
    exactly `file` (from the checkout, with `/`), `line` (the first line of the command, or of the
    page's first Python block's content, counted from 1), `kind` (`sh` or `python`), `command`
-   (its lines as written, the block's indentation taken off, joined by a newline) and `runs`
-   (what is run: `command` with the install words of 5 put in). `README.md` comes first, then
+   (its lines as written, the block's indentation taken off, joined by a newline), `runs`
+   (what is run: `command` with the install words of 5 put in) and `exit` (the code it must
+   exit with: N from `# exits N`, else 0; 0 for a program). `README.md` comes first, then
    every other file by its path; within a file, by line. A refused block makes it exit 1 with
    nothing on stdout and one line per refusal on stderr, each starting `FILE:LINE: `, the line
    of the block's opening fence.
@@ -255,6 +257,18 @@ def _docs_under(root: Path) -> list[Path]:
         if (root / top).exists():
             pages += sorted(p for p in (root / top).rglob("*.md") if p.is_file())
     return pages
+
+
+_EXITS = re.compile(r"#\s*exits\s+(\d+)\s*$")
+
+
+def exit_of(command: Command) -> int:
+    """The code a marked command must exit with (rule 5): N from a last line that ends in
+    `# exits N`, else 0."""
+    if command.kind != "sh":
+        return 0
+    found = _EXITS.search(command.command.split("\n")[-1])
+    return int(found.group(1)) if found else 0
 
 
 _INSTALLER = re.compile(r"^(?:pip3?|pipx)$")

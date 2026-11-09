@@ -19,17 +19,24 @@ The words, each a pattern below with where it comes from:
   (do not ship, safe to deploy, ship it), `engagements`, the opening it bans, and HydraDB, which
   the same page keeps out of public material.
 
-Not held here, and owed as rulings, because a pattern cannot tell the banned use from a plain
-one without a decision the spec and the plan do not make: §5.6's `safe`, `robust` and
-`reliable` (said of an agent that survived a hunt; `safe to repeat` is Break's own term), and the
-brand's `adversarial` (of Prove), `unchanged` (of a cell) and `just`, `simply`, `easy` (of the
-reader's work).
+Taylor's rulings (2026-11-09, `evidence/bk11/open-points.md`), held here too:
+- 11A-5: spec §5.6's three words, as `safe`, `safety`, `safely`, `robust`, `robustness`,
+  `reliable`, `reliably`, `reliability`, in every file the test reads, with two exceptions: the
+  exact phrase `safe to repeat`, Break's own term for a write tool, and the one page on what Break
+  does not claim (`docs/claims.md`, 11A-10), which may say the three words to disclaim them.
+- 11A-6: `unchanged`, `simply`, `easy`, `easily` and `just`, outright; `adversarial` is not banned
+  for Break, the tool that hunts.
+- 11A-7a: the changelog (`CHANGELOG.md`) and the PyPI page's own text, the `description` and the
+  `keywords` of `pyproject.toml`, are read too.
+- 11A-7b: the lab's two shared standards, `docs/repo-hygiene.md` and `docs/cli-look.md`, are left
+  out by name.
 """
 
 from __future__ import annotations
 
 import ast
 import re
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -78,14 +85,38 @@ BANNED: dict[str, re.Pattern[str]] = {
     "HydraDB": re.compile(r"\bhydra\s*db\b", re.IGNORECASE),
 }
 
+#: Spec §5.6's three words (11A-5), and the brand's words of the reader's work and of a result
+#: (11A-6). The §5.6 words are let through in the one page on what Break does not claim, and in
+#: the phrase `safe to repeat` everywhere.
+CLAIMS: dict[str, re.Pattern[str]] = {
+    "safe": re.compile(r"\b(?:safe|safety|safely)\b", re.IGNORECASE),
+    "robust": re.compile(r"\brobust(?:ness|ly)?\b", re.IGNORECASE),
+    "reliable": re.compile(r"\breliab(?:le|ly|ility)\b", re.IGNORECASE),
+}
+WORDS: dict[str, re.Pattern[str]] = {
+    "unchanged": re.compile(r"\bunchanged\b", re.IGNORECASE),
+    "simply": re.compile(r"\bsimply\b", re.IGNORECASE),
+    "easy": re.compile(r"\beas(?:y|ily|ier|iest)\b", re.IGNORECASE),
+    "just": re.compile(r"\bjust\b", re.IGNORECASE),
+}
+SAFE_TO_REPEAT = re.compile(r"\bsafe\s+to\s+repeat\b", re.IGNORECASE)
+CLAIMS_PAGE = "docs/claims.md"
+STANDARDS = ("docs/repo-hygiene.md", "docs/cli-look.md")
 
-def hits(text: str) -> list[str]:
-    """Each banned pattern the text holds, with what it matched."""
+
+def hits(text: str, *, claims_page: bool = False) -> list[str]:
+    """Each banned pattern the text holds, with what it matched; on the claims page the three
+    words of spec §5.6 are let through."""
     flat = re.sub(r"\s+", " ", text)
     found = []
-    for name, pattern in BANNED.items():
+    for name, pattern in {**BANNED, **WORDS}.items():
         for match in pattern.finditer(flat):
             found.append(f"{name}: {match.group(0)!r}")
+    if not claims_page:
+        rest = SAFE_TO_REPEAT.sub(" ", flat)
+        for name, pattern in CLAIMS.items():
+            for match in pattern.finditer(rest):
+                found.append(f"{name}: {match.group(0)!r}")
     return found
 
 
@@ -125,11 +156,19 @@ CAUGHT = {
     "engagements": ["our engagements", "an engagement"],
     "independent research group": ["an independent research group"],
     "HydraDB": ["HydraDB", "Hydra DB"],
+    "safe": ["the agent is safe", "Safety first", "it runs safely", "safe to call twice",
+             "made safe", "safe to repeat and safe"],
+    "robust": ["a robust agent", "robustness"],
+    "reliable": ["reliable", "reliably", "its reliability"],
+    "unchanged": ["the unchanged agent"],
+    "simply": ["simply run it"],
+    "easy": ["it is easy", "easily", "easier"],
+    "just": ["just run hunt", "Just add a line"],
 }
 
 PASSED = [
     "safe to repeat", "made safe to repeat", "it ships one way in", "the tool is shipped",
-    "Break proves nothing about safety", "a run of 3 tools", "3 runs", "40% of runs failed",
+    "a run of 3 tools", "unsafe", "adjusted p-value", "justified", "adversarial search", "3 runs", "40% of runs failed",
     "fails more than the control", "Prove's numbers", "Poisson Prove", "Trace's test",
     "the 3x3 grid", "BK", "PT", "a pre-registration", "session", "a TK-1 ticket", "Trace 0.1.0rc3",
     "Python 3.11", "the monitor", "Montenegro", "magician", "engaged", "guard",
@@ -147,16 +186,25 @@ def test_the_patterns_let_plain_words_through() -> None:
     assert {text: hits(text) for text in PASSED if hits(text)} == {}
 
 
+def test_the_claims_page_may_say_the_three_words_and_nothing_else_banned() -> None:
+    said = "Break does not say an agent is safe, robust or reliable."
+    assert hits(said, claims_page=True) == []
+    assert {h.split(":")[0] for h in hits(said)} == {"safe", "robust", "reliable"}
+    assert [h.split(":")[0] for h in hits("It is simply unchanged.", claims_page=True)] == \
+        ["unchanged", "simply"]
+
+
 def test_every_word_of_the_brand_list_without_a_qualifier_has_a_pattern() -> None:
     """The brand's list is read from its words here, so dropping a pattern is seen: each word
     the list bans outright, and each name plan §2.7 keeps out, is a key above."""
-    assert set(CAUGHT) == set(BANNED)
+    assert set(CAUGHT) == set(BANNED) | set(CLAIMS) | set(WORDS)
     assert {"certified", "signable", "audit-grade", "compliance", "verified", "guaranteed",
             "proves safe", "AI-powered", "cutting-edge", "revolutionary", "vibes", "magic",
             "secret sauce", "Strongfloor", "Aplomb", "Sangfroid", "Monte", "proofload", "momus",
             "do not ship", "safe to deploy", "ship it", "engagements",
             "independent research group", "HydraDB", "a module id", "a ruling number",
             "a session name", "a speed-up figure"} <= set(BANNED)
+    assert {"safe", "robust", "reliable", "unchanged", "simply", "easy", "just"} <= set(CAUGHT)
 
 
 # ---------------------------------------------------------------------------
@@ -165,13 +213,15 @@ def test_every_word_of_the_brand_list_without_a_qualifier_has_a_pattern() -> Non
 
 
 def user_files() -> list[Path]:
-    """The README and every text file under `docs/` and `examples/`."""
-    files = [REPO / "README.md"]
+    """The README, the changelog, and every text file under `docs/` and `examples/` but the two
+    shared standards (11A-7a, 11A-7b)."""
+    files = [REPO / "README.md", REPO / "CHANGELOG.md"]
     for top in ("docs", "examples"):
         root = REPO / top
         if root.exists():
             files += sorted(p for p in root.rglob("*") if p.is_file()
-                            and "__pycache__" not in p.parts and p.suffix != ".pyc")
+                            and "__pycache__" not in p.parts and p.suffix != ".pyc"
+                            and p.relative_to(REPO).as_posix() not in STANDARDS)
     return files
 
 
@@ -182,9 +232,18 @@ def test_no_page_or_example_says_a_banned_word() -> None:
             text = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             continue
-        if hits(text):
-            found[str(path.relative_to(REPO))] = hits(text)
+        said = hits(text, claims_page=path.relative_to(REPO).as_posix() == CLAIMS_PAGE)
+        if said:
+            found[str(path.relative_to(REPO))] = said
     assert found == {}
+
+
+def test_the_pypi_page_s_own_text_says_no_banned_word() -> None:
+    """11A-7a: the summary and the keywords PyPI shows beside the README."""
+    with (REPO / "pyproject.toml").open("rb") as f:
+        project = tomllib.load(f)["project"]
+    assert hits(project["description"]) == []
+    assert {k: hits(k) for k in project.get("keywords", []) if hits(k)} == {}
 
 
 def test_there_are_docs_and_examples_to_read() -> None:
