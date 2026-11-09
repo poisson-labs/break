@@ -60,11 +60,24 @@ recheck, and the eight commands that run all of it.
   runs one case once with no change, stored nowhere; a tool nobody classed raises
   `ToolRefused`. `poisson_break.settings`: `install_command(kind)` is the `pip install` line
   for a kind whose way in is not installed, or `None`; `load`'s refusal names the same line.
-  `poisson_break.confirm`: `Replayed.error` carries a run not counted's one line of error;
-  `read_findings(hunt)` reads every finding file in number order and refuses the whole call on
+  `poisson_break.hunt`: `Hunt.stored()` is every arm the hunt's store holds, by its word, with
+  the rows Prove counts in it. `poisson_break.confirm`: `read_stages(hunt)` is each confirm
+  stage written, a `Stage` with its arms' rows; `Replayed.error` carries a run not counted's
+  one line of error; `read_findings(hunt)` reads every finding file in number order and
+  refuses the whole call on
   one it cannot read; each confirm stage in `confirm.json` carries the `q` and
   `max_difference` it was begun under, and is judged under those. `poisson_break.look`:
   `show(result)` prints a result the way the current run prints one, and plain outside a run.
+- The command reads the confirm stages through `read_stages` and the store through
+  `Hunt.stored`, never `confirm.json` or Prove's store itself; a `confirm.json` that cannot be
+  read is refused in one line. Each `--json` document's fields are fixed: a plan is
+  `poisson_break.<verb>-plan/1` with `dollars` beside its estimate and `runs` what it may make
+  from here; `init` names `cases_file`; every `not ready` carries `key`, `line` and
+  `unclassed`; each tested candidate and rechecked finding carries `no_outcome` and `left_out`;
+  `confirm` names the files it `wrote`; the listing's `control` is null while the control is
+  not finished; a Ctrl-C document carries a stop's keys. A dry run of `hunt --hunt NAME` plans
+  what the hunt has left, and a hunt taken up after its control, with prices, is priced at the
+  control's cost of one run. A verdict sentence says a count of one in the singular.
 
 - `poisson_break.confirm`: confirming findings. `write_candidates(hunt, conditions)` keeps a
   hunt's candidates, best first, in its `candidates.json`, and `read_candidates(hunt)` reads
