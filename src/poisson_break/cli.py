@@ -142,7 +142,10 @@ def _ours(prog: str, *words: str) -> str:
     return look.command(prog, *(look.word(word) for word in words))
 
 
-_PLAN_SCHEMA = "poisson_break.plan/1"
+def _plan_schema(verb: str) -> str:
+    """The name of the document ``--json`` writes for a verb's plan: one name a verb, since
+    each verb's plan has its own fields."""
+    return f"poisson_break.{verb}-plan/1"
 
 
 # ---------------------------------------------------------------------------
@@ -695,12 +698,12 @@ def _hunt(call: _Call) -> int:
     sentence = (f"a hunt of {word} on {look.fmt_count(len(cases))} cases, at most "
                 f"{look.fmt_count(plan.runs)} runs")
     estimate, source = _hunt_estimate(settings, plan)
-    data: dict[str, Any] = {"target": settings.target.entry, "kind": settings.target.kind,
-                            "cases": len(cases), "runs": plan.runs,
+    data: dict[str, Any] = {"dollars": None, "target": settings.target.entry,
+                            "kind": settings.target.kind, "cases": len(cases), "runs": plan.runs,
                             "control_runs": plan.control_runs, "search_runs": plan.search_runs}
     if args.dry_run:
         _start(call, look.Plan(sentence, estimate=estimate, source=source, detail=tuple(rows),
-                               schema=_PLAN_SCHEMA, data=data))
+                               schema=_plan_schema("hunt"), data=data))
         return EXIT_DONE
 
     resumed = args.hunt is not None
@@ -710,11 +713,11 @@ def _hunt(call: _Call) -> int:
         left = max(plan.runs - hunt.budget().runs_spent, 0)
         rows.append(look.Row("left", f"{look.fmt_count(left)} runs of "
                                      f"{look.fmt_count(plan.runs)}"))
-        data["left"] = left
-    data["hunt"] = hunt.name
+        data["runs"] = left
+    data = {"dollars": data.pop("dollars"), "hunt": hunt.name, **data}
     try:
         _start(call, look.Plan(sentence, estimate=estimate, source=source, detail=tuple(rows),
-                               schema=_PLAN_SCHEMA, data=data))
+                               schema=_plan_schema("hunt"), data=data))
     except (look.Refused, _Exit):
         if not resumed:
             _discard_unused(hunt)
@@ -1039,7 +1042,7 @@ def _confirm(call: _Call) -> int:
         raise look.Refused(_one_line(wrong), nexts=(_ours(call.prog, "hunt"),)) from None
 
     rows: list[look.Row | look.Line | look.Table] = []
-    data: dict[str, Any] = {"hunt": hunt.name, "candidates": len(candidates)}
+    data: dict[str, Any] = {"dollars": None, "hunt": hunt.name, "candidates": len(candidates)}
     left = _stage_left(latest) if latest is not None and args.repeats is None else 0
     if left:
         assert latest is not None
@@ -1052,7 +1055,7 @@ def _confirm(call: _Call) -> int:
                                     "written"),
                  look.Row("left", f"{look.fmt_count(left)} runs")]
         runs = left
-        data.update(stage=latest.number, left=left, repeats=latest.repeats)
+        data.update(candidates=arms, stage=latest.number, repeats=latest.repeats, runs=left)
     elif args.repeats is not None:
         assert latest is not None
         cases = len(latest.cases)
@@ -1069,7 +1072,7 @@ def _confirm(call: _Call) -> int:
                                        f"{look.fmt_count(again.reference_per_finding)} for each "
                                        "candidate that is confirmed")]
         runs = again.runs
-        data.update(stage=latest.number + 1, repeats=args.repeats,
+        data.update(candidates=len(small), stage=latest.number + 1, repeats=args.repeats,
                     asked_again=[one.condition for one in small], runs=again.runs)
     else:
         sentence = f"confirm {look.fmt_count(len(candidates))} candidates against a control"
@@ -1087,8 +1090,9 @@ def _confirm(call: _Call) -> int:
                           f"{look.fmt_rate(settings.confirm.max_difference)}, and how many "
                           "repeats would be enough"))
     estimate, source = _spend_estimate(settings, summary, runs)
+    data["dollars"] = _spend_dollars(settings, summary, runs)
     if not _start(call, look.Plan(sentence, estimate=estimate, source=source, detail=tuple(rows),
-                                  schema=_PLAN_SCHEMA, data=data)):
+                                  schema=_plan_schema("confirm"), data=data)):
         return EXIT_DONE
 
     try:
@@ -1103,6 +1107,14 @@ def _confirm(call: _Call) -> int:
         raise look.Refused(_one_line(wrong), nexts=(resume,)) from None
     look.show(_confirm_result(call, settings, hunt, done))
     return EXIT_DONE
+
+
+def _spend_dollars(settings: Settings, summary: Any, runs: int) -> float | None:
+    """What the estimate puts in dollars, as a number: the runs at what the control stage
+    measured one to cost; ``None`` without prices or before the control has run."""
+    if summary is not None and _priced(settings) and summary.dollars_per_run is not None:
+        return float(runs * summary.dollars_per_run)
+    return None
 
 
 def _spend_estimate(settings: Settings, summary: Any, runs: int) -> tuple[str, str]:
@@ -1141,11 +1153,12 @@ def _confirm_result(call: _Call, settings: Settings, hunt: Any, done: Any) -> lo
                        "verdict": one.verdict, "note": one.note, "rate": one.rate,
                        "control_rate": one.control_rate, "difference": one.difference,
                        "lo": one.lo, "hi": one.hi, "p": one.p, "adjusted_p": one.adjusted_p,
-                       "repeats_needed": one.repeats_needed})
+                       "repeats_needed": one.repeats_needed,
+                       "no_outcome": list(one.no_outcome), "left_out": dict(one.left_out)})
     detail: list[look.Row | look.Line | look.Table] = [
         look.Table(("", "condition", "verdict", "numbers"), tuple(table))]
+    folder = Path(settings.output.folder) / hunt.name / "findings"
     if done.findings:
-        folder = Path(settings.output.folder) / hunt.name / "findings"
         paths = [f"{folder.as_posix()}/{done.findings[0].number}.toml"]
         paths += [f"{finding.number}.toml" for finding in done.findings[1:]]
         detail.append(look.Row("wrote", ", ".join(paths)))
@@ -1157,6 +1170,7 @@ def _confirm_result(call: _Call, settings: Settings, hunt: Any, done: Any) -> lo
              if done.findings else ())
     data = {"hunt": hunt.name, "stage": done.stage, "candidates": listed,
             "findings": [finding.number for finding in done.findings],
+            "wrote": [f"{folder.as_posix()}/{finding.number}.toml" for finding in done.findings],
             "reference_runs": len(done.findings) * done.design.reference_per_finding}
     return look.Result(verdict, f"{look.fmt_count(len(done.findings))} of "
                                 f"{look.fmt_count(len(done.tested))} candidates fail more than "
@@ -1222,13 +1236,14 @@ def _findings(call: _Call) -> int:
     return EXIT_DONE
 
 
-def _control_failures(call: _Call, settings: Settings, hunt: Any
-                      ) -> tuple[list[look.Row | look.Line | look.Table], list[dict[str, Any]]]:
+def _control_failures(
+        call: _Call, settings: Settings, hunt: Any
+) -> tuple[list[look.Row | look.Line | look.Table], list[dict[str, Any]] | None]:
     """Each case that failed in the control, with its failed runs of its runs and its kinds,
     the cases set aside marked so, under a ``control`` heading; nothing when the control is
-    not finished, since asking for it would run it."""
+    not finished, since asking for it would run it, and ``None`` for the document then."""
     if not _control_complete(hunt):
-        return [], []
+        return [], None
     summary = _control_summary(call, settings, hunt, "findings")
     by_case: dict[str, list[Any]] = {}
     for row in summary.rows:
@@ -1417,7 +1432,7 @@ def _recheck(call: _Call) -> int:
     rows: list[look.Row | look.Line | look.Table] = [
         look.Row("findings", ", ".join(f"{finding.number} {finding.condition}"
                                        for finding in findings))]
-    data: dict[str, Any] = {"hunt": hunt.name,
+    data: dict[str, Any] = {"dollars": None, "hunt": hunt.name,
                             "findings": [finding.number for finding in findings],
                             "runs": runs, "old": args.old}
     pending = _recheck_left(hunt, findings)
@@ -1426,7 +1441,7 @@ def _recheck(call: _Call) -> int:
         sentence = f"go on with recheck {look.fmt_count(number)} of {hunt.name}, as it was begun"
         rows.append(look.Row("left", f"{look.fmt_count(left)} runs"))
         runs = left
-        data.update(recheck=number, left=left, runs=left)
+        data.update(recheck=number, runs=left)
     else:
         sentence = (f"recheck {look.fmt_count(len(findings))} findings on the agent as it is "
                     "now" + (", beside the agent as it was" if old is not None else ""))
@@ -1438,8 +1453,9 @@ def _recheck(call: _Call) -> int:
         else None
     estimate, source = (_spend_estimate(settings, summary, runs) if summary is not None
                         else (f"{look.fmt_count(runs)} runs", "the plan's counts"))
+    data["dollars"] = _spend_dollars(settings, summary, runs)
     if not _start(call, look.Plan(sentence, estimate=estimate, source=source, detail=tuple(rows),
-                                  schema=_PLAN_SCHEMA, data=data)):
+                                  schema=_plan_schema("recheck"), data=data)):
         return EXIT_DONE
 
     resume_words = ["recheck", "--hunt", hunt.name]
@@ -1474,8 +1490,8 @@ def _recheck(call: _Call) -> int:
                        "difference": one.difference, "lo": one.lo, "hi": one.hi, "p": one.p,
                        "adjusted_p": one.adjusted_p, "repeats_needed": one.repeats_needed,
                        "gap_days": None if one.gap_days is None else float(_days(one.gap_days)),
-                       "before": one.before, "now": one.now,
-                       "trace": one.trace})
+                       "before": one.before, "now": one.now, "trace": one.trace,
+                       "no_outcome": list(one.no_outcome), "left_out": dict(one.left_out)})
     # one line a finding, not a table: the rates and the repeats make a row wider than a
     # terminal, and a table that folds says more words than its plain rendering
     detail += [look.Line("  ".join(row)) for row in table]
@@ -1509,8 +1525,10 @@ def _doctor(call: _Call) -> int:
     path = Path(SETTINGS_FILE)
 
     def problem(sentence: str, nexts: Sequence[str], **data: Any) -> int:
+        # one shape for every problem: each key null or empty where it does not apply
+        held = {"key": None, "line": None, "unclassed": [], **data}
         look.show(look.Result("not ready", sentence, nexts=tuple(nexts), schema=_schema("doctor"),
-                              data={"settings": SETTINGS_FILE, **data}))
+                              data={"settings": SETTINGS_FILE, **held}))
         return EXIT_CHECK
 
     try:
@@ -1890,7 +1908,7 @@ def _init(call: _Call) -> int:
         stated += ["--vary-conversation", look.word("[]")]
     nexts.append(" ".join([*stated, "--yes"]))
     data = {"file": SETTINGS_FILE, "kind": settings.target.kind, "entry": settings.target.entry,
-            "cases": settings.target.cases,
+            "cases_file": settings.target.cases,
             "tools": [{"name": tool.name, "class": tool.tool_class} for tool in settings.tools],
             "install": install}
     look.show(look.Result("wrote", SETTINGS_FILE, nexts=tuple(nexts), schema=_schema("init"),
