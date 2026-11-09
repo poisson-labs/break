@@ -377,7 +377,8 @@ class Hunt:
     counts ``plan_hunt`` gives for these cases. ``reserve`` is how many runs a search leaves
     unspent so that shrinking has some: none under ``screen``, and for any other strategy the
     settings' candidates, times two, times the cases a condition runs on. ``budget()`` reads
-    what the hunt has spent. Nothing here can be assigned."""
+    what the hunt has spent, and ``stored()`` the rows its store holds of each arm. Nothing
+    here can be assigned."""
 
     __slots__ = ("name", "folder", "store", "proposals", "settings", "cases", "target", "plan",
                  "reserve", "_listed", "_capabilities", "_lines", "_fails", "_env", "_read",
@@ -442,6 +443,19 @@ class Hunt:
     def budget(self) -> Budget:
         """What the hunt may spend and what it has spent so far, read from its store."""
         return _spent(self, _read_file(self.folder)).budget(self.settings)
+
+    def stored(self) -> Mapping[str, int]:
+        """Every arm the hunt's store holds, by its word (the Prove run's name less
+        ``<hunt>-``: ``control``, ``search``, ``confirm-1``, ``recheck-1-1-old``), to the rows
+        the store holds of it, as Prove counts them: runs not counted are rows. Empty for a
+        hunt with no store yet. Read from the store each time it is asked, and read-only; it
+        runs nothing, asks Trace nothing and writes nothing."""
+        if not self.store.is_dir():
+            return MappingProxyType({})
+        store = Store(self.store)
+        prefix = f"{self.name}-"
+        return MappingProxyType({run_id[len(prefix):]: int(store.count(run_id))
+                                 for run_id in store.runs() if run_id.startswith(prefix)})
 
 
 def _tool_lines(settings: Settings) -> Mapping[str, Any]:
