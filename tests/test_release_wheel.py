@@ -24,6 +24,8 @@ Taylor's rulings (2026-11-09, `evidence/bk11/open-points.md`):
 - 11A-17: a wheel and an sdist; the sdist carries only files git tracks, and only under `src/`,
   `tests/`, `docs/`, `examples/`, `scripts/`, with the README, LICENSE, NOTICE, CHANGELOG and
   `pyproject.toml` (and the `PKG-INFO` an sdist writes for itself).
+- 11A-26: `.gitignore` is allowed in the sdist too. Hatchling puts the repository's ignore file
+  in every sdist, whatever the build settings say; it is tracked, and holds no private text.
 """
 
 from __future__ import annotations
@@ -109,7 +111,7 @@ def test_the_development_status_is_alpha(wheel: Path) -> None:
 # ---------------------------------------------------------------------------
 
 SDIST_TOPS = {"src", "tests", "docs", "examples", "scripts"}
-SDIST_FILES = {"README.md", "LICENSE", "NOTICE", "CHANGELOG.md", "pyproject.toml", "PKG-INFO"}
+SDIST_FILES = {"README.md", "LICENSE", "NOTICE", "CHANGELOG.md", "pyproject.toml", "PKG-INFO", ".gitignore"}
 
 
 @pytest.fixture(scope="module")

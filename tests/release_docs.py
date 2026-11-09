@@ -40,6 +40,16 @@ test itself.
    every other file by its path; within a file, by line. A refused block makes it exit 1 with
    nothing on stdout and one line per refusal on stderr, each starting `FILE:LINE: `, the line
    of the block's opening fence.
+8. Each export recipe page (the one page under `docs/` whose title names LangSmith, Langfuse or
+   Phoenix; rulings 11A-12, 11A-13 and 11A-23) shows its call to the service in blocks tagged
+   exactly `python service`, which are shown and never run, since the call needs a key. Its
+   blocks tagged exactly `python`, in order, are one program, the conversion. The same job
+   writes it to `recipe.py` in a fresh folder holding a copy of the page's stored export,
+   `docs/export/samples/<tool>-export.<ext>` (`<tool>` the tool's name in lower case), and runs
+   it there with the environment's Python; it must exit 0 and write `<tool>.jsonl` with the
+   bytes of the stored sample, `docs/export/samples/<tool>.jsonl`. The listing of rule 7
+   carries the program as an extension page's is carried: `kind` `python`, at the first line of
+   the page's first `python` block's content.
 """
 
 from __future__ import annotations
@@ -215,8 +225,34 @@ def extension_pages(root: Path = REPO) -> dict[str, list[Path]]:
     return {name: [p for p in pages if named[p] == {name}] for name in INTERFACE_CONSTANTS}
 
 
+#: The three tools the docs give an export recipe for (spec §7.2).
+RECIPE_TOOLS = ("LangSmith", "Langfuse", "Phoenix")
+#: The info string of a block that shows a recipe's call to its service: shown, not run.
+SERVICE = "python service"
+
+
+def title(page: Path) -> str:
+    """A page's title: its first `# ` line."""
+    for line in page.read_text(encoding="utf-8").split("\n"):
+        if line.startswith("# "):
+            return line[2:]
+    return ""
+
+
+def recipe_pages(root: Path = REPO) -> dict[str, list[Path]]:
+    """For each tool, the pages under `docs/` whose title names it."""
+    pages = sorted((root / "docs").rglob("*.md")) if (root / "docs").exists() else []
+    return {tool: [p for p in pages if re.search(rf"\b{tool}\b", title(p))] for tool in RECIPE_TOOLS}
+
+
+def service_blocks(page: Path, root: Path = REPO) -> list[Block]:
+    """A recipe page's blocks that show its call to the service."""
+    return [b for b in blocks(page.read_text(encoding="utf-8"), rel(page, root)) if b.info == SERVICE]
+
+
 def python_program(page: Path, root: Path = REPO) -> Command | None:
-    """An extension page's Python blocks, in order, as one program."""
+    """An extension page's or a recipe page's Python blocks, in order, as one program: the
+    blocks tagged exactly `python`, so a recipe's `python service` blocks are no part of it."""
     found = [b for b in blocks(page.read_text(encoding="utf-8"), rel(page, root))
              if b.info == "python"]
     if not found:
@@ -226,12 +262,13 @@ def python_program(page: Path, root: Path = REPO) -> Command | None:
 
 
 def marked(root: Path = REPO) -> tuple[list[Command], list[str]]:
-    """Every marked command and every extension page's program, in the order of rule 7, and
-    every refusal."""
+    """Every marked command and every extension page's and recipe page's program, in the order
+    of rule 7, and every refusal."""
     commands: list[Command] = []
     refused: list[str] = []
     pages = user_docs() if root == REPO else _docs_under(root)
     constants = {p for named in extension_pages(root).values() for p in named}
+    constants |= {p for named in recipe_pages(root).values() for p in named}
     for page in pages:
         name = rel(page, root)
         try:

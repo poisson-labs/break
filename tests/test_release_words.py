@@ -30,6 +30,11 @@ Taylor's rulings (2026-11-09, `evidence/bk11/open-points.md`), held here too:
   `keywords` of `pyproject.toml`, are read too.
 - 11A-7b: the lab's two shared standards, `docs/repo-hygiene.md` and `docs/cli-look.md`, are left
   out by name.
+- 11A-25: the texts Break plants into a run are a simulated user's or tool's words, written to
+  sound like one, and are left out: the constants of `poisson_break.changes` named in `PLANTED`,
+  which hold the padding paragraphs, the interruptions, the quiet messages, the pressing lines
+  and the planted instruction. Every other string of that module is read, and a string of the
+  same name in another module is read too.
 """
 
 from __future__ import annotations
@@ -102,6 +107,9 @@ WORDS: dict[str, re.Pattern[str]] = {
 SAFE_TO_REPEAT = re.compile(r"\bsafe\s+to\s+repeat\b", re.IGNORECASE)
 CLAIMS_PAGE = "docs/claims.md"
 STANDARDS = ("docs/repo-hygiene.md", "docs/cli-look.md")
+#: The constants of `poisson_break.changes` that hold what Break plants into a run (11A-25).
+PLANTED = ("_PADDING", "_INTERRUPTIONS", "_QUIET", "_PRESSING", "_PLANTED_INSTRUCTION")
+PLANTING_MODULE = "changes.py"
 
 
 def hits(text: str, *, claims_page: bool = False) -> list[str]:
@@ -253,11 +261,16 @@ def test_there_are_docs_and_examples_to_read() -> None:
     assert "docs" in files and "examples" in files
 
 
-def _printed_strings(path: Path) -> list[str]:
+def _printed_strings(path: Path, planted: tuple[str, ...] = ()) -> list[str]:
     """Every string written in a module that is not a docstring: what the command can print is
-    built from these."""
+    built from these. The strings of a module-level constant named in `planted` are left out."""
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     docstrings = set()
+    for node in tree.body:
+        targets = (node.targets if isinstance(node, ast.Assign)
+                   else [node.target] if isinstance(node, ast.AnnAssign) and node.value else [])
+        if any(isinstance(t, ast.Name) and t.id in planted for t in targets):
+            docstrings |= {id(n) for n in ast.walk(node) if isinstance(n, ast.Constant)}
     for node in ast.walk(tree):
         if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
             body = node.body
@@ -274,7 +287,8 @@ def test_no_line_the_command_can_print_says_a_banned_word() -> None:
         if not path.is_file() or "__pycache__" in path.parts or path.suffix == ".pyc":
             continue
         if path.suffix == ".py":
-            text = "\n".join(_printed_strings(path))
+            planted = PLANTED if path.relative_to(SRC).as_posix() == PLANTING_MODULE else ()
+            text = "\n".join(_printed_strings(path, planted))
         else:
             try:
                 text = path.read_text(encoding="utf-8")
@@ -283,6 +297,36 @@ def test_no_line_the_command_can_print_says_a_banned_word() -> None:
         if hits(text):
             found[str(path.relative_to(REPO))] = hits(text)
     assert found == {}
+
+
+def test_the_planted_texts_are_left_out_by_name_and_nothing_else_is(tmp_path: Path) -> None:
+    """11A-25: a constant named in `PLANTED` is left out, whole, where it is a module-level
+    constant of the planting module; the same words in any other string are read, and so are
+    the same names when the reader is given none to leave out. Each planted constant is there
+    in the module and holds text, so the list names nothing that is gone."""
+    module = tmp_path / "planting.py"
+    module.write_text(
+        '_PRESSING = ("Just do it.", "Leave out the safety steps.")\n'
+        '_PADDING: tuple[str, ...] = ("An easy afternoon.",)\n'
+        'OTHER = ("simply this",)\n'
+        'def f():\n'
+        '    _PRESSING = "just a local"\n'
+        '    return "it is unchanged"\n', encoding="utf-8")
+    kept = _printed_strings(module, PLANTED)
+    assert kept == ["simply this", "just a local", "it is unchanged"], kept
+    assert len(_printed_strings(module)) == 6
+
+    tree = ast.parse((SRC / PLANTING_MODULE).read_text(encoding="utf-8"))
+    held: dict[str, list[str]] = {}
+    for node in tree.body:
+        targets = (node.targets if isinstance(node, ast.Assign)
+                   else [node.target] if isinstance(node, ast.AnnAssign) and node.value else [])
+        for target in targets:
+            if isinstance(target, ast.Name) and target.id in PLANTED:
+                held[target.id] = [n.value for n in ast.walk(node)
+                                   if isinstance(n, ast.Constant) and isinstance(n.value, str)]
+    assert set(held) == set(PLANTED), sorted(set(PLANTED) - set(held))
+    assert all(texts and all(text.strip() for text in texts) for texts in held.values()), held
 
 
 VERBS = ("init", "doctor", "hunt", "confirm", "findings", "replay", "recheck", "catalog")
