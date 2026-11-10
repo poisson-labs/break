@@ -1,0 +1,42 @@
+[
+ {
+  "trace_id": "3c9a41d07be24f6c8a15d2e0b7f6a901",
+  "parent_observation_id": null,
+  "input": "\"Where is my order 4821?\""
+ },
+ {
+  "trace_id": "3c9a41d07be24f6c8a15d2e0b7f6a901",
+  "parent_observation_id": "a1b2c3d4e5f6a701",
+  "input": "[{\"role\": \"user\", \"content\": \"Where is my order 4821?\"}]"
+ },
+ {
+  "trace_id": "3c9a41d07be24f6c8a15d2e0b7f6a902",
+  "parent_observation_id": null,
+  "input": "\"Order 4822 arrived damaged. Can I get a refund?\""
+ },
+ {
+  "trace_id": "3c9a41d07be24f6c8a15d2e0b7f6a902",
+  "parent_observation_id": "a1b2c3d4e5f6a702",
+  "input": "[{\"role\": \"user\", \"content\": \"Order 4822 arrived damaged. Can I get a refund?\"}]"
+ },
+ {
+  "trace_id": "3c9a41d07be24f6c8a15d2e0b7f6a903",
+  "parent_observation_id": null,
+  "input": "\"Has order 4823 left the warehouse yet?\""
+ },
+ {
+  "trace_id": "3c9a41d07be24f6c8a15d2e0b7f6a903",
+  "parent_observation_id": "a1b2c3d4e5f6a703",
+  "input": "[{\"role\": \"user\", \"content\": \"Has order 4823 left the warehouse yet?\"}]"
+ },
+ {
+  "trace_id": "3c9a41d07be24f6c8a15d2e0b7f6a904",
+  "parent_observation_id": null,
+  "input": "\"Please cancel order 4824, I ordered it twice.\""
+ },
+ {
+  "trace_id": "3c9a41d07be24f6c8a15d2e0b7f6a904",
+  "parent_observation_id": "a1b2c3d4e5f6a704",
+  "input": "[{\"role\": \"user\", \"content\": \"Please cancel order 4824, I ordered it twice.\"}]"
+ }
+]
