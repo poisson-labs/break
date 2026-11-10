@@ -21,7 +21,6 @@ from pathlib import Path
 
 import pytest
 
-from tests.commands_own_fault import NAME
 from tests.commands_support import (
     CODES,
     cases,
@@ -37,6 +36,9 @@ from tests.settings_support import doc, settings, written
 from tests.test_release_examples import Folder, examples, hunted_and_confirmed, json_of
 
 EXAMPLE = "own-fault"
+#: The fault `tests/commands_own_fault.py` registers when it is imported. That module is named here and never
+#: imported: importing it would register the fault in the test process, for every test after this one.
+NAME = "garbled"
 UNKNOWN = "shouting"
 
 

@@ -1,6 +1,7 @@
 """A target whose module registers a fault of its own, for `tests/test_release_own_fault.py`.
 
-Importing this module registers the tool fault `garbled` through `poisson_break.changes.register`, as spec §11.1
+It is loaded only by the command's child process, as `[target] entry`; no test imports it, since importing it
+changes the catalogue for the whole process. Importing this module registers the tool fault `garbled` through `poisson_break.changes.register`, as spec §11.1
 says a user's module does; the desk is the commands' own (`tests/commands_targets.py`), so a case's `weak_to` names
 the fault kinds it fails under. `garbled` hands the agent an error of the kind `error`, after the real tool has run.
 """
