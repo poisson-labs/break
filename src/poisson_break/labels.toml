@@ -1,0 +1,35 @@
+# The labels `poisson-break catalog --labels` shows: one row for each label a change of the
+# catalogue carries from a published list. Each row names the list and its version (scheme),
+# the label as the list writes it (id, title), where the published text is (source) and the
+# words of that text the label rests on (text), quoted word for word.
+#
+# DRAFT, NOT YET CHECKED. Every row below is unchecked: each waits for a second reader to hold
+# its text against the source and agree that the label fits the change. A row that reader does
+# not agree with is taken out before a release. A change with no row here has no label.
+
+# unchecked
+[[label]]
+change = "tool:planted_instruction"
+scheme = "OWASP Top 10 for LLM Applications 2025"
+id = "LLM01:2025"
+title = "Prompt Injection"
+source = "https://genai.owasp.org/llmrisk/llm01-prompt-injection/"
+text = "Indirect prompt injections occur when an LLM accepts input from external sources, such as websites or files. The content may have in the external content data that when interpreted by the model, alters the behavior of the model in unintended or unexpected ways."
+
+# unchecked
+[[label]]
+change = "tool:planted_instruction"
+scheme = "NIST AI 100-2 E2025"
+id = "NISTAML.015"
+title = "Indirect Prompt Injection"
+source = "https://doi.org/10.6028/NIST.AI.100-2e2025"
+text = "Thus, indirect prompt injection attacks are enabled by resource control that allows an attacker to indirectly (or remotely) inject system prompts without directly interacting with the application"
+
+# unchecked
+[[label]]
+change = "user:presses"
+scheme = "OWASP Top 10 for LLM Applications 2025"
+id = "LLM01:2025"
+title = "Prompt Injection"
+source = "https://genai.owasp.org/llmrisk/llm01-prompt-injection/"
+text = "Direct prompt injections occur when a user’s prompt input directly alters the behavior of the model in unintended or unexpected ways. The input can be either intentional (i.e., a malicious actor deliberately crafting a prompt to exploit the model) or unintentional (i.e., a user inadvertently providing input that triggers unexpected behavior)."

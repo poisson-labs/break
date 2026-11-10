@@ -40,6 +40,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
+import os
 import random
 import sys
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -55,6 +56,7 @@ from poisson_break.changes import (
     Condition,
     InstrumentError,
     check_capabilities,
+    check_registered,
     parse,
 )
 from poisson_break.changes import name as condition_name
@@ -143,8 +145,13 @@ def _ours(prog: str, *words: str) -> str:
 
 
 def _n(count: int, noun: str) -> str:
-    """A count and its noun, as a verdict sentence says it: the noun singular for one."""
+    """A count and its noun, as every line says it: the noun singular for one."""
     return f"{look.fmt_count(count)} {noun if count == 1 else noun + 's'}"
+
+
+def _hours(hours: float) -> str:
+    """A cap in hours, the word singular for one."""
+    return f"{hours:g} {'hour' if hours == 1 else 'hours'}"
 
 
 def _plan_schema(verb: str) -> str:
@@ -305,10 +312,16 @@ def build_parser(prog: str) -> argparse.ArgumentParser:
                               help=f"sets {key}; left out, that question is asked, or takes its "
                                    "default under --yes")
     init.add_argument("--yes", action="store_true",
-                      help="take every question's default without asking; the yes/no questions "
-                           "as no")
+                      help="take every question's default without asking: tool behaviour and "
+                           "inputs yes, the conversation yes when a case has turns, the rest "
+                           "no; it needs --entry, which has no default")
+    init.add_argument("--example", metavar="NAME",
+                      help="write the example of this name into the folder, with its agent, its "
+                           "cases and its settings, and ask nothing: "
+                           + ", ".join(_example_names()) + "; each runs with no key")
     init.add_argument("--force", action="store_true",
-                      help=f"write over a {SETTINGS_FILE} that is already here")
+                      help=f"write over a {SETTINGS_FILE}, or an example's file, that is already "
+                           "here")
 
     doctor = made["doctor"]
     doctor.add_argument("--run", action="store_true",
@@ -316,6 +329,11 @@ def build_parser(prog: str) -> argparse.ArgumentParser:
                              "nothing is stored")
     doctor.add_argument("--yes", action="store_true",
                         help="answer yes to the question --run asks, so nothing is asked")
+
+    made["catalog"].add_argument("--labels", action="store_true",
+                                 help="show, on the line of each change that has one, the labels "
+                                      "it carries from two published lists: the OWASP Top 10 for "
+                                      "LLM Applications 2025 and NIST AI 100-2 E2025")
 
     hunt = made["hunt"]
     _spending(hunt, "the first run")
@@ -361,14 +379,15 @@ def build_parser(prog: str) -> argparse.ArgumentParser:
 
 
 _VERB_EXAMPLES: Mapping[str, tuple[str, ...]] = {
-    "init": ("init", "init --kind rollout --entry my_app.agents:refund_agent", "init --yes"),
+    "init": ("init", "init --example desk",
+             "init --kind rollout --entry my_app.agents:refund_agent", "init --yes"),
     "doctor": ("doctor", "doctor --run"),
     "hunt": ("hunt", "hunt --name nightly", "hunt --dry-run", "hunt --hunt refund-agent-1"),
     "confirm": ("confirm", "confirm --repeats 10", "confirm --hunt refund-agent-1 --yes"),
     "findings": ("findings", "findings 2", "findings --hunt refund-agent-1"),
     "replay": ("replay 2", "replay 2 --case refund-7"),
     "recheck": ("recheck", "recheck --check", "recheck --old my_app.agents:refund_agent_v1"),
-    "catalog": ("catalog", "catalog --json"),
+    "catalog": ("catalog", "catalog --labels", "catalog --json"),
 }
 
 
@@ -394,7 +413,18 @@ def main(argv: Sequence[str] | None = None, *, prog: str | None = None) -> int:
     the user typed it."""
     prog = prog or DEFAULT_PROG
     words = list(sys.argv[1:] if argv is None else argv)
+    _folder_first()
     return look.run(prog, words, lambda: _command(prog, words))
+
+
+def _folder_first() -> None:
+    """Put the folder the command runs in first on the import path, before any verb loads an
+    agent, a stand-in, a check or a strategy by its import path. ``python -m poisson_break``
+    starts with it there; the installed script starts with its own folder there instead, and
+    would not find a module that sits beside ``break.toml``."""
+    here = os.getcwd()
+    if sys.path[:1] not in ([""], [here]):
+        sys.path.insert(0, "")
 
 
 @dataclass(frozen=True)
@@ -665,9 +695,9 @@ def _start(call: _Call, plan: look.Plan) -> bool:
 def _cap(settings: Settings) -> str:
     limits = settings.limits
     if limits.dollars is not None:
-        return (f"{look.fmt_dollars(limits.dollars)}, {look.fmt_count(settings.search.runs)} "
-                f"runs, {limits.hours:g} hours")
-    return f"{look.fmt_count(settings.search.runs)} runs, {limits.hours:g} hours"
+        return (f"{look.fmt_dollars(limits.dollars)}, {_n(settings.search.runs, 'run')}, "
+                f"{_hours(limits.hours)}")
+    return f"{_n(settings.search.runs, 'run')}, {_hours(limits.hours)}"
 
 
 def _priced(settings: Settings) -> bool:
@@ -752,18 +782,23 @@ def _hunt(call: _Call) -> int:
     except _refusals() as wrong:
         raise look.Refused(_one_line(wrong), nexts=(_ours(call.prog, "doctor"),)) from None
     target = _target(call, settings)
+    try:
+        # the target's module is imported now, and with it any fault of the user's own
+        check_registered(settings.vary.tools)
+    except ChangeError as wrong:
+        raise look.Refused(_one_line(wrong), nexts=(_ours(call.prog, "doctor"),)) from None
     word = settings.target.entry.rsplit(":", 1)[-1].split(".")[-1]
     rows: list[look.Row | look.Line | look.Table] = [
         look.Row("target", f"{settings.target.entry} ({settings.target.kind})"),
         look.Row("tools", _tools_text(settings)),
         look.Row("may change", _may_change(settings)),
         look.Row("strategy", settings.search.strategy),
-        look.Row("stages", f"control {look.fmt_count(plan.control_runs)} runs, search and "
+        look.Row("stages", f"control {_n(plan.control_runs, 'run')}, search and "
                            f"shrink up to {look.fmt_count(plan.search_runs)}"),
         look.Row("cap", _cap(settings)),
     ]
     sentence = f"a hunt of {word} on {_n(len(cases), 'case')}, at most {_n(plan.runs, 'run')}"
-    estimate, source = _hunt_estimate(settings, plan)
+    estimate, source = _hunt_estimate(settings, plan.runs)
     data: dict[str, Any] = {"dollars": None, "target": settings.target.entry,
                             "kind": settings.target.kind, "cases": len(cases), "runs": plan.runs,
                             "control_runs": plan.control_runs, "search_runs": plan.search_runs}
@@ -780,16 +815,21 @@ def _hunt(call: _Call) -> int:
                  target=target)
     if resumed:
         left = max(plan.runs - hunt.budget().runs_spent, 0)
-        rows.append(look.Row("left", f"{look.fmt_count(left)} runs of "
-                                     f"{look.fmt_count(plan.runs)}"))
+        rows.append(look.Row("left", f"{_n(left, 'run')} of {look.fmt_count(plan.runs)}"))
         data["runs"] = left
-        if _priced(settings) and _control_complete(hunt):
+        measured = (_control_summary(call, settings, hunt, "hunt")
+                    if _control_complete(hunt) else None)
+        if _priced(settings):
             # its control has run, so what is left is priced at what one control run cost, as
             # confirm prices a stage
-            summary = _control_summary(call, settings, hunt, "hunt")
-            if summary.dollars_per_run is not None:
-                estimate, source = _spend_estimate(settings, summary, left)
-                data["dollars"] = _spend_dollars(settings, summary, left)
+            if measured is not None and measured.dollars_per_run is not None:
+                estimate, source = _spend_estimate(settings, measured, left)
+                data["dollars"] = _spend_dollars(settings, measured, left)
+        elif measured is not None and measured.seconds_per_run is not None:
+            # no prices: the runs left, timed at what one control run took
+            estimate, source = _spend_estimate(settings, measured, left)
+        else:
+            estimate, source = _hunt_estimate(settings, left)
     data = {"dollars": data.pop("dollars"), "hunt": hunt.name, **data}
     try:
         if not _start(call, look.Plan(sentence, estimate=estimate, source=source,
@@ -836,23 +876,23 @@ def _hunt(call: _Call) -> int:
 
 def _may_change(settings: Settings) -> str:
     vary = settings.vary
-    parts = [f"tool behaviour ({look.fmt_count(len(vary.tools))} faults)",
-             f"inputs ({look.fmt_count(len(vary.inputs))} operators)"]
+    parts = [f"tool behaviour ({_n(len(vary.tools), 'fault')})",
+             f"inputs ({_n(len(vary.inputs), 'operator')})"]
     if vary.conversation:
-        parts.append(f"the conversation ({look.fmt_count(len(vary.conversation))} moves)")
+        parts.append(f"the conversation ({_n(len(vary.conversation), 'move')})")
     if vary.model:
-        parts.append(f"model calls ({look.fmt_count(len(vary.model))} faults)")
+        parts.append(f"model calls ({_n(len(vary.model), 'fault')})")
     if vary.env:
         parts.append(f"settings of your own ({look.fmt_count(len(vary.env))})")
     return ", ".join(parts)
 
 
-def _hunt_estimate(settings: Settings, plan: Any) -> tuple[str, str]:
+def _hunt_estimate(settings: Settings, runs: int) -> tuple[str, str]:
     if _priced(settings):
         return (f"not known until the control stage has run; the cap is "
                 f"{look.fmt_dollars(settings.limits.dollars or 0.0)}",
                 "the control stage's measured cost a run, once it has run")
-    return (f"at most {look.fmt_count(plan.runs)} runs and {settings.limits.hours:g} hours, "
+    return (f"at most {_n(runs, 'run')} and {_hours(settings.limits.hours)}, "
             "with no prices to put in dollars", "the settings' limits")
 
 
@@ -969,12 +1009,12 @@ def _coverage_line(settings: Settings, cover: Any) -> look.Line:
         bits.append("tools never called: " + ", ".join(cover.never_called))
     if cover.past_limit:
         bits.append(f"call numbers past {settings.vary.max_call}: "
-                    + ", ".join(f"{tool} ({look.fmt_count(count)} calls)"
+                    + ", ".join(f"{tool} ({_n(count, 'call')})"
                                 for tool, count in cover.past_limit.items()))
     if cover.set_aside:
         bits.append("cases set aside: " + ", ".join(cover.set_aside))
-    bits.append(f"{look.fmt_count(cover.singles_untried)} single changes and "
-                f"{look.fmt_count(cover.pairs_untried)} pairs of them untried")
+    bits.append(f"{_n(cover.singles_untried, 'single change')} and "
+                f"{_n(cover.pairs_untried, 'pair')} of them untried")
     return look.Line("not looked at: " + "; ".join(bits))
 
 
@@ -986,7 +1026,7 @@ def _hunt_result(call: _Call, settings: Settings, hunt: Any, summary: Any, stage
     spent = hunt.budget()
     money = (f" ({look.fmt_dollars(spent.dollars_spent)})"
              if _priced(settings) and spent.dollars_spent is not None else "")
-    control_text = (f"{look.fmt_count(summary.runs)} runs · {look.fmt_count(summary.failed)} "
+    control_text = (f"{_n(summary.runs, 'run')} · {look.fmt_count(summary.failed)} "
                     f"failed ({_rate(summary.rate)})")
     if summary.dollars_per_run is not None and _priced(settings):
         control_text += f" · {look.fmt_dollars(summary.dollars_per_run)} a run"
@@ -996,9 +1036,9 @@ def _hunt_result(call: _Call, settings: Settings, hunt: Any, summary: Any, stage
         control_text += (f" · {look.fmt_count(count)} {fails} every time, set aside: "
                          f"{', '.join(summary.set_aside)}")
     conditions = {row.condition for row in search_rows if row.condition.changes}
-    search_text = (f"{look.fmt_count(len(search_rows))} runs · "
-                   f"{look.fmt_count(len(conditions))} conditions tried on "
-                   f"{look.fmt_count(settings.search.cases_per_condition)} cases each")
+    search_text = (f"{_n(len(search_rows), 'run')} · "
+                   f"{_n(len(conditions), 'condition')} tried on "
+                   f"{_n(settings.search.cases_per_condition, 'case')} each")
     cover = coverage(stage.seen)
     cover_line = _coverage_line(settings, cover)
     detail: list[look.Row | look.Line | look.Table] = []
@@ -1129,11 +1169,11 @@ def _confirm(call: _Call) -> int:
         arms = len(latest.arms) - 1
         sentence = (f"go on with confirm stage {latest.number} of {hunt.name}: "
                     f"{_n(arms, 'candidate')} against a control")
-        rows += [look.Row("design", f"{look.fmt_count(len(latest.cases))} cases × "
-                                    f"{look.fmt_count(latest.repeats)} repeats, "
+        rows += [look.Row("design", f"{_n(len(latest.cases), 'case')} × "
+                                    f"{_n(latest.repeats, 'repeat')}, "
                                     "once with no change and once under each candidate, as "
                                     "written"),
-                 look.Row("left", f"{look.fmt_count(left)} runs")]
+                 look.Row("left", _n(left, "run"))]
         runs = left
         number = latest.number
         data.update(candidates=arms, stage=number, repeats=latest.repeats, runs=left)
@@ -1145,11 +1185,11 @@ def _confirm(call: _Call) -> int:
             cases=max(cases, 1), candidates=len(small))
         sentence = (f"ask again about {_n(len(small), 'candidate')} too small to tell, "
                     f"{_n(args.repeats, 'time')} each")
-        rows += [look.Row("design", f"{look.fmt_count(cases)} cases × "
-                                    f"{look.fmt_count(args.repeats)} repeats, once with no change "
+        rows += [look.Row("design", f"{_n(cases, 'case')} × "
+                                    f"{_n(args.repeats, 'repeat')}, once with no change "
                                     f"and once under each candidate · "
-                                    f"{look.fmt_count(again.confirm_runs)} runs"),
-                 look.Row("reference", f"up to {look.fmt_count(again.reference_runs)} more runs, "
+                                    f"{_n(again.confirm_runs, 'run')}"),
+                 look.Row("reference", f"up to {_more(again.reference_runs)}, "
                                        f"{look.fmt_count(again.reference_per_finding)} for each "
                                        "candidate that is confirmed")]
         runs = again.runs
@@ -1158,12 +1198,12 @@ def _confirm(call: _Call) -> int:
                     asked_again=[one.condition for one in small], runs=again.runs)
     else:
         sentence = f"confirm {_n(len(candidates), 'candidate')} against a control"
-        rows += [look.Row("design", f"{look.fmt_count(len(planned.cases))} cases × "
-                                    f"{look.fmt_count(planned.repeats)} repeats, once with no "
+        rows += [look.Row("design", f"{_n(len(planned.cases), 'case')} × "
+                                    f"{_n(planned.repeats, 'repeat')}, once with no "
                                     "change and once under each candidate · "
-                                    f"{look.fmt_count(planned.confirm_runs)} runs"),
-                 look.Row("reference", f"up to {look.fmt_count(planned.reference_runs)} more "
-                                       f"runs, {look.fmt_count(planned.reference_per_finding)} "
+                                    f"{_n(planned.confirm_runs, 'run')}"),
+                 look.Row("reference", f"up to {_more(planned.reference_runs)}, "
+                                       f"{look.fmt_count(planned.reference_per_finding)} "
                                        "for each candidate that is confirmed")]
         runs = planned.runs
         # a finished stage asked again is judged again, its references finished
@@ -1206,13 +1246,18 @@ def _spend_estimate(settings: Settings, summary: Any, runs: int) -> tuple[str, s
     """A stage's estimate from what the control stage measured a run to cost."""
     if _priced(settings) and summary.dollars_per_run is not None:
         return (f"about {look.fmt_dollars(runs * summary.dollars_per_run)} for "
-                f"{look.fmt_count(runs)} runs",
+                f"{_n(runs, 'run')}",
                 f"the control stage's {look.fmt_dollars(summary.dollars_per_run)} a run")
     if summary.seconds_per_run is not None:
-        return (f"{look.fmt_count(runs)} runs, about "
+        return (f"{_n(runs, 'run')}, about "
                 f"{look.fmt_duration(runs * summary.seconds_per_run)}; no prices, so no dollars",
                 f"the control stage's {look.fmt_duration(summary.seconds_per_run)} a run")
-    return f"{look.fmt_count(runs)} runs", "the plan's counts"
+    return _n(runs, "run"), "the plan's counts"
+
+
+def _more(runs: int) -> str:
+    """A count of further runs, the noun singular for one."""
+    return f"{look.fmt_count(runs)} more {'run' if runs == 1 else 'runs'}"
 
 
 def _confirm_result(call: _Call, settings: Settings, hunt: Any, done: Any) -> look.Result:
@@ -1224,7 +1269,7 @@ def _confirm_result(call: _Call, settings: Settings, hunt: Any, done: Any) -> lo
             control_rate = one.control_rate
         verdict = one.verdict + (f", {one.note}" if one.note else "")
         if one.verdict == "too small to tell" and one.repeats_needed is not None:
-            numbers = f"{look.fmt_count(one.repeats_needed)} repeats would decide"
+            numbers = f"{_n(one.repeats_needed, 'repeat')} would decide"
         elif one.rate is None or one.difference is None:
             numbers = "no numbers"
         else:
@@ -1248,7 +1293,7 @@ def _confirm_result(call: _Call, settings: Settings, hunt: Any, done: Any) -> lo
         paths += [f"{finding.number}.toml" for finding in done.findings[1:]]
         detail.append(look.Row("wrote", ", ".join(paths)))
         reference_runs = len(done.findings) * done.design.reference_per_finding
-        detail.append(look.Row("reference", f"{look.fmt_count(reference_runs)} runs"))
+        detail.append(look.Row("reference", _n(reference_runs, "run")))
     shown = "" if control_rate is None else f" ({look.fmt_rate(control_rate)})"
     verdict = "confirmed" if done.findings else "nothing confirmed"
     nexts = ((_ours(call.prog, "findings", str(done.findings[0].number)),)
@@ -1392,8 +1437,8 @@ def _one_finding(call: _Call, hunt: Any, finding: Any) -> look.Result:
         look.Row("judged by", finding.judged_by),
         look.Row("flagged", ", ".join(finding.flagged) or "none"),
         look.Row("left out", _counts_text(finding.left_out)),
-        look.Row("cases", f"{look.fmt_count(len(finding.cases))} cases × "
-                          f"{look.fmt_count(finding.repeats)} repeats, in confirm stage "
+        look.Row("cases", f"{_n(len(finding.cases), 'case')} × "
+                          f"{_n(finding.repeats, 'repeat')}, in confirm stage "
                           f"{look.fmt_count(finding.stage)}"),
         look.Row("arms", f"{finding.arm} against {finding.control_arm}"),
         look.Row("reference", finding.reference),
@@ -1526,7 +1571,7 @@ def _recheck(call: _Call) -> int:
     if pending is not None:
         number, left, with_old = pending
         sentence = f"go on with recheck {look.fmt_count(number)} of {hunt.name}, as it was begun"
-        rows.append(look.Row("left", f"{look.fmt_count(left)} runs"))
+        rows.append(look.Row("left", _n(left, "run")))
         runs = left
         data.update(recheck=number, runs=left)
     else:
@@ -1539,7 +1584,7 @@ def _recheck(call: _Call) -> int:
     summary = _control_summary(call, settings, hunt, "recheck") if _control_complete(hunt) \
         else None
     estimate, source = (_spend_estimate(settings, summary, runs) if summary is not None
-                        else (f"{look.fmt_count(runs)} runs", "the plan's counts"))
+                        else (_n(runs, "run"), "the plan's counts"))
     data["dollars"] = _spend_dollars(settings, summary, runs)
     if not _start(call, look.Plan(sentence, estimate=estimate, source=source, detail=tuple(rows),
                                   schema=_plan_schema("recheck"), data=data)):
@@ -1571,7 +1616,7 @@ def _recheck(call: _Call) -> int:
     for one in done:
         numbers = f"{look.fmt_rate(one.rate_before)} before · {look.fmt_rate(one.rate_now)} now"
         if one.phrase == "too small to tell" and one.repeats_needed is not None:
-            numbers += f" · {look.fmt_count(one.repeats_needed)} repeats would decide"
+            numbers += f" · {_n(one.repeats_needed, 'repeat')} would decide"
         table.append((str(one.finding), one.condition, one.phrase, numbers))
         listed.append({"number": one.finding, "condition": one.condition, "phrase": one.phrase,
                        "rate_before": one.rate_before, "rate_now": one.rate_now,
@@ -1634,6 +1679,7 @@ def _doctor(call: _Call) -> int:
         return problem(refused.sentence, again)
     try:
         load_strategy(settings.search.strategy)
+        check_registered(settings.vary.tools)
         capabilities = target.capabilities()
         for move in settings.vary.conversation:
             check_capabilities(parse(f"user:{move}@1"), capabilities)
@@ -1697,15 +1743,37 @@ def _loads_check(entry: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+LABELS_FILE = "labels.toml"
+
+
+def _labels() -> list[dict[str, str]]:
+    """The labels table the package carries, read where it is installed: one row a label, in
+    the table's order."""
+    import tomllib
+
+    with (Path(__file__).resolve().parent / LABELS_FILE).open("rb") as held:
+        rows = tomllib.load(held).get("label", [])
+    return [dict(row) for row in rows]
+
+
 def _catalog(call: _Call) -> int:
     rows = []
-    listed = []
+    listed: list[dict[str, Any]] = []
+    with_labels = bool(call.args.labels)
+    table = _labels() if with_labels else []
     for entry in CATALOG:
         what = entry.description + (" (needs an adapter: a way in that can make it)"
                                     if entry.needs_adapter else "")
-        rows.append(look.Row(f"{entry.surface}:{entry.name}", what))
+        change = f"{entry.surface}:{entry.name}"
+        mine = [row for row in table if row.get("change") == change]
+        if mine:
+            what += " [" + ", ".join(row["id"] for row in mine) + "]"
+        rows.append(look.Row(change, what))
         listed.append({"surface": entry.surface, "name": entry.name,
                        "description": entry.description, "needs_adapter": entry.needs_adapter})
+        if with_labels:
+            listed[-1]["labels"] = [{key: value for key, value in row.items() if key != "change"}
+                                    for row in mine]
     look.show(look.Result("ok", f"{_n(len(rows), 'change')} Break knows",
                           detail=tuple(rows), schema=_schema("catalog"),
                           data={"changes": listed}))
@@ -1725,7 +1793,7 @@ class _Dialogue:
     """``init``'s questions, asked through the look, or answered by their flags and defaults.
 
     Each question is skipped when its flag was given. Under ``--yes`` each takes its own
-    default, the yes/no ones as no, and nothing is asked; a question that cannot be asked
+    default and nothing is asked; a question that cannot be asked
     otherwise (no terminal) is the look's refusal. The answers are gathered as the words of the
     one ``init`` command that writes the same file, and the settings module reads them."""
 
@@ -1979,7 +2047,61 @@ def look_can_ask() -> bool:
         return False
 
 
+def _examples_root() -> Path:
+    """Where the examples are: in the package as the wheel carries them, or, in a checkout
+    installed for development, the repository's own folder."""
+    packaged = Path(__file__).resolve().parent / "examples"
+    return packaged if packaged.is_dir() else Path(__file__).resolve().parents[2] / "examples"
+
+
+def _example_names() -> list[str]:
+    root = _examples_root()
+    if not root.is_dir():
+        return []
+    return sorted(folder.name for folder in root.iterdir()
+                  if folder.is_dir() and (folder / SETTINGS_FILE).is_file())
+
+
+def _init_example(call: _Call, name: str) -> int:
+    """Write an example's files into the folder, every one or none: an unknown name, another
+    answer given beside it, and a file already here without ``--force`` are each refused before
+    anything is written."""
+    given = [flag for flag in INIT_FLAGS if getattr(call.args, _dest(flag), None) is not None]
+    if given:
+        raise look.Usage(f"--example writes the example's own settings and takes no {given[0]}",
+                         nexts=(_ours(call.prog, "init", "--example", name),))
+    names = _example_names()
+    if name not in names:
+        raise look.Refused(f'there is no example named "{name}": the examples are '
+                           + ", ".join(names),
+                           nexts=tuple(_ours(call.prog, "init", "--example", one)
+                                       for one in names[:1]))
+    source = _examples_root() / name
+    files = sorted(path.relative_to(source) for path in source.rglob("*")
+                   if path.is_file() and "__pycache__" not in path.parts
+                   and path.suffix != ".pyc")
+    taken = [path for path in files if path.exists()]
+    if taken and not call.args.force:
+        raise look.Refused(f"{taken[0].as_posix()} is already here",
+                           nexts=(_ours(call.prog, *call.own_words, "--force"),))
+    for path in files:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes((source / path).read_bytes())
+    settings = load(Path(SETTINGS_FILE))
+    look.note(REAL)
+    data = {"file": SETTINGS_FILE, "kind": settings.target.kind, "entry": settings.target.entry,
+            "cases_file": settings.target.cases,
+            "tools": [{"name": tool.name, "class": tool.tool_class} for tool in settings.tools],
+            "install": None}
+    look.show(look.Result("wrote", f"the example {name}: "
+                                   + ", ".join(path.as_posix() for path in files),
+                          nexts=(_ours(call.prog, "hunt"),), schema=_schema("init"), data=data))
+    return EXIT_DONE
+
+
 def _init(call: _Call) -> int:
+    if call.args.example is not None:
+        return _init_example(call, str(call.args.example))
     path = Path(SETTINGS_FILE)
     if path.exists() and not call.args.force:
         raise look.Refused(f"{SETTINGS_FILE} is already here",

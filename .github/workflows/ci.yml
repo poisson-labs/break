@@ -1,7 +1,9 @@
 # On every pull request and every push to main: the test suite on Python 3.11, 3.12 and 3.13, in
 # two parts run side by side on each (the commands' tests, and ruff, mypy and every other test),
 # then a clean install of the wheel built from the tree into a fresh environment outside the
-# checkout, where the command is run (scripts/clean_install.py).
+# checkout, where the command is run, and with it every command the README, the docs and the
+# examples' page show, each page's program and each export recipe's conversion
+# (scripts/clean_install.py).
 #
 # The suite itself runs under a guard that fails any connection the code under test makes
 # (tests/conftest.py), and carries the check that no statistic is computed locally
@@ -98,9 +100,10 @@ jobs:
           python -m hatchling build -t wheel -d dist
       # A fresh environment in the runner's temporary folder, outside the checkout: the wheel
       # installed with pip, its dependencies from PyPI and Trace from its repository at the
-      # pinned commit, and the command run from an empty folder with its own HOME. The script
-      # keeps the token from everything it runs but the install.
-      - name: Install the wheel in a fresh environment and run the command
+      # pinned commit, and the command run from an empty folder with its own HOME. Then each
+      # page's marked commands, in a folder of the page's own. The script keeps the token from
+      # everything it runs but an install of the wheel.
+      - name: Install the wheel in a fresh environment, run the command and every command the pages show
         env:
           GIT_CONFIG_COUNT: "1"
           GIT_CONFIG_KEY_0: url.https://x-access-token:${{ secrets.TRACE_READ_TOKEN }}@github.com/poisson-labs/trace.insteadOf

@@ -125,6 +125,8 @@ _EXPECTATIONS = ("reply_contains", "calls", "never_calls")
 _FAULTS = ("error", "timeout", "slow", "rate_limited", "empty", "cut_off", "malformed", "stale",
            "lost_reply", "planted_instruction")
 _OPERATORS = ("typos", "reordered", "padded", "cut_short", "variant")
+#: What a tool fault's name is made of, as the catalogue registers one.
+_FAULT_NAME = re.compile(r"[A-Za-z0-9_]+")
 
 _CASES = "cases.jsonl"
 _MAX_CALL = 3
@@ -1103,7 +1105,8 @@ class _Check:
                                   "touches: class it read or write, or take the stand-in out")
         if tool_class == "write" and not repeatable and stand_in is None:
             raise self.refuse(path, "is a write tool, and its line does not say how it is "
-                                    'made safe: { class = "write", repeatable = true } where '
+                                    "made safe to repeat: "
+                                    '{ class = "write", repeatable = true } where '
                                     "the test environment absorbs repeats, or a stand_in to "
                                     "call in its place")
         return ToolLine(name=name, tool_class=tool_class, repeatable=repeatable,
@@ -1134,13 +1137,25 @@ class _Check:
                                             "import path written module:name")
         return value
 
+    def fault_names(self) -> tuple[str, ...]:
+        """``[vary] tools``: each entry a word that could name a tool fault. A name the catalogue
+        does not hold is taken, since a fault of the user's own is registered by a module that
+        reading does not import; it is asked about once the target is loaded."""
+        names = self.words("vary", "tools", _FAULTS, "a tool fault")
+        for word in names:
+            if not _FAULT_NAME.fullmatch(word):
+                raise self.refuse(("vary", "tools"),
+                                  f"names {_shown(word)}, which could be no tool fault: a "
+                                  "fault's name is a word of letters, digits and underscores")
+        return names
+
     def catalogue(self, surface: str) -> tuple[str, ...]:
         """The names the catalogue holds for a surface, as it stands now."""
         return tuple(line.name for line in CATALOG if line.surface == surface)
 
     def vary(self) -> VaryTable:
         return VaryTable(
-            tools=self.words("vary", "tools", _FAULTS, "a tool fault", self.catalogue("tool")),
+            tools=self.fault_names(),
             inputs=self.words("vary", "inputs", _OPERATORS, "an input operator",
                               self.catalogue("input")),
             conversation=self.words("vary", "conversation", (), "a conversation move",

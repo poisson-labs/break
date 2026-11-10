@@ -251,7 +251,7 @@ def test_each_kind_the_spec_offers_is_taken(kind: str) -> None:
 
 # (the key, a name from another list or misspelt, the right list).
 NOT_IN_CATALOGUE = [
-    ("vary", "tools", "Error"), ("vary", "tools", "erorr"), ("vary", "tools", "typos"), ("vary", "tools", "repeats"), ("vary", "tools", ""),
+    ("vary", "tools", ""),
     ("vary", "inputs", "typo"), ("vary", "inputs", "error"), ("vary", "inputs", "presses"),
     ("vary", "conversation", "repeat"), ("vary", "conversation", "typos"), ("vary", "conversation", "error"),
     ("vary", "model", "errors"), ("vary", "model", "slow"), ("vary", "model", "stale"), ("vary", "model", "typos"),
@@ -264,7 +264,7 @@ def test_a_name_not_in_its_own_list_is_refused(table: str, key: str, word: str) 
     refused_at(doc(kind="langgraph", **{table: f'{key} = ["{word}"]'}), f"{table}.{key}", f"{key} =")
 
 
-@pytest.mark.parametrize("key, word", [("tools", "stale"), ("inputs", "variant")])
+@pytest.mark.parametrize("key, word", [("inputs", "variant")])
 def test_one_bad_name_after_good_ones_is_refused(key: str, word: str) -> None:
     refused_at(doc(vary=f'{key} = ["{word}", "nothing_like_it"]'), f"vary.{key}", f"{key} =")
 
@@ -318,12 +318,14 @@ print(json.dumps(before))
 """
 
 
-def test_a_fault_added_from_outside_is_taken_once_it_is_registered_and_refused_before() -> None:
+def test_a_fault_added_from_outside_is_taken_before_and_after_it_is_registered() -> None:
     """Spec §11.1: the catalogue is live. A list of the ten written into the module would turn away every fault
-    added later, which is a core change for a thing that must need none."""
+    added later, which is a core change for a thing that must need none. Ruled 2026-11-09 (11A-22): reading takes
+    the name before the fault is registered too, since reading imports no module that could register it; a name
+    still unknown once the target is loaded is refused there (`tests/test_release_own_fault.py`)."""
     ran = run_python(REGISTER)
     assert ran.exit == 0, ran.stderr
-    assert ran.stdout.strip() == '"refused"'
+    assert ran.stdout.strip() == '"taken"'
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,34 @@
+# The help desk example. `poisson-break init --example desk` wrote this file, the agent
+# (desk_agent.py) and its cases (cases.jsonl). Edit it freely; `poisson-break doctor` checks it.
+version = 1
+
+[target]
+kind = "rollout"
+entry = "desk_agent:desk"
+cases = "cases.jsonl"
+
+[tools]
+lookup_order = "read"
+check_policy = "read"
+
+[fails]
+outcomes = ["unresolved"]           # the outcome the desk reports when it gives up
+
+[vary]
+tools = ["error", "timeout", "rate_limited", "empty"]
+inputs = ["typos", "padded"]
+max_call = 1
+
+[search]
+strategy = "screen"
+runs = 120
+control_repeats = 2
+cases_per_condition = 3
+seed = 7
+
+[confirm]
+candidates = 3
+repeats = 3
+
+[output]
+folder = "break-runs"

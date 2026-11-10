@@ -1,14 +1,48 @@
 # Changelog
 
-## Unreleased
+## 0.1.0 (2026-11-09)
 
-The first ten modules of Poisson Break: the repository, the package and its command, the
-record every stored run carries, the four extension points, the catalogue of what Break varies
-with the ten launch faults, the applier that puts a condition on one run's tool calls, the
-failure check that decides whether a run failed, the settings file with the plan shown before
-spending, the look everything Break prints goes through, the runs themselves, stored on Prove,
-the search a hunt runs after its control, the confirm stage with its findings, replay and
-recheck, and the eight commands that run all of it.
+The first release, an alpha. Break runs an agent many times while changing how its tools behave
+and what the user asks, keeps the conditions that fail more than a control, confirms them on
+fresh runs with Poisson Trace's test, and checks a fix against them later. This version has one
+way in, `rollout` (an agent Break calls as a Python function), ten tool faults, five input
+operators, two search strategies that do not learn, and eight commands.
+
+What a first user gets:
+
+- `pip install poisson-break`, then `poisson-break init --example desk`, `hunt --yes` and
+  `confirm --yes` end with three findings on a help desk agent, with no key and no network.
+- Five examples, each written into a folder by `init --example NAME` and each run offline
+  against a scripted model: `desk`, `full-loop` (hunt, confirm, a fix, recheck), `stand-in` (a
+  write tool that is never really called), `own-check` (a failure rule of your own) and
+  `own-fault` (a fault of your own). They ride in the wheel.
+- The docs: the catalogue, reading a finding, checking a fix, the rollout way in, recipes for
+  making cases from LangSmith, Langfuse and Phoenix exports, what Break does not claim, and one
+  page for each of the four extension points, and a reference for the commands, the settings
+  file, the stored runs and the library. Every command the README and the docs show is
+  run in CI from the installed wheel, and every program they show is run there too.
+- `catalog --labels` shows, beside a change, the labels it carries from the OWASP Top 10 for
+  LLM Applications 2025 and NIST AI 100-2 E2025, where the table has a row for it. Each row
+  quotes the published text it rests on.
+
+Changed since the last development build:
+
+- The installed `poisson-break` puts the folder it runs in first on the import path, as
+  `python -m poisson_break` does, so an agent, a stand-in, a check or a strategy in a module
+  beside `break.toml` loads under both.
+- A tool fault of your own can be named in `[vary] tools`. Reading `break.toml` takes a name
+  the catalogue does not hold; `doctor`, `hunt` and `open_hunt` refuse one that is still
+  unknown once the agent's module is loaded, before any run, naming it
+  (`changes.check_registered`, `changes.UnknownFault`).
+- Every detail row and estimate line says one in the singular ("1 run left", "1 case × 3
+  repeats"), as the verdict sentences already did.
+- A hunt taken up with no prices set estimates over the runs it has left, and once its control
+  has run, from the control's seconds a run.
+- The package's version is 0.1.0, its status Alpha. An sdist is built beside the wheel and
+  holds only the source, the tests, the docs, the examples, the scripts and the project's own
+  files.
+
+Everything in the release, module by module:
 
 - The commands: `init`, `doctor`, `hunt`, `confirm`, `findings`, `replay`, `recheck` and
   `catalog`, each with its own `--help`. The command computes nothing: every number it prints
@@ -19,8 +53,10 @@ recheck, and the eight commands that run all of it.
   shows its plan and asks `start?` first; `--yes` answers, `--dry-run` runs nothing and writes
   nothing, and no terminal without `--yes` is the plan and a refusal in one line. After every
   plan, and in `init`'s and `doctor`'s output, the note that Break calls your tools for real.
-- `init` asks at most nine questions, each with a default and a flag, skipped when its flag is
-  given; `--yes` takes every default, the yes/no ones as no. The kind is a menu of the six, the
+- `init` asks at most nine questions, each with a flag and all but the agent's place with a
+  default, skipped when its flag is given; `--yes` takes every question's own default (tool
+  behaviour and inputs yes, the conversation yes when a case has turns, the rest no) and needs
+  `--entry`. The kind is a menu of the six, the
   tools of a `rollout` target are the ones its module wraps while it is imported (never run),
   a `write` tool is asked whether it is safe to repeat or has a stand-in, the conversation is
   asked only when a case has turns and a yes writes every conversation move, a yes to model
@@ -116,7 +152,7 @@ recheck, and the eight commands that run all of it.
   failure kinds and signals counted over its arm, whether a failed run was judged by your own
   check, what Trace flagged and left out, its cases, repeats, stage and arms, its reference
   arm, the command that replays it and the Trace command for its full report.
-- Each finding gets a reference arm, `reference-<n>`: the unchanged agent under the finding's
+- Each finding gets a reference arm, `reference-<n>`: the same agent under the finding's
   condition, every case of its stage again, on fresh seeds, run at the end of `confirm` with
   the finding's file written first. `reference(hunt)` runs what is missing of them.
 - `replay(hunt, finding)` runs one finding once and stores nothing: on the first of its cases
@@ -313,7 +349,7 @@ recheck, and the eight commands that run all of it.
   nearest known key within two edits. So is a value that means nothing: a kind, fault, operator,
   move, check or signal that is not one, read from the live catalogue so a fault registered from
   outside is taken; a count below 1 or not a whole number; a share outside 0 to 1; a `write`
-  tool whose line does not say how it is made safe; a stand-in, a check of your own or a strategy
+  tool whose line does not say how it is made safe to repeat; a stand-in, a check of your own or a strategy
   not written `module:name`; a cap in dollars without both prices, or one price alone; `hours =
   inf` with no cap; a file with no `version` or one from a newer Break. Every refusal is a
   `SettingsError`, one line, with `.key`, `.line` and `.suggestion`. Two prices with no cap read
