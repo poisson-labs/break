@@ -266,11 +266,33 @@ def test_a_finished_stage_asked_again_runs_nothing_and_says_the_same(tmp_path: P
 
 
 def test_on_progress_counts_the_stage_s_runs(tmp_path: Path, trace: Path) -> None:
+    """`on_progress(done, total)` is called once after each run the stage makes, in order: the first call says one
+    run done and the last says all of them, with no number missed and none twice, and each call comes before the
+    next run starts. `total` is the stage's planned runs in every call: two arms of two cases at two repeats, eight
+    runs, the design's `confirm_runs`. Nothing is confirmed here, so there is no reference arm."""
     h = ready(tmp_path / "hunts", SMALL)
-    seen: list[tuple[int, int]] = []
-    confirm_module().confirm(h, on_progress=lambda done, total: seen.append((done, total)))
-    assert seen and seen[-1][0] == seen[-1][1]
-    assert all(b >= a for (a, _), (b, _) in zip(seen, seen[1:], strict=False))
+    before = h.target.runs
+    seen: list[tuple[int, int, int]] = []
+    done = confirm_module().confirm(
+        h, on_progress=lambda made, total: seen.append((made, total, h.target.runs - before)))
+    assert done.findings == () and done.design.confirm_runs == 8
+    assert h.target.runs - before == 8
+    assert seen == [(n, 8, n) for n in range(1, 9)]
+
+
+def test_on_progress_goes_on_through_the_reference_arm_and_the_total_grows_by_it(tmp_path: Path,
+                                                                                 trace: Path) -> None:
+    """A stage that confirms a finding: four arms of six cases at five repeats, 120 runs, each told in order against
+    a total of 120; then the finding's reference arm, 30 runs more, each told in order against 150, the count going
+    on from 121 (the total grows by the reference arms once the findings are known, as `confirm` documents)."""
+    h = ready(tmp_path / "hunts", PLANTED)
+    before = h.target.runs
+    seen: list[tuple[int, int, int]] = []
+    done = confirm_module().confirm(
+        h, on_progress=lambda made, total: seen.append((made, total, h.target.runs - before)))
+    assert len(done.findings) == 1
+    assert (done.design.confirm_runs, done.design.reference_per_finding) == (120, 30)
+    assert seen == [(n, 120, n) for n in range(1, 121)] + [(n, 150, n) for n in range(121, 151)]
 
 
 # ---------------------------------------------------------------------------
