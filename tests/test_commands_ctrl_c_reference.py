@@ -30,6 +30,7 @@ from tests.commands_support import (
     on,
     prepared,
     project,
+    stored,
 )
 from tests.look_support import Ran
 
@@ -51,23 +52,49 @@ def interrupted_json(proj: Project, words: list[str], after_runs: int) -> dict[s
     return json_document(Ran(process.returncode, out.decode(), err.decode()))
 
 
+def interrupted_in_run(proj: Project, words: list[str], run: int, tmp_path: Path) -> dict[str, Any]:
+    """The command on pipes under `--json`, sent Ctrl-C while the run that is line `run` of the runs log is held where
+    it starts. That run says it has begun by writing a file, and waits; nothing here is timed. The command is waited
+    on to end by itself, so a file that never comes is a command that ended, which fails."""
+    marker = tmp_path / "held"
+    process = subprocess.Popen([sys.executable, "-m", "poisson_break", *words], cwd=proj.folder,
+                               env=child_env(proj, BREAK_TEST_HOLD_AT=str(run), BREAK_TEST_HOLD_FILE=str(marker)),
+                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               start_new_session=True,
+                               preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_DFL))  # noqa: PLW1509
+    while not marker.exists():
+        assert process.poll() is None, ("the command ended before the run was held", process.communicate())
+        time.sleep(0.01)
+    assert len(proj.runs()) == run, "the held run is the last one started"
+    os.killpg(process.pid, signal.SIGINT)
+    out, err = process.communicate(timeout=120)
+    assert process.returncode == CODES["interrupted"], (process.returncode, out, err)
+    assert len(proj.runs()) == run, "no run started after the one interrupted"
+    return json_document(Ran(process.returncode, out.decode(), err.decode()))
+
+
 def test_ctrl_c_during_a_reference_arm_keeps_it_among_the_stage_s_own(tmp_path: Path) -> None:
     """Three cases at four repeats: the stage's control arm and its candidate's arm are twelve runs each, the
-    candidate is confirmed and finding 1 written, and Ctrl-C comes during the second run of its reference arm."""
-    proj = project(tmp_path, cases(3, weak_to=["error"], nap=0.25), confirm={"repeats": 4},
-                   search={"control_repeats": 1})
+    candidate is confirmed and finding 1 written, and its reference arm is twelve more. Ctrl-C comes once the
+    reference arm's second run has begun, which the run itself says: the command's 26th run is held where it starts.
+    So the reference arm holds its first run and no other, and `kept` is the stage's two arms and that one row: 25."""
+    proj = project(tmp_path, cases(3, weak_to=["error"]), confirm={"repeats": 4}, search={"control_repeats": 1})
     prepared(proj, (on("error"),))
-    made = len(proj.runs())
-    document = interrupted_json(proj, ["confirm", "--yes", "--json"], after_runs=made + 12 * 2 + 2)
+    assert proj.runs() == [], "the hunt was prepared in this process: the log counts the command's runs alone"
+    document = interrupted_in_run(proj, ["confirm", "--yes", "--json"], 12 + 12 + 2, tmp_path)
     assert document["schema"] == "poisson_break.confirm-result/1" and document["verdict"] == "stopped"
     assert (document["hunt"], document["reason"], document["unclassed"]) == ("desk-1", "interrupted", [])
     counts = hunts.stored_counts(proj)
     assert [finding.number for finding in findings_of(proj, "desk-1")] == [1]
-    assert (counts["confirm-control"], counts["confirm-1"]) == (12, 12), counts
-    assert 1 <= counts["reference-1"] < 12, counts
-    assert document["kept"] == 12 + 12 + counts["reference-1"]
+    assert (counts["confirm-control"], counts["confirm-1"], counts["reference-1"]) == (12, 12, 1), counts
+    assert document["kept"] == 25
     assert document["arm"] == "desk-1-reference-1"
-    assert holds_number(document["sentence"], str(document["kept"])), document["sentence"]
+    assert holds_number(document["sentence"], "25"), document["sentence"]
+    held = proj.runs()
+    reference = stored(proj, "desk-1", "reference-1")
+    assert [int(row["seed"]) for row in reference] == [held[24]["seed"]], "the row kept is the arm's first run"
+    assert held[25]["seed"] not in {int(row["seed"]) for arm in ("confirm-control", "confirm-1", "reference-1")
+                                    for row in stored(proj, "desk-1", arm)}, "the run interrupted left no row"
 
 
 def test_ctrl_c_in_a_stage_asked_again_leaves_out_an_earlier_stage_s_reference_arm(tmp_path: Path) -> None:
