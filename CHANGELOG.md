@@ -18,7 +18,8 @@ What a first user gets:
   `own-fault` (a fault of your own). They ride in the wheel.
 - The docs: the catalogue, reading a finding, checking a fix, the rollout way in, recipes for
   making cases from LangSmith, Langfuse and Phoenix exports, what Break does not claim, and one
-  page for each of the four extension points. Every command the README and the docs show is
+  page for each of the four extension points, and a reference for the commands, the settings
+  file, the stored runs and the library. Every command the README and the docs show is
   run in CI from the installed wheel, and every program they show is run there too.
 - `catalog --labels` shows, beside a change, the labels it carries from the OWASP Top 10 for
   LLM Applications 2025 and NIST AI 100-2 E2025, where the table has a row for it. Each row
