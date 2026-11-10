@@ -314,8 +314,13 @@ def build_parser(prog: str) -> argparse.ArgumentParser:
     init.add_argument("--yes", action="store_true",
                       help="take every question's default without asking; the yes/no questions "
                            "as no")
+    init.add_argument("--example", metavar="NAME",
+                      help="write the example of this name into the folder, with its agent, its "
+                           "cases and its settings, and ask nothing: "
+                           + ", ".join(_example_names()) + "; each runs with no key")
     init.add_argument("--force", action="store_true",
-                      help=f"write over a {SETTINGS_FILE} that is already here")
+                      help=f"write over a {SETTINGS_FILE}, or an example's file, that is already "
+                           "here")
 
     doctor = made["doctor"]
     doctor.add_argument("--run", action="store_true",
@@ -323,6 +328,11 @@ def build_parser(prog: str) -> argparse.ArgumentParser:
                              "nothing is stored")
     doctor.add_argument("--yes", action="store_true",
                         help="answer yes to the question --run asks, so nothing is asked")
+
+    made["catalog"].add_argument("--labels", action="store_true",
+                                 help="show, on the line of each change that has one, the labels "
+                                      "it carries from two published lists: the OWASP Top 10 for "
+                                      "LLM Applications 2025 and NIST AI 100-2 E2025")
 
     hunt = made["hunt"]
     _spending(hunt, "the first run")
@@ -368,14 +378,15 @@ def build_parser(prog: str) -> argparse.ArgumentParser:
 
 
 _VERB_EXAMPLES: Mapping[str, tuple[str, ...]] = {
-    "init": ("init", "init --kind rollout --entry my_app.agents:refund_agent", "init --yes"),
+    "init": ("init", "init --example desk",
+             "init --kind rollout --entry my_app.agents:refund_agent", "init --yes"),
     "doctor": ("doctor", "doctor --run"),
     "hunt": ("hunt", "hunt --name nightly", "hunt --dry-run", "hunt --hunt refund-agent-1"),
     "confirm": ("confirm", "confirm --repeats 10", "confirm --hunt refund-agent-1 --yes"),
     "findings": ("findings", "findings 2", "findings --hunt refund-agent-1"),
     "replay": ("replay 2", "replay 2 --case refund-7"),
     "recheck": ("recheck", "recheck --check", "recheck --old my_app.agents:refund_agent_v1"),
-    "catalog": ("catalog", "catalog --json"),
+    "catalog": ("catalog", "catalog --labels", "catalog --json"),
 }
 
 
@@ -1731,15 +1742,37 @@ def _loads_check(entry: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+LABELS_FILE = "labels.toml"
+
+
+def _labels() -> list[dict[str, str]]:
+    """The labels table the package carries, read where it is installed: one row a label, in
+    the table's order."""
+    import tomllib
+
+    with (Path(__file__).resolve().parent / LABELS_FILE).open("rb") as held:
+        rows = tomllib.load(held).get("label", [])
+    return [dict(row) for row in rows]
+
+
 def _catalog(call: _Call) -> int:
     rows = []
-    listed = []
+    listed: list[dict[str, Any]] = []
+    with_labels = bool(call.args.labels)
+    table = _labels() if with_labels else []
     for entry in CATALOG:
         what = entry.description + (" (needs an adapter: a way in that can make it)"
                                     if entry.needs_adapter else "")
-        rows.append(look.Row(f"{entry.surface}:{entry.name}", what))
+        change = f"{entry.surface}:{entry.name}"
+        mine = [row for row in table if row.get("change") == change]
+        if mine:
+            what += " [" + ", ".join(row["id"] for row in mine) + "]"
+        rows.append(look.Row(change, what))
         listed.append({"surface": entry.surface, "name": entry.name,
                        "description": entry.description, "needs_adapter": entry.needs_adapter})
+        if with_labels:
+            listed[-1]["labels"] = [{key: value for key, value in row.items() if key != "change"}
+                                    for row in mine]
     look.show(look.Result("ok", f"{_n(len(rows), 'change')} Break knows",
                           detail=tuple(rows), schema=_schema("catalog"),
                           data={"changes": listed}))
@@ -2013,7 +2046,61 @@ def look_can_ask() -> bool:
         return False
 
 
+def _examples_root() -> Path:
+    """Where the examples are: in the package as the wheel carries them, or, in a checkout
+    installed for development, the repository's own folder."""
+    packaged = Path(__file__).resolve().parent / "examples"
+    return packaged if packaged.is_dir() else Path(__file__).resolve().parents[2] / "examples"
+
+
+def _example_names() -> list[str]:
+    root = _examples_root()
+    if not root.is_dir():
+        return []
+    return sorted(folder.name for folder in root.iterdir()
+                  if folder.is_dir() and (folder / SETTINGS_FILE).is_file())
+
+
+def _init_example(call: _Call, name: str) -> int:
+    """Write an example's files into the folder, every one or none: an unknown name, another
+    answer given beside it, and a file already here without ``--force`` are each refused before
+    anything is written."""
+    given = [flag for flag in INIT_FLAGS if getattr(call.args, _dest(flag), None) is not None]
+    if given:
+        raise look.Usage(f"--example writes the example's own settings and takes no {given[0]}",
+                         nexts=(_ours(call.prog, "init", "--example", name),))
+    names = _example_names()
+    if name not in names:
+        raise look.Refused(f'there is no example named "{name}": the examples are '
+                           + ", ".join(names),
+                           nexts=tuple(_ours(call.prog, "init", "--example", one)
+                                       for one in names[:1]))
+    source = _examples_root() / name
+    files = sorted(path.relative_to(source) for path in source.rglob("*")
+                   if path.is_file() and "__pycache__" not in path.parts
+                   and path.suffix != ".pyc")
+    taken = [path for path in files if path.exists()]
+    if taken and not call.args.force:
+        raise look.Refused(f"{taken[0].as_posix()} is already here",
+                           nexts=(_ours(call.prog, *call.own_words, "--force"),))
+    for path in files:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes((source / path).read_bytes())
+    settings = load(Path(SETTINGS_FILE))
+    look.note(REAL)
+    data = {"file": SETTINGS_FILE, "kind": settings.target.kind, "entry": settings.target.entry,
+            "cases_file": settings.target.cases,
+            "tools": [{"name": tool.name, "class": tool.tool_class} for tool in settings.tools],
+            "install": None}
+    look.show(look.Result("wrote", f"the example {name}: "
+                                   + ", ".join(path.as_posix() for path in files),
+                          nexts=(_ours(call.prog, "hunt"),), schema=_schema("init"), data=data))
+    return EXIT_DONE
+
+
 def _init(call: _Call) -> int:
+    if call.args.example is not None:
+        return _init_example(call, str(call.args.example))
     path = Path(SETTINGS_FILE)
     if path.exists() and not call.args.force:
         raise look.Refused(f"{SETTINGS_FILE} is already here",

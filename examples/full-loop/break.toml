@@ -1,0 +1,34 @@
+# The full loop example: hunt, confirm, put the fix in, recheck. `poisson-break init --example
+# full-loop` wrote this file, the agent (agent.py), the agent as fixed (agent_fixed.py) and the
+# cases (cases.jsonl).
+version = 1
+
+[target]
+kind = "rollout"
+entry = "agent:order_desk"
+cases = "cases.jsonl"
+
+[tools]
+lookup_order = "read"
+
+[fails]
+outcomes = ["unresolved"]           # the outcome the desk reports when it gives up
+
+[vary]
+tools = ["error", "timeout", "rate_limited", "empty"]
+inputs = ["typos"]
+max_call = 1
+
+[search]
+strategy = "screen"
+runs = 120
+control_repeats = 2
+cases_per_condition = 3
+seed = 7
+
+[confirm]
+candidates = 3
+repeats = 3
+
+[output]
+folder = "break-runs"

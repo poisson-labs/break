@@ -1,0 +1,35 @@
+# The own-fault example: a fault Break's catalogue does not have, added by the team.
+# `poisson-break init --example own-fault` wrote this file, the agent (shop_agent.py), the fault
+# (faults.py) and the cases (cases.jsonl).
+version = 1
+
+[target]
+kind = "rollout"
+entry = "shop_agent:order_desk"
+cases = "cases.jsonl"
+
+[tools]
+lookup_order = "read"
+
+[fails]
+outcomes = ["unresolved"]           # the outcome the desk reports when it gives up
+
+[vary]
+# error_page is the team's own fault, registered by faults.py; the rest are Break's.
+tools = ["error", "timeout", "rate_limited", "error_page"]
+inputs = []
+max_call = 1
+
+[search]
+strategy = "screen"
+runs = 120
+control_repeats = 2
+cases_per_condition = 3
+seed = 7
+
+[confirm]
+candidates = 3
+repeats = 3
+
+[output]
+folder = "break-runs"

@@ -14,9 +14,9 @@ license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.11"
 authors = [{ name = "Poisson Labs", email = "work@poissonlabs.ai" }]
 maintainers = [{ name = "Poisson Labs", email = "work@poissonlabs.ai" }]
-keywords = ["agents", "fault-injection", "robustness", "evaluation", "testing"]
+keywords = ["agents", "fault-injection", "evaluation", "testing"]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
     "Operating System :: MacOS",
@@ -85,6 +85,26 @@ allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/poisson_break"]
+
+# The examples ride in the wheel, inside the package, so `poisson-break init --example NAME`
+# writes one from an install with no checkout and no network: each folder under examples/ that
+# holds a break.toml, put at poisson_break/examples/<name>/. A new example is a new line here;
+# tests/test_release_init_example.py fails on one that is missing.
+[tool.hatch.build.targets.wheel.force-include]
+"examples/desk" = "poisson_break/examples/desk"
+"examples/full-loop" = "poisson_break/examples/full-loop"
+"examples/stand-in" = "poisson_break/examples/stand-in"
+"examples/own-check" = "poisson_break/examples/own-check"
+"examples/own-fault" = "poisson_break/examples/own-fault"
+
+# The sdist holds the source, the tests, the docs, the examples and the scripts, and the files
+# named here: nothing else of a checkout. Hatchling adds PKG-INFO and the repository's
+# .gitignore to every sdist itself.
+[tool.hatch.build.targets.sdist]
+only-include = [
+    "src", "tests", "docs", "examples", "scripts",
+    "README.md", "LICENSE", "NOTICE", "CHANGELOG.md", "pyproject.toml",
+]
 
 [tool.ruff]
 line-length = 100
