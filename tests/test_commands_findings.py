@@ -40,6 +40,7 @@ from tests.commands_support import (
     PROG,
     REAL,
     Project,
+    cell,
     cli,
     detail,
     files_under,
@@ -48,6 +49,7 @@ from tests.commands_support import (
     holds_number,
     json_document,
     nexts,
+    no_two_alike,
     notes,
     opened,
     prepared,
@@ -55,9 +57,13 @@ from tests.commands_support import (
     refused_once,
     result_of,
     results,
+    row,
     store_runs,
     stored,
     verdict,
+    written_difference,
+    written_p,
+    written_rate,
 )
 from tests.commands_spies import REPLAY_ERROR, SPIED_ERROR, spied, spying
 from tests.look_support import strip
@@ -182,15 +188,22 @@ def test_one_finding_shown_says_ok_and_names_its_condition(shown: tuple[Project,
 
 def test_one_finding_shown_carries_its_numbers_as_the_look_prints_them(shown: tuple[Project, Any, Any]) -> None:
     """Spec §5.5: the failure share under it and under the control; the difference with Trace's interval; the p-value,
-    the adjusted p-value and `q`."""
-    from poisson_break.look import fmt_p, fmt_rate
-
+    the adjusted p-value and `q`. Each number is held to its exact written form and to its own place on its row: the
+    share under the condition before the control's, the difference with its sign before the interval, the interval's
+    low end before its high, each with its sign, then p, the adjusted p and q in that order. No two of the fixture's
+    eight numbers print alike, so one printed in another's place cannot read the same; and each is written here apart
+    from the look's own formatting, so a sign the look dropped is seen."""
     proj, ran, f = shown
-    text = strip(ran.out)
-    for number in (fmt_rate(f.rate), fmt_rate(f.control_rate), fmt_rate(f.difference, signed=True),
-                   fmt_rate(f.lo, signed=True), fmt_rate(f.hi, signed=True), fmt_p(f.p), fmt_p(f.adjusted_p),
-                   fmt_p(f.q)):
-        assert number.lstrip("+") in text, (number, text)
+    said = {"rate": written_rate(f.rate), "control rate": written_rate(f.control_rate),
+            "difference": written_difference(f.difference), "lo": written_difference(f.lo),
+            "hi": written_difference(f.hi), "p": written_p(f.p), "adjusted p": written_p(f.adjusted_p),
+            "q": written_p(f.q)}
+    no_two_alike(said)
+    assert f.lo < f.difference < f.hi
+    block = result_of(ran, "ok")
+    assert cell(row(block, "fails"), "fails") == f"{said['rate']} under it, {said['control rate']} under the control"
+    assert cell(row(block, "difference"), "difference") == f"{said['difference']} ({said['lo']} to {said['hi']})"
+    assert cell(row(block, "p"), "p") == f"{said['p']}, adjusted {said['adjusted p']}, q {said['q']}"
 
 
 def test_one_finding_shown_carries_its_kinds_and_signals_with_their_counts(shown: tuple[Project, Any, Any]) -> None:

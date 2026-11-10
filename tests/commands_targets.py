@@ -19,6 +19,11 @@ only these targets read, which the case reader keeps and hands over (spec §9.4)
 - `tokens`: the tokens in and out every run reports, for a hunt with prices;
 - `nap`: seconds slept before the run does anything, so a test can stop a command while it runs.
 
+`BREAK_TEST_HOLD_AT=<n>` with `BREAK_TEST_HOLD_FILE=<path>` holds one run where it starts: the run that is the
+`n`th line of the runs log writes `<path>` as its first act and then waits, doing nothing, until the command is
+interrupted. So a test sends Ctrl-C when the file is there, which is when that run has begun and before it or any later
+run can end. A run held for two minutes with no interrupt raises.
+
 A run that fails reports the outcome `unresolved`, which the settings list as failing. `BREAK_TEST_MENDED=1` in the
 environment is the agent mended: no run fails at all, so a recheck sees it fail less and a replay sees it not fail; and
 `BREAK_TEST_WEAK=<share>` is the agent changed so that its weakness fails that share of runs, so a recheck can see it
@@ -69,6 +74,23 @@ def _note(target: str, cfg: Mapping[str, Any], seed: int) -> None:
     if path:
         with open(path, "a", encoding="utf-8") as out:
             out.write(json.dumps({"target": target, "case": str(cfg.get("id")), "seed": int(seed)}) + "\n")
+        _hold(path)
+
+
+def _hold(log: str) -> None:
+    """Hold the run just written to the runs log, if it is the one `BREAK_TEST_HOLD_AT` numbers."""
+    at, marker = os.environ.get("BREAK_TEST_HOLD_AT"), os.environ.get("BREAK_TEST_HOLD_FILE")
+    if not at or not marker:
+        return
+    with open(log, encoding="utf-8") as lines:
+        if sum(1 for line in lines if line.strip()) != int(at):
+            return
+    with open(marker, "w", encoding="utf-8") as out:
+        out.write(at)
+    deadline = time.monotonic() + 120
+    while time.monotonic() < deadline:
+        time.sleep(0.01)
+    raise RuntimeError("the held run was never interrupted")
 
 
 def _act(cfg: Mapping[str, Any], seed: int, *, mended: bool) -> Episode:

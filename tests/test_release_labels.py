@@ -27,10 +27,18 @@ rows, in the table's order, each without `change`; `[]` for none. Plain `catalog
 Taylor's ruling 11A-8 (2026-11-09): the labels come from two published lists, each named with
 its version in `scheme`: the OWASP Top 10 for LLM Applications 2025, and NIST AI 100-2 E2025
 (Adversarial Machine Learning: a taxonomy and terminology). Held here as the two `scheme` texts.
-What each row says is not held here: the labels' content is the second reader's.
+**The rows, as checked.** An outside reader held each drafted row against its published text
+and Taylor ruled on the reading (2026-11-10, Break — Decisions): the OWASP row on
+`tool:planted_instruction` stands; the NIST row on it quotes the sentence exactly as published,
+with INDIRECT PROMPT INJECTION and RESOURCE CONTROL in capitals and with its citation and its
+full stop; the OWASP row on `user:presses` is taken out, and that change carries no label. The
+table holds those two rows and no other, and nothing in the file marks a row as unchecked.
 
-That each row was checked by a second reader against the published text is a reading by a
-person, not something a test can do; it is owed, and its record is the vault's.
+**The stored passages.** `tests/label_sources/sources.toml` names, for each row, a file beside it
+holding the passage of the published text the row quotes, with where it stands in that text, the
+day it was fetched and the digest of the file fetched. Each row has one passage and each passage
+one row, and each row's `text` occurs in its passage word for word: the same characters, in a
+run, with nothing between them changed.
 """
 
 from __future__ import annotations
@@ -48,6 +56,10 @@ from tests.commands_support import CODES, cli, detail, json_document, project, r
 from tests.conftest import GUARD, REPO
 
 TABLE = REPO / "src" / "poisson_break" / "labels.toml"
+SOURCES = REPO / "tests" / "label_sources"
+#: The rows as ruled on 2026-11-10: the change, the list, and the label as the list writes it.
+RULED = [("tool:planted_instruction", "OWASP Top 10 for LLM Applications 2025", "LLM01:2025", "Prompt Injection"),
+         ("tool:planted_instruction", "NIST AI 100-2 E2025", "NISTAML.015", "Indirect Prompt Injection")]
 ROW_KEYS = {"change", "scheme", "id", "title", "source", "text"}
 #: 11A-8: the two published lists, each with its version.
 SCHEMES = {"OWASP Top 10 for LLM Applications 2025", "NIST AI 100-2 E2025"}
@@ -130,6 +142,83 @@ def test_each_row_names_its_source_text() -> None:
         assert len(words) >= 6, (n, row["text"])
         assert squeezed(row["text"]).lower() not in {squeezed(row["title"]).lower(),
                                                       squeezed(row["id"]).lower()}, n
+
+
+# ---------------------------------------------------------------------------
+# the rows as checked, and the passage each quotes
+# ---------------------------------------------------------------------------
+
+
+def passages() -> list[dict[str, Any]]:
+    with (SOURCES / "sources.toml").open("rb") as f:
+        listed = tomllib.load(f)
+    assert set(listed) == {"passage"}, sorted(listed)
+    found: list[dict[str, Any]] = listed["passage"]
+    return found
+
+
+def passage_of(row: dict[str, Any]) -> dict[str, Any]:
+    (found,) = [p for p in passages() if (p["change"], p["scheme"], p["id"]) == (row["change"], row["scheme"],
+                                                                                   row["id"])]
+    return found
+
+
+def test_the_table_holds_the_two_rows_ruled_and_no_other() -> None:
+    assert [(r["change"], r["scheme"], r["id"], r["title"]) for r in read_table()] == RULED
+
+
+def test_the_change_whose_row_was_taken_out_carries_no_label() -> None:
+    """`user:presses` is a change of the catalogue still, and no row labels it."""
+    assert "user:presses" in {f"{c.surface}:{c.name}" for c in catalogue()}
+    assert [r for r in read_table() if r["change"] == "user:presses"] == []
+    assert [r for r in read_table() if r["change"].startswith("user:")] == []
+
+
+def test_nothing_in_the_file_marks_a_row_as_unchecked_or_a_draft() -> None:
+    text = TABLE.read_text(encoding="utf-8").lower()
+    for word in ("unchecked", "not yet checked", "draft"):
+        assert word not in text, word
+
+
+def test_the_nist_row_quotes_the_sentence_as_published() -> None:
+    """Its two terms in capitals, as the document's text has them, and the sentence through its citation and its
+    full stop."""
+    (row,) = [r for r in read_table() if r["id"] == "NISTAML.015"]
+    assert row["text"] == ("Thus, INDIRECT PROMPT INJECTION attacks are enabled by RESOURCE CONTROL that allows an "
+                           "attacker to indirectly (or remotely) inject system prompts without directly interacting "
+                           "with the application [146, 408].")
+
+
+def test_each_row_has_one_stored_passage_and_each_passage_one_row() -> None:
+    rows = [(r["change"], r["scheme"], r["id"]) for r in read_table()]
+    stored = [(p["change"], p["scheme"], p["id"]) for p in passages()]
+    assert sorted(stored) == sorted(rows) and len(set(stored)) == len(stored)
+    files = [p["passage"] for p in passages()]
+    assert len(set(files)) == len(files), files
+    on_disk = sorted(f.name for f in SOURCES.iterdir() if f.is_file() and f.name != "sources.toml")
+    assert on_disk == sorted(files), "a passage file no row quotes, or a row whose file is missing"
+
+
+def test_each_stored_passage_says_where_it_is_from() -> None:
+    keys = {"change", "scheme", "id", "passage", "source", "where", "fetched", "fetched_from", "sha256", "as_stored"}
+    for row in read_table():
+        stored = passage_of(row)
+        assert set(stored) == keys, sorted(stored)
+        assert stored["source"] == row["source"]
+        assert re.fullmatch(r"https://[A-Za-z0-9.-]+\.[A-Za-z]{2,}/\S*", stored["fetched_from"]), stored
+        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", stored["fetched"]), stored
+        assert re.fullmatch(r"[0-9a-f]{64}", stored["sha256"]), stored
+        assert stored["where"].strip() and stored["as_stored"].strip()
+
+
+def test_each_row_s_quote_occurs_word_for_word_in_its_stored_passage() -> None:
+    """The quote is in the passage as one run of the same characters: capitals, punctuation, brackets and spaces as
+    published. The passage is more than the quote's own title, and holds the quote once."""
+    for row in read_table():
+        passage = (SOURCES / passage_of(row)["passage"]).read_bytes().decode("utf-8")
+        assert passage.count(row["text"]) == 1, (row["id"], row["text"])
+        assert "\n" not in passage.rstrip("\n"), "a passage is one paragraph on one line"
+        assert passage == passage.strip() + "\n"
 
 
 # ---------------------------------------------------------------------------

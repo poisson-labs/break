@@ -57,6 +57,37 @@ KINDS = ("rollout", "openai-agents", "langgraph", "crewai", "mcp", "command")
 NAMED = ("desk", "full-loop", "stand-in", "own-check")
 
 
+def _on(tool: str, fault: str) -> str:
+    return f"tool:{tool}#1={fault}"
+
+
+#: How each example ends, as the examples' page says it does (`examples/README.md`): its findings in their order,
+#: each with its condition, the one kind every failed run under it has, and who judged it. Every finding of every
+#: example is six cases at three repeats, so 18 runs failed under it.
+ENDINGS: dict[str, list[tuple[str, str, str]]] = {
+    # "There are three findings, all on the order look-up: a timeout, a rate limit and an error"
+    "desk": [(_on("lookup_order", "timeout"), "failed", "break"),
+             (_on("lookup_order", "rate_limited"), "failed", "break"),
+             (_on("lookup_order", "error"), "failed", "break")],
+    # "`confirm` ends with three findings, as the help desk's does"; after the fix each reads `fails less`
+    "full-loop": [(_on("lookup_order", "error"), "failed", "break"),
+                  (_on("lookup_order", "timeout"), "failed", "break"),
+                  (_on("lookup_order", "rate_limited"), "failed", "break")],
+    # "There is one finding. `lost_reply` lets the refund go through ... Break's `duplicate_write` check sees the
+    # second call"
+    "stand-in": [(_on("issue_refund", "lost_reply"), "duplicate_write", "break")],
+    # "The kind `own:made_up` is the word the check returned. `findings 1` marks the finding as resting on that
+    # check"
+    "own-check": [(_on("lookup_order", "error"), "own:made_up", "your check"),
+                  (_on("lookup_order", "timeout"), "own:made_up", "your check"),
+                  (_on("lookup_order", "rate_limited"), "own:made_up", "your check")],
+    # "There is one finding, and it names the team's fault ... the desk reads it as an order record and falls over"
+    "own-fault": [(_on("lookup_order", "error_page"), "crashed", "break")],
+}
+#: The fault the own-fault example's team wrote, which Break's catalogue does not have.
+OWN_FAULT = "error_page"
+
+
 def examples() -> dict[str, str]:
     """Each example folder's name with its way in."""
     found = {}
@@ -148,6 +179,25 @@ def hunted_and_confirmed(folder: Folder, name: str) -> None:
     assert verdict(ran) == "confirmed", ran
 
 
+def ends_as_the_page_says(folder: Folder, name: str) -> None:
+    """The example's findings, read from the installed command, are the ones its section of the examples' page ends
+    with: that many and no more, in that order, each with its condition, each failing every one of its 18 runs with
+    the one kind named and no other, judged by who the page says."""
+    listed = json_of(folder.run("findings", "--json"))
+    assert [(f["number"], f["condition"]) for f in listed["findings"]] == [
+        (n, condition) for n, (condition, _, _) in enumerate(ENDINGS[name], 1)], listed["findings"]
+    for number, (condition, kind, judged_by) in enumerate(ENDINGS[name], 1):
+        shown = folder.run("findings", str(number), "--json")
+        assert shown.exit == CODES["done"], shown
+        finding = json_of(shown)["finding"]
+        assert finding["condition"] == condition, finding
+        assert (len(finding["cases"]), finding["repeats"]) == (6, 3), finding
+        assert finding["kinds"] == {kind: 18}, (name, number, finding["kinds"])
+        assert finding["judged_by"] == judged_by, (name, number, finding["judged_by"])
+        assert (finding["rate"], finding["control_rate"], finding["difference"]) == (1.0, 0.0, 1.0), finding
+    assert folder.run("findings", str(len(ENDINGS[name]) + 1), "--json").exit == CODES["refused"]
+
+
 # ---------------------------------------------------------------------------
 # which examples there are
 # ---------------------------------------------------------------------------
@@ -164,6 +214,11 @@ def test_the_examples_the_rulings_name_are_there() -> None:
     assert set(NAMED) <= set(examples()), sorted(set(NAMED) - set(examples()))
 
 
+def test_every_example_has_its_ending_held() -> None:
+    """An example added with no ending written here is not held to its section of the page."""
+    assert sorted(ENDINGS) == sorted(examples())
+
+
 # ---------------------------------------------------------------------------
 # each example runs, finds and confirms
 # ---------------------------------------------------------------------------
@@ -175,6 +230,27 @@ def test_each_example_finds_and_confirms_offline_with_no_key(name: str, tmp_path
     folder = Folder(tmp_path)
     hunted_and_confirmed(folder, name)
     assert folder.attempts() == []
+
+
+@pytest.mark.parametrize("name", sorted(ENDINGS))
+def test_each_example_ends_as_its_section_of_the_page_says(name: str, tmp_path: Path) -> None:
+    """desk: three findings on the order look-up. full-loop: three, as the desk's. stand-in: one, `duplicate_write`
+    after a lost reply. own-check: three, judged `own:made_up` by the user's check. own-fault: one, `crashed`, on the
+    user's own fault."""
+    folder = Folder(tmp_path)
+    hunted_and_confirmed(folder, name)
+    ends_as_the_page_says(folder, name)
+    assert folder.attempts() == []
+
+
+def test_the_own_fault_example_s_finding_names_a_fault_the_catalogue_does_not_have(tmp_path: Path) -> None:
+    """The one finding names the user's fault: its condition is that fault on the look-up, and the fault is none of
+    the catalogue's own, in this process, which has not imported the example's module."""
+    from poisson_break.changes import CATALOG
+
+    assert OWN_FAULT not in {change.name for change in CATALOG}
+    ((condition, kind, _),) = ENDINGS["own-fault"]
+    assert condition.endswith(f"={OWN_FAULT}") and kind == "crashed"
 
 
 def test_the_full_loop_reads_its_fix_as_holding(tmp_path: Path) -> None:
@@ -194,8 +270,9 @@ def test_the_full_loop_reads_its_fix_as_holding(tmp_path: Path) -> None:
     assert ran.exit == CODES["done"], ran
     document = json_of(ran)
     assert document["verdict"] == "rechecked" and document["passed"] is True, document
-    phrases = [f["phrase"] for f in document["findings"]]
-    assert phrases and set(phrases) == {"fails less"}, phrases
+    assert [(f["number"], f["condition"], f["phrase"]) for f in document["findings"]] == [
+        (n, condition, "fails less") for n, (condition, _, _) in enumerate(ENDINGS["full-loop"], 1)]
+    assert [(f["rate_before"], f["rate_now"]) for f in document["findings"]] == [(1.0, 0.0)] * 3
     assert folder.attempts() == []
 
 
