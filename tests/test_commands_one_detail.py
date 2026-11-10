@@ -156,6 +156,32 @@ def test_a_hunt_with_one_run_left_says_so_in_its_row_and_its_estimate(tmp_path: 
     assert not PLURAL_AFTER_ONE.search(document["estimate"]) and one(document["estimate"], "run"), document
 
 
+def test_a_hunt_with_one_run_left_and_no_prices_says_so_in_its_timed_estimate(tmp_path: Path) -> None:
+    """The same hunt, taken up with the prices and the cap taken out of its settings: its control has run, so the
+    estimate times the one run left at the control's seconds a run, and says one run."""
+    from tests.commands_support import settings_text
+
+    proj = project(tmp_path, cases(3, weak_to=["error"], tokens=[1000, 0]), limits={"dollars": 0.0085, **hunts.PRICES})
+    assert cli(proj, "hunt", "--yes").exit == CODES["stopped"]
+    assert sum(hunts.stored_counts(proj).values()) == 8
+    proj.write(settings_text(search={"runs": 9}))
+    document = json_document(cli(proj, "hunt", "--hunt", "desk-1", "--dry-run", "--json"))
+    assert (document["runs"], document["dollars"]) == (1, None), document
+    assert not PLURAL_AFTER_ONE.search(document["estimate"]) and one(document["estimate"], "run"), document
+    assert "$" not in document["estimate"], document
+
+
+def test_one_pair_untried_is_said_in_the_singular(tmp_path: Path) -> None:
+    """One case, two tools and one fault allowed on the first call of each: two single changes, both tried, and the
+    one pair of them untried, in the result's `not looked at` line."""
+    proj = project(tmp_path, cases(1, weak_to=["error"]), vary={"tools": ["error"]},
+                   search={"control_repeats": 1, "runs": 3, "cases_per_condition": 1}, confirm={"candidates": 1})
+    lines = said(cli(proj, "hunt", "--yes"))
+    assert plurals(lines) == [], lines
+    (cover,) = [line for line in lines if "untried" in line]
+    assert one(cover, "pair"), cover
+
+
 def test_a_confirm_stage_with_one_run_left_says_so_in_its_row_and_its_estimate(tmp_path: Path) -> None:
     """Priced, one case and two repeats: the stage is four runs, and the cap stops it after three."""
     proj = project(tmp_path, cases(1, weak_to=["error"], tokens=[1000, 0]), search={"control_repeats": 1},
