@@ -244,6 +244,37 @@ def holds_number(text: str, number: str) -> bool:
     return re.search(rf"(?<![\d.,$]){re.escape(number)}(?![\d]|[.,]\d)", text) is not None
 
 
+def written_rate(value: float) -> str:
+    """A rate as a line must print it, three decimals and no sign: `0.455`. Written here apart from the look's own
+    `fmt_rate`, so a test that holds a printed number to it does not hold the look to itself."""
+    return f"{value:.3f}"
+
+
+def written_difference(value: float) -> str:
+    """A difference between two rates, or an end of its interval, as a line must print it: three decimals, its sign
+    always there, `+0.545`, `-0.455`."""
+    return f"{value:+.3f}"
+
+
+def written_p(value: float) -> str:
+    """A p-value as a line must print it: three decimals, or two figures and an exponent below 0.001, `4.5e-09`."""
+    return f"{value:.1e}" if 0 < value < 0.001 else f"{value:.3f}"
+
+
+def no_two_alike(shown: Mapping[str, str]) -> None:
+    """Every number of a fixture differs from every other once its sign is taken off, so that a line printing one in
+    another's place, or one without its sign, cannot read the same."""
+    bare = {name: text.lstrip("+-") for name, text in shown.items()}
+    assert len(set(bare.values())) == len(bare), f"two of the fixture's numbers print alike: {bare}"
+
+
+def cell(line: str, label: str) -> str:
+    """What a detail row holds after its label: the line is its indent, the label, two spaces or more, and the rest."""
+    match = re.fullmatch(rf"  {re.escape(label)} {{2,}}(\S.*)", line)
+    assert match is not None, f"not a {label!r} row: {line!r}"
+    return match.group(1)
+
+
 def hashes(text: str) -> list[str]:
     return HEX.findall(strip(text))
 

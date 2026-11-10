@@ -61,6 +61,7 @@ from tests.commands_support import (
     holds_number,
     json_document,
     nexts,
+    no_two_alike,
     notes,
     on,
     opened,
@@ -71,6 +72,8 @@ from tests.commands_support import (
     store_runs,
     stored,
     verdict,
+    written_difference,
+    written_rate,
 )
 from tests.conftest import GUARD, REPO
 from tests.look_support import VERDICT_LINE, Streams, strip
@@ -132,15 +135,50 @@ def test_each_candidate_s_line_carries_its_number_condition_and_verdict(mixed: t
     assert "not confirmed" not in line_of(block, 1)
 
 
-def test_the_confirmed_candidate_s_numbers_are_trace_s_as_the_look_prints_them(mixed: tuple[Project, Any, Any]) -> None:
-    """Spec §9.2: the rate under the candidate, and the difference with Trace's interval, each through `fmt_rate`."""
-    from poisson_break.look import fmt_rate
+def numbers_of(block: list[str], t: Any) -> str:
+    """The numbers cell of a candidate's line: the line is its number, its condition, its verdict with its note, and
+    then the numbers, and nothing else."""
+    said = t.verdict + (f", {t.note}" if t.note else "")
+    match = re.fullmatch(rf" +{t.number} +{re.escape(t.condition)} +{re.escape(said)} {{2,}}(\S.*)",
+                         line_of(block, t.number))
+    assert match is not None, line_of(block, t.number)
+    return match.group(1)
 
+
+def test_the_confirmed_candidate_s_numbers_are_trace_s_as_the_look_prints_them(mixed: tuple[Project, Any, Any]) -> None:
+    """Spec §9.2: the rate under the candidate, then the difference with its sign, then Trace's interval in brackets,
+    low end before high, each end with its sign. Each number is held to its exact written form and to its own place on
+    the line. No two of the fixture's numbers print alike, the control's rate among them, so one printed in another's
+    place, a pair swapped, or the interval's ends turned round cannot read the same; and each is written here apart
+    from the look's own formatting, so a sign the look dropped is seen."""
     proj, ran, done = mixed
     t = done.tested[0]
-    text = line_of(result_of(ran, "confirmed"), 1)
-    for shown in (fmt_rate(t.rate), fmt_rate(t.difference, signed=True), fmt_rate(t.lo), fmt_rate(t.hi)):
-        assert shown.lstrip("+") in text, (shown, text)
+    assert t.verdict == "confirmed"
+    shown = {"rate": written_rate(t.rate), "difference": written_difference(t.difference),
+             "lo": written_difference(t.lo), "hi": written_difference(t.hi),
+             "control rate": written_rate(t.control_rate)}
+    no_two_alike(shown)
+    assert t.lo < t.difference < t.hi
+    block = result_of(ran, "confirmed")
+    assert numbers_of(block, t) == (f"{shown['rate']}   {shown['difference']} "
+                                    f"({shown['lo']} to {shown['hi']})"), line_of(block, 1)
+    word, sentence = VERDICT_LINE.match(block[0]).groups()  # type: ignore[union-attr]
+    assert sentence.endswith(f" ({shown['control rate']})"), sentence
+    assert len(re.findall(r"\d\.\d{3}", sentence)) == 1, sentence
+
+
+def test_a_candidate_that_failed_less_prints_each_number_with_its_minus_sign(mixed: tuple[Project, Any, Any]) -> None:
+    """The same line for the candidate that failed less: its difference and both ends of its interval are below
+    zero, and each is printed with its minus sign, low end before high."""
+    proj, ran, done = mixed
+    t = done.tested[2]
+    assert t.note == "failed less" and t.lo < t.difference < t.hi < 0
+    shown = {"rate": written_rate(t.rate), "difference": written_difference(t.difference),
+             "lo": written_difference(t.lo), "hi": written_difference(t.hi)}
+    no_two_alike(shown)
+    assert all(shown[name].startswith("-") for name in ("difference", "lo", "hi")), shown
+    assert numbers_of(result_of(ran, "confirmed"), t) == (f"{shown['rate']}   {shown['difference']} "
+                                                          f"({shown['lo']} to {shown['hi']})")
 
 
 def test_too_small_to_tell_carries_trace_s_repeats_that_would_decide(mixed: tuple[Project, Any, Any]) -> None:
