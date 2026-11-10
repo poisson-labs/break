@@ -128,30 +128,34 @@ def test_an_unfinished_recheck_is_finished_before_a_new_one_is_begun(tmp_path: P
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("weak, phrases", [
-    pytest.param(targets.MENDED, ["fails less", "fails less"], id="mended"),
-    pytest.param(None, None, id="left alone"),
-    pytest.param(1.0, None, id="made worse"),
+@pytest.mark.parametrize("weak, words, phrases", [
+    pytest.param(targets.MENDED,
+                 [("different", "failed less in new"), ("different", "failed less in new")],
+                 ["fails less", "fails less"], id="mended"),
+    pytest.param(None,
+                 [("too small to tell", "failed less in new"), ("different", "failed less in new")],
+                 ["too small to tell", "fails less"], id="left alone"),
+    pytest.param(1.0,
+                 [("different", "failed more in new"), ("different", "failed more in new")],
+                 ["fails more", "fails more"], id="made worse"),
 ])
-def test_each_phrase_is_trace_s_verdict_and_direction_on_the_recorded_runs(tmp_path: Path, trace: Path, weak: Any,
-                                                                           phrases: list[str] | None) -> None:
+def test_each_phrase_is_trace_s_verdict_and_direction_on_the_recorded_runs(
+        tmp_path: Path, trace: Path, weak: Any, words: list[tuple[str, str]], phrases: list[str]) -> None:
+    """The two findings rechecked on the agent mended, left alone and made worse. For each, the verdict and direction
+    the pinned Trace recorded for its two runs, and the phrase `recheck` gives it, are written out here by hand: what
+    Trace said is checked against the recorded document, and the phrase against the hand-written one, with no rule
+    worked again in the test. Left alone, finding 1 is too small to tell; finding 2 reads fails less, since its
+    reference run happened to fail 0.717 of its runs and the same agent 0.500 of these, different by Trace and still
+    so after the adjustment across the two (0.046 against a q of 0.05)."""
     h = _confirmed(tmp_path, RECHECK)
     found = confirm_module().recheck(_now(tmp_path, RECHECK, weak=weak))
     docs = [trace_document(h, f"reference-{r.finding}", f"recheck-1-{r.finding}") for r in found]
-    ps = adjusted([d["test"]["p"] for d in docs])
-    for r, doc, p in zip(found, docs, ps, strict=True):
-        if doc["verdict"] == "different" and p <= 0.05:
-            want = {"failed less in new": "fails less", "failed more in new": "fails more"}[doc["direction"]]
-        elif doc["verdict"] == "different":
-            want = "no significant difference"
-        else:
-            want = doc["verdict"]
-        assert r.phrase == want
-        assert r.phrase in PHRASES
-    if phrases is not None:
-        assert [r.phrase for r in found] == phrases
-    if weak == 1.0:
-        assert "fails more" in [r.phrase for r in found]
+    assert [r.finding for r in found] == [1, 2]
+    assert [(doc["verdict"], doc["direction"]) for doc in docs] == words
+    assert [r.phrase for r in found] == phrases
+    assert set(phrases) <= set(PHRASES)
+    if weak is None:
+        assert [round(r.adjusted_p, 3) for r in found] == [0.356, 0.046]
 
 
 @pytest.mark.parametrize("patch, want", [
