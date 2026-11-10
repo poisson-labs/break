@@ -1,0 +1,30 @@
+# The published passage each row of src/poisson_break/labels.toml quotes, one stored file a row.
+# `change`, `scheme` and `id` name the row; `passage` is the file beside this one that holds the
+# passage as published; `source` is the row's own; `where` says where in the published text the
+# passage stands; `fetched` is the day it was read from `fetched_from`, and `sha256` the digest
+# of the file fetched that day. tests/test_release_labels.py holds each row's quote to occur
+# word for word in its passage.
+
+[[passage]]
+change = "tool:planted_instruction"
+scheme = "OWASP Top 10 for LLM Applications 2025"
+id = "LLM01:2025"
+passage = "owasp-llm01-2025.txt"
+source = "https://genai.owasp.org/llmrisk/llm01-prompt-injection/"
+where = "the page LLM01:2025 Prompt Injection, the paragraph headed Indirect Prompt Injections, whole"
+fetched = "2026-11-10"
+fetched_from = "https://genai.owasp.org/llmrisk/llm01-prompt-injection/"
+sha256 = "e8fbb744e5de13eaba8912b47f5a6375b105ee8c5f7479e1f43ba9507aad776b"
+as_stored = "the paragraph's text as the page's HTML holds it, tags taken off"
+
+[[passage]]
+change = "tool:planted_instruction"
+scheme = "NIST AI 100-2 E2025"
+id = "NISTAML.015"
+passage = "nist-ai-100-2e2025-section-3-4.txt"
+source = "https://doi.org/10.6028/NIST.AI.100-2e2025"
+where = "section 3.4, Indirect Prompt Injection Attacks and Mitigations [NISTAML.015], printed page 50 (page 63 of the PDF): the section's first three sentences"
+fetched = "2026-11-10"
+fetched_from = "https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.100-2e2025.pdf"
+sha256 = "4811fb6ad73f9c9121843ab77e029b5adc6f2c86d33c2fc5b2099ef133847646"
+as_stored = "the PDF's text, each line end within the passage written as one space, and the one word a line end breaks with a hyphen (interact-ing) joined; the terms the document sets in small capitals are capitals in its text"
