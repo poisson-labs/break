@@ -178,7 +178,7 @@ and the library under the command.
 
 | Verb | What it does | Spends | Verdict words |
 |---|---|---|---|
-| `init` | asks at most nine questions, each with a default and a flag, and writes `break.toml`; ends with the one command that writes the same file. `init --example NAME` asks nothing and writes an example's agent, cases and settings | nothing | `wrote` |
+| `init` | asks at most nine questions, each with a flag and all but the agent's place with a default, and writes `break.toml`; ends with the one command that writes the same file. `init --example NAME` asks nothing and writes an example's agent, cases and settings | nothing | `wrote` |
 | `doctor` | reads the settings and the cases, loads the target and lists its tools, finds the first problem; `--run` runs the first case once, asked first, and stores nothing | one run, if asked | `ready`, `not ready` |
 | `hunt` | the control stage, the search and the shrink stage; writes the candidates, best first | yes | `found`, `nothing found`, `stopped` |
 | `confirm` | the confirm stage against one shared control on fresh runs, Trace's test for each candidate, the findings written and their reference runs; `--repeats N` asks again about what was too small to tell | yes | `confirmed`, `nothing confirmed`, `stopped` |
@@ -193,14 +193,18 @@ first keys are `schema`, `verdict` and `sentence` (named `poisson_break.<verb>-r
 plan `poisson_break.<verb>-plan/1`, with `dollars` beside its estimate, null without prices or
 before the control has run), and the shared exit codes: 0 done, 1 refused before anything was spent or written, 2 a mistake on
 the command line, 3 stopped after work started, 4 a check you asked for did not pass, 130
-interrupted. A verb's own options follow the verb; `--plain` and `--debug` are the tool's own
+interrupted. Two documents carry another name: Ctrl-C before a verb's work starts prints one
+named `poisson_break.stopped/1`, and a no to `start?` prints `stopped`, nothing was run, under
+the plan's name. A verb's own options follow the verb; `--plain` and `--debug` are the tool's own
 and may come first. No abbreviated flag is taken.
 
-**Before anything is spent** a verb shows its plan and asks `start? [y/N]` on stderr. `--yes`
+**Before a hunt, a confirm stage or a recheck spends anything** it shows its plan and asks
+`start? [y/N]` on stderr. `doctor --run` asks its own question before its one run, and `replay`
+runs its one run without asking. `--yes`
 answers, `--dry-run` shows the plan and runs nothing (for `hunt --hunt NAME`, the plan of what
 the hunt has left, its estimate counted over those runs), and a stdin that is not a terminal without `--yes` prints the plan and
-refuses in one line. After every plan, and in `init`'s and
-`doctor`'s output, Break says that it calls your tools for real: run it against a test
+refuses in one line. After every plan, before a replay, and in `init`'s output and `doctor`'s
+when it is ready, Break says that it calls your tools for real: run it against a test
 environment. A stage that stops short, at a cap or on Ctrl-C, says how many runs were kept (on
 Ctrl-C, the runs the stage's own arms hold, a confirm stage's among them the reference runs of
 the findings it confirmed; under `--json`, with the reason and the run it stopped in) and prints the command that goes on with the same hunt (`hunt --hunt NAME`, `confirm --hunt NAME`,
@@ -224,9 +228,12 @@ outside your test environment (`read`, `write`, `off`; a `write` tool is asked w
 safe to repeat or has a stand-in); what counts as a failure; what Break may change (tool
 behaviour and inputs yes, the conversation when a case has turns, model calls and settings of
 your own no); how many runs a hunt may use; what your model's tokens cost; and, with prices,
-the most a hunt may spend. `--yes` takes every default, the yes/no ones as no. Every answer has
-a flag, listed under `init`'s flags below, and `init`
-ends with the one command that writes the same file, which runs as printed with no terminal.
+the most a hunt may spend. `--yes` takes every question's default and asks nothing: tool
+behaviour and inputs yes, the conversation yes when a case has turns, and model calls, settings
+of your own and the starter file no. Where the agent is has no default, so `--yes` needs
+`--entry`. Every answer has a flag, listed under `init`'s flags below, and `init` ends with the
+one command that writes the same file. It runs as printed with no terminal in a folder that has
+no `break.toml`; where one is already there, add `--force`.
 
 `--version` prints one line with the versions of Break, Prove, Trace and Python. A failure
 inside the command is one line that names the log its details went to, and exit 3; `--debug`
@@ -472,7 +479,7 @@ it, before any run.
 
 **A way in that is not installed.** Five of the six kinds are optional extras, and none is in
 this version. A file that names one reads with `loads`, so it can be written today, and `load` refuses
-it in one line naming the install command, such as `pip install "poisson-break[openai-agents]"`.
+it in one line naming the install command, such as `pip install 'poisson-break[openai-agents]'`.
 The `adaptive` strategy is treated the same way.
 
 **Prices and the cap.** Without prices Break caps runs and time and shows no dollars. With both
@@ -558,8 +565,8 @@ break-runs/
       refund-agent-1-recheck-1-1/    recheck number, then finding
 ```
 
-The candidates, the confirm stages, the findings and their runs are written by
-the confirm stage, described under Confirming findings.
+A hunt writes its candidates when it ends. The confirm stages, the findings and their runs are
+written by the confirm stage, described under Confirming findings.
 
 ```python
 from poisson_break import hunt
@@ -630,15 +637,16 @@ cap lets a stopped hunt go on; the seed and the cases must be the hunt's own.
 one from `target.entry`. `cfg` is the case's own mapping, with none of Break's keys. The
 episode's `outcome` is your target's own outcome, kept beside Break's verdict, and its `meta` may
 say more, each optional: `reply`, `tokens_in`, `tokens_out`, and `ended = "limit"` for the
-agent's own step limit. Any other way in is an object with the same four members, handed to
-`open_hunt` already made.
+agent's own step limit. Any other way in is an object with the same five members (`kind`,
+`framework_versions`, `tools()`, `capabilities()` and `run()`), handed to `open_hunt` already
+made.
 
 ## How Break searches
 
 After the control, a hunt asks a strategy what to try. `poisson_break.search` holds the two
 strategies that learn nothing, the stage that runs any strategy and holds it to the same rules,
 and what a hunt then does with what came back. Nothing in it runs an agent or stores a run: the
-runs go behind a callable it is handed, and `run_search` of the section above is the one a hunt
+runs go behind a callable it is handed, and `poisson_break.hunt.run_search` is the one a hunt
 hands it:
 
 ```python

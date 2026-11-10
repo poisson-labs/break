@@ -52,8 +52,10 @@ Everything in the release, module by module:
   shows its plan and asks `start?` first; `--yes` answers, `--dry-run` runs nothing and writes
   nothing, and no terminal without `--yes` is the plan and a refusal in one line. After every
   plan, and in `init`'s and `doctor`'s output, the note that Break calls your tools for real.
-- `init` asks at most nine questions, each with a default and a flag, skipped when its flag is
-  given; `--yes` takes every default, the yes/no ones as no. The kind is a menu of the six, the
+- `init` asks at most nine questions, each with a flag and all but the agent's place with a
+  default, skipped when its flag is given; `--yes` takes every question's own default (tool
+  behaviour and inputs yes, the conversation yes when a case has turns, the rest no) and needs
+  `--entry`. The kind is a menu of the six, the
   tools of a `rollout` target are the ones its module wraps while it is imported (never run),
   a `write` tool is asked whether it is safe to repeat or has a stand-in, the conversation is
   asked only when a case has turns and a yes writes every conversation move, a yes to model

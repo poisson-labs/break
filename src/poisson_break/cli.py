@@ -312,8 +312,9 @@ def build_parser(prog: str) -> argparse.ArgumentParser:
                               help=f"sets {key}; left out, that question is asked, or takes its "
                                    "default under --yes")
     init.add_argument("--yes", action="store_true",
-                      help="take every question's default without asking; the yes/no questions "
-                           "as no")
+                      help="take every question's default without asking: tool behaviour and "
+                           "inputs yes, the conversation yes when a case has turns, the rest "
+                           "no; it needs --entry, which has no default")
     init.add_argument("--example", metavar="NAME",
                       help="write the example of this name into the folder, with its agent, its "
                            "cases and its settings, and ask nothing: "
@@ -1792,7 +1793,7 @@ class _Dialogue:
     """``init``'s questions, asked through the look, or answered by their flags and defaults.
 
     Each question is skipped when its flag was given. Under ``--yes`` each takes its own
-    default, the yes/no ones as no, and nothing is asked; a question that cannot be asked
+    default and nothing is asked; a question that cannot be asked
     otherwise (no terminal) is the look's refusal. The answers are gathered as the words of the
     one ``init`` command that writes the same file, and the settings module reads them."""
 
