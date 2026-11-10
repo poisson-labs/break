@@ -5,8 +5,8 @@ that decides what the agent does next from the request and from what its tools r
 each runs with no key and no network, and does the same thing every time.
 
 The examples ride in the installed package. `poisson-break init --example NAME` writes one into
-the folder you are in: the agent, its cases and `break.toml`. Start in an empty folder, since
-`init` will not write over a file that is already there.
+the folder you are in: the agent, its cases and `break.toml`. `init` will not write over a file
+that is already there, so each example below is made in a new folder of its own.
 
 Every result on this page is the output of the commands above it.
 
@@ -25,9 +25,12 @@ the refund policy. When the look-up fails it gives up; when the policy cannot be
 answers without it.
 
 ```sh
+mkdir desk
+cd desk
 poisson-break init --example desk
 poisson-break hunt --yes
 poisson-break confirm --yes
+cd ..
 ```
 
 ```text
@@ -64,11 +67,14 @@ An order desk in `agent.py` that looks an order up once, and `agent_fixed.py`, t
 with a failed look-up tried again. The example goes round the whole loop.
 
 ```sh
+mkdir full-loop
+cd full-loop
 poisson-break init --example full-loop
 poisson-break hunt --yes
 poisson-break confirm --yes
 cp agent_fixed.py agent.py
 poisson-break recheck --yes --check
+cd ..
 ```
 
 `confirm` ends with three findings, as the help desk's does. After the fix is copied in,
@@ -92,10 +98,13 @@ must not happen in a test. `break.toml` classes the tool `write` and names a sta
 `payments_fake:issue_refund`, and Break calls the stand-in in the tool's place in every run.
 
 ```sh
+mkdir stand-in
+cd stand-in
 poisson-break init --example stand-in
 poisson-break hunt --yes
 poisson-break confirm --yes
 poisson-break replay 1
+cd ..
 ```
 
 ```text
@@ -139,10 +148,13 @@ holds the team's own rule, named in `break.toml` as `[fails] own`: a reply that 
 order is, sent after every look-up failed, is made up.
 
 ```sh
+mkdir own-check
+cd own-check
 poisson-break init --example own-check
 poisson-break hunt --yes
 poisson-break confirm --yes
 poisson-break findings 1
+cd ..
 ```
 
 ```text
@@ -184,10 +196,13 @@ returns a page of HTML with no error raised. The agent's module imports `faults.
 registers the fault, and `break.toml` names it in `[vary] tools` beside three of Break's own.
 
 ```sh
+mkdir own-fault
+cd own-fault
 poisson-break init --example own-fault
 poisson-break hunt --yes
 poisson-break confirm --yes
 poisson-break replay 1
+cd ..
 ```
 
 ```text

@@ -589,17 +589,22 @@ def _in_one_shell(commands: list[dict[str, object]], wheel: Path, here: Path, fo
                   env: dict[str, str], token: dict[str, str]) -> dict[str, int]:
     """Run a page's commands in order in one shell, in ``here``; the code each exited with, by
     `FILE:LINE`. The shell stops at the first command that does not exit as it is shown to.
-    Only an install of the wheel is handed the git settings the job was given."""
+    Only an install of the wheel is handed the git settings the job was given and its HOME."""
     status = folder / "status"
     lines = ["cd " + shlex.quote(str(here))]
     for entry in commands:
         runs, installs = with_the_wheel(str(entry["command"]), wheel)
         if installs:
+            # the install alone is handed what the job was given to reach Trace's repository:
+            # the git settings, and the job's own HOME, where git's credentials may be
             lines += [f"export {key}={shlex.quote(value)}" for key, value in token.items()]
+            lines.append(f"export HOME={shlex.quote(os.environ.get('HOME', env['HOME']))}")
         lines.append(runs)
         lines.append("__code=$?")
-        if installs and token:
-            lines.append("unset " + " ".join(token))
+        if installs:
+            lines.append(f"export HOME={shlex.quote(env['HOME'])}")
+            if token:
+                lines.append("unset " + " ".join(token))
         lines.append(f"echo {shlex.quote(str(entry['file']) + ':' + str(entry['line']))} "
                      f"$__code >> {shlex.quote(str(status))}")
         lines.append(f"[ $__code -eq {entry['exit']} ] || exit 97")
