@@ -25,8 +25,11 @@ and exits 0 (point 9); `--dry-run` writes nothing (point 10); the schema `poisso
 from __future__ import annotations
 
 import contextlib
+import json
 import re
 import shlex
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +41,7 @@ from tests.commands_support import (
     REAL,
     Project,
     cases,
+    child_env,
     cli,
     detail,
     errors,
@@ -48,6 +52,7 @@ from tests.commands_support import (
     holds_number,
     json_document,
     nexts,
+    no_two_alike,
     notes,
     on,
     opened,
@@ -57,8 +62,8 @@ from tests.commands_support import (
     result_of,
     results,
     store_runs,
-    stored,
     verdict,
+    written_rate,
 )
 from tests.test_commands_confirm import stand_in
 
@@ -98,24 +103,38 @@ def finding(tmp_path_factory: pytest.TempPathFactory) -> Project:
 # ---------------------------------------------------------------------------
 
 
-def test_the_agent_mended_fails_less_and_the_numbers_are_trace_s(finding: Project) -> None:
-    from poisson_break.look import fmt_rate
+def asked_of_trace(proj: Project, old: str, new: str) -> dict[str, Any]:
+    """Trace's own answer for two of the hunt's runs: its command called directly here, as Break calls it (failed
+    runs counted, every case, the settings' largest difference), from the project's folder on the hunt's store."""
+    done = subprocess.run([sys.executable, "-m", "poisson_trace", "fix-check", old, new, "--store",
+                           str(proj.hunt("desk-1") / "store"), "--event", "failed", "--inputs", "all",
+                           "--max-mde", "0.2", "--json"],
+                          cwd=proj.folder, env=child_env(proj), stdin=subprocess.DEVNULL, capture_output=True,
+                          text=True, timeout=240)
+    document: dict[str, Any] = json.loads(done.stdout)
+    assert document["schema"].startswith("poisson-trace.fix-check/"), done
+    return document
 
+
+def test_the_agent_mended_fails_less_and_the_numbers_are_trace_s(finding: Project) -> None:
+    """The two shares on the finding's line are Trace's: its failed runs over its runs for the reference run and for
+    the recheck's, from a direct call of Trace's command on those two runs, not counted here from the rows. The line
+    is held whole: the finding's number, its condition, the phrase, the share before and then the share now, each as
+    a rate is written. The two shares do not print alike, so one in the other's place is seen."""
     made = recheck_runs(finding)
     ran = cli(finding, "recheck", "--yes", BREAK_TEST_MENDED="1")
     assert ran.exit == CODES["done"], ran
     final = results(ran.out)[-1]
     assert final[0].startswith("rechecked  "), ran
-    text = line_of(ran)
-    assert "fails less" in text
     (latest,) = [r for r in recheck_runs(finding) if r not in made]
-    before = stored(finding, "desk-1", "reference-1")
-    now = stored(finding, "desk-1", latest[len("desk-1-"):])
-
-    def share(rows: list[dict[str, Any]]) -> float:
-        return sum(r["outcome"] == "failed" for r in rows) / len(rows)
-
-    assert holds_number(text, fmt_rate(share(before))) and holds_number(text, fmt_rate(share(now))), text
+    document = asked_of_trace(finding, "desk-1-reference-1", latest)
+    assert (document["verdict"], document["direction"]) == ("different", "failed less in new"), document
+    counted = document["rows"]
+    assert counted["old"]["runs"] == counted["new"]["runs"] == 12 * 4, counted
+    shown = {"before": written_rate(counted["old"]["failed"] / counted["old"]["runs"]),
+             "now": written_rate(counted["new"]["failed"] / counted["new"]["runs"])}
+    no_two_alike(shown)
+    assert line_of(ran) == f"  1  {on('error')}  fails less  {shown['before']} before · {shown['now']} now"
 
 
 def test_with_check_the_agent_mended_exits_0(finding: Project) -> None:
