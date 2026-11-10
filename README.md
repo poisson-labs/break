@@ -154,9 +154,9 @@ key and no network against a scripted model.
 A hunt that finds nothing has shown that the conditions it tried, on the cases you gave it, did
 not fail more than the control in the runs it had. It has not shown more than that, and Break
 does not say it has. A finding says the agent fails more under one named condition; it does not
-say how often that condition happens to you. Every number Break prints beside a finding is
-computed by Poisson Trace or Poisson Prove, and each finding prints the command that gives the
-full report. [What Break does not claim](https://github.com/poisson-labs/break/blob/main/docs/claims.md) sets the limits out.
+say how often that condition happens to you. Every test, interval and p-value Break prints
+beside a finding is computed by Poisson Trace or Poisson Prove; Break itself only counts runs
+and divides. Each finding prints the command that gives the full report. [What Break does not claim](https://github.com/poisson-labs/break/blob/main/docs/claims.md) sets the limits out.
 
 ## Status
 

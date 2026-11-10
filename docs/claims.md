@@ -29,19 +29,19 @@ finding until the confirm stage has tested it on fresh runs.
 
 A finding is a candidate that the confirm stage tested against a control on fresh runs, every
 case in both arms, and that failed more by Trace's test after the correction for testing
-several candidates at once. What a finding says:
+several candidates at once. (A case that failed every control run is set aside and is in
+neither arm.) A finding says one thing: under this named condition, this agent failed more
+often than under no change, on these cases, by this much.
 
-- Under this named condition, this agent failed more often than under no change, on these
-  cases, by this much.
+It leaves three things unsaid.
 
-What it does not say:
-
-- **How often the condition happens.** A finding says what the agent does when its look-up
-  times out. It does not say how often your look-up times out.
-- **That the failure matters.** `failed` means a run met the rule you set: an outcome you
-  listed, a check of Break's, a check of your own. Whether that rule marks a real problem is
-  your call.
-- **Anything about other conditions.** A finding on a timeout says nothing about an error.
+- **It does not say how often the condition happens.** A finding says what the agent does when
+  its look-up times out. It does not say how often your look-up times out.
+- **It does not say that the failure matters.** `failed` means a run met the rule you set: an
+  outcome you listed, a check of Break's, a check of your own. Whether that rule marks a real
+  problem is your call.
+- **It says nothing about other conditions.** A finding on a timeout says nothing about an
+  error.
 
 The share a finding failed at in the confirm stage is from the stage that selected it, so it
 runs high. Each finding also gets a reference run on fresh seeds, and a fix is compared with
@@ -74,7 +74,7 @@ measured.
 ## A check that calls a model
 
 No model grades a run in Break's own checks. A check of your own may call one. Every finding
-that rests on your check says `judged by  your check`, and its numbers are as good as that
+that rests on your check says so in its `judged by` line, and its numbers are as good as that
 check.
 
 ## Your tools
@@ -85,9 +85,9 @@ hunt and what your tools do. Run Break against a test environment.
 
 ## What this version cannot test
 
-- An agent it cannot call as a Python function with wrapped tools. Adapters for agent
-  frameworks and for MCP servers are not in this version.
-- Changes to the conversation and to the model's own calls. They are named in the catalogue and
-  need those adapters.
-- `async def` tools, which are refused.
-- Anything on Windows. Break runs on macOS and Linux.
+- It cannot test an agent it cannot call as a Python function with wrapped tools. Adapters for
+  agent frameworks and for MCP servers are not in this version.
+- It cannot change the conversation or the model's own calls. Those changes are named in the
+  catalogue and need the adapters.
+- It refuses `async def` tools.
+- It does not run on Windows. It runs on macOS and Linux.

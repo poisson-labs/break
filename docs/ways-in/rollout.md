@@ -51,8 +51,9 @@ An `async def` tool is refused; wrap a function that is not async.
 
 ## The settings
 
-`init` asks where the agent is and writes `break.toml`. With the answers given as flags it asks
-nothing. The lines that describe the target:
+`init` asks where the agent is and writes `break.toml`. A flag answers its own question, and
+`--yes` takes the default for every question left, so `init --entry
+my_app.agents:refund_agent --yes` asks nothing. These are the lines that describe the target:
 
 ```toml
 [target]
@@ -139,9 +140,9 @@ The case file is JSON Lines, one case a line. A case needs only `input`:
 {"id": "gold", "input": "Where is order 12?", "customer_tier": "gold"}
 ```
 
-A case with no `id` is numbered by its place in the file. `expect` adds a rule for that case: a
-run is `wrong` when the reply lacks `reply_contains`, when the tools in `calls` were not called
-in that order, or when a tool in `never_calls` was called. Any other key is your agent's own
+A case with no `id` is numbered by its place in the file. `expect` adds rules for that case: a
+run is `wrong` when the reply lacks `reply_contains` or when the tools in `calls` were not
+called in that order, and a run that calls a tool in `never_calls` fails as `forbidden_call`. Any other key is your agent's own
 and reaches it in `cfg`. To make cases from requests your users already sent, see the recipes
 for [LangSmith](../export/langsmith.md), [Langfuse](../export/langfuse.md) and
 [Phoenix](../export/phoenix.md).

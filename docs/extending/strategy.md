@@ -8,7 +8,7 @@ The interface is versioned as `STRATEGY_INTERFACE_VERSION`, which is 1.
 
 ## What a strategy is
 
-Any object with one method:
+A strategy is any object with one method:
 
 ```text
 propose(seen, budget, *, rng) -> list of Proposal
@@ -33,7 +33,8 @@ strategy gave that condition, above 0 and at most 1.
 Break holds every strategy to the same rules, and does not trust a strategy to hold them
 itself:
 
-- No condition runs twice in a hunt. A repeat is dropped, logged, and costs no run.
+- No condition is run twice by the search. A proposal that repeats one is dropped, logged, and
+  costs no run. The shrink stage, which follows the search, may run a condition again.
 - Every proposal is logged before it runs, with its reason and its probability. The
   probability goes into each run's record. A search picks its runs, so they are not a random
   sample, and the probability is what lets a rate be worked out from them later.
@@ -47,8 +48,8 @@ itself:
 `propose` may return fewer proposals than the budget would pay for. The stage calls it again
 until it returns nothing new or the runs are spent.
 
-For a strategy of your own, Break holds some runs back for the shrink stage, and the budget a
-strategy is shown has them taken out: `[confirm] candidates` × 2 × `[search]
+For `random` and for a strategy of your own, Break holds some runs back for the shrink stage,
+and the budget a strategy is shown has them taken out: `[confirm] candidates` × 2 × `[search]
 cases_per_condition` runs. With a small `[search] runs` that can leave a strategy nothing to
 spend, and then the hunt tries no condition.
 

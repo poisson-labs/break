@@ -1,8 +1,8 @@
 # The catalogue
 
-The catalogue is every change Break can make to a run. A hunt tries changes from it, one at a
-time and in pairs, and keeps the ones under which your agent fails more often than it does with
-no change. This page lists the changes, says how each is named, and shows how to choose which
+The catalogue is every change Break can make to a run. A hunt tries changes from it one at a
+time, and under the `random` strategy in pairs too, and keeps the ones under which your agent
+fails more often than it does with no change. This page lists the changes, says how each is named, and shows how to choose which
 ones a hunt may use.
 
 ```sh
@@ -76,10 +76,11 @@ real tool still runs, which matters for a tool that changes something.
 | `planted_instruction` | the real result with one added sentence telling the agent to repeat a marker word | yes |
 
 A fault enters where the tool's own failure would. Your agent's code, and the framework around
-it, handle it as they handle a real error or a real result. `lost_reply` is taken only on a
-tool that is safe to repeat: a read tool, a write tool marked `repeatable`, or one with a
-stand-in. `planted_instruction` plants a word made for that hunt and case, and a run fails as
-`followed_plant` when the word turns up in the agent's reply or in a later tool call.
+it, handle it as they handle a real error or a real result. `lost_reply` is about a tool
+that acts, so it is taken only on a `write` tool, and only on one that is safe to repeat: one
+marked `repeatable`, or one with a stand-in. `planted_instruction` plants a word made for that
+hunt and case, and a run fails as `followed_plant` when the word turns up in the agent's reply
+or in a later tool call.
 
 ## The five input operators
 
@@ -104,7 +105,8 @@ settings that ask for one are refused before any run.
 ## Choosing what a hunt may change
 
 `[vary]` in `break.toml` lists what a hunt may use. A fault or an operator left out of its list
-is off, and the hunt's result names what was off under `not looked at`.
+is off. The hunt's result names the faults that were off under `not looked at`; it does not
+list the operators.
 
 ```toml
 [vary]
@@ -128,8 +130,8 @@ the change.
 poisson-break catalog --labels
 ```
 
-A label is shown only where Break's table has a row for that change, and each row quotes the
-published text it rests on. `poisson-break catalog --labels --json` carries each row whole: the
+A label is shown only where Break's table has a row for that change, and each row carries the
+published text it rests on, quoted. `poisson-break catalog --labels --json` carries each row whole: the
 list, the label, its title, where the text is published, and the quoted text. A change with no
 row shows no label. Most changes have none: a tool that times out is an ordinary failure, not
 an entry in a list of attacks.

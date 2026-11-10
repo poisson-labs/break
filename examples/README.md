@@ -1,6 +1,6 @@
 # The examples
 
-Five small agents to try Break on. Each has a scripted model in place of a real one: a function
+These are five small agents to try Break on. Each has a scripted model in place of a real one: a function
 that decides what the agent does next from the request and from what its tools returned. So
 each runs with no key and no network, and does the same thing every time.
 
@@ -20,7 +20,7 @@ Every result on this page is the output of the commands above it.
 
 ## desk
 
-A help desk for an online shop. It looks an order up, and for a refund request it also reads
+This is a help desk for an online shop. It looks an order up, and for a refund request it also reads
 the refund policy. When the look-up fails it gives up; when the policy cannot be read it
 answers without it.
 
@@ -57,13 +57,13 @@ confirmed  3 of 3 candidates fail more than the control (0.000)
 next: poisson-break findings 1
 ```
 
-Three findings, all on the order look-up: a timeout, a rate limit and an error each end the
-request. The faults on the policy tool, an empty look-up result and the two changes to the
+There are three findings, all on the order look-up: a timeout, a rate limit and an error each
+end the request. The faults on the policy tool, an empty look-up result and the two changes to the
 request were tried too, and none made the desk fail.
 
 ## full-loop
 
-An order desk in `agent.py` that looks an order up once, and `agent_fixed.py`, the same desk
+`agent.py` is an order desk that looks an order up once, and `agent_fixed.py` is the same desk
 with a failed look-up tried again. The example goes round the whole loop.
 
 ```sh
@@ -93,7 +93,7 @@ Each finding failed in every run of its reference run and in none now.
 
 ## stand-in
 
-A refund desk. Its `issue_refund` tool asks a payments service to pay a customer back, which
+This is a refund desk. Its `issue_refund` tool asks a payments service to pay a customer back, which
 must not happen in a test. `break.toml` classes the tool `write` and names a stand-in,
 `payments_fake:issue_refund`, and Break calls the stand-in in the tool's place in every run.
 
@@ -127,7 +127,7 @@ confirmed  1 of 1 candidate fails more than the control (0.000)
 next: poisson-break findings 1
 ```
 
-One finding. `lost_reply` lets the refund go through and then reports an error. The desk
+There is one finding. `lost_reply` lets the refund go through and then reports an error. The desk
 answers an error by sending the refund again, so the customer is paid twice, and Break's
 `duplicate_write` check sees the second call. An `error` or a `timeout` on the same call does
 no harm, because under those the tool never acted. The replay shows the two refund calls:
@@ -142,7 +142,7 @@ failed  finding 1 on case damaged-4821, seed 32408516: duplicate_write
 
 ## own-check
 
-An order desk that always answers. When its look-up fails it sends a confident reply anyway and
+This order desk always answers. When its look-up fails it sends a confident reply anyway and
 reports `resolved`, so none of Break's own checks sees anything wrong. The folder's `checks.py`
 holds the team's own rule, named in `break.toml` as `[fails] own`: a reply that says where the
 order is, sent after every look-up failed, is made up.
@@ -191,8 +191,8 @@ next: poisson-break replay 1 --hunt order-desk-1
 
 ## own-fault
 
-An order desk, and in `faults.py` a fault the team wrote: `error_page`, under which a tool
-returns a page of HTML with no error raised. The agent's module imports `faults.py`, which
+This is an order desk, with a fault the team wrote in `faults.py`: `error_page`, under which a
+tool returns a page of HTML with no error raised. The agent's module imports `faults.py`, which
 registers the fault, and `break.toml` names it in `[vary] tools` beside three of Break's own.
 
 ```sh
@@ -225,7 +225,7 @@ confirmed  1 of 1 candidate fails more than the control (0.000)
 next: poisson-break findings 1
 ```
 
-One finding, and it names the team's fault. The desk tries a look-up again when it raises an
+There is one finding, and it names the team's fault. The desk tries a look-up again when it raises an
 error, so Break's `error`, `timeout` and `rate_limited` do it no harm. An error page raises
 nothing; the desk reads it as an order record and falls over. The replay shows the call:
 

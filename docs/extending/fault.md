@@ -9,7 +9,7 @@ a fault written against it bumps that number.
 
 ## What a fault is
 
-An object with five attributes and one method:
+A fault is an object with five attributes and one method:
 
 | Member | What it is |
 |---|---|
@@ -25,10 +25,12 @@ number, the condition, the run's seed, the tool's previous result if it had one,
 word if one is planted. `real()` runs the real tool once and returns its result. `rng` is a
 generator Break seeds, so the same run gives the same outcome every time it is replayed.
 
-Break holds a fault to three rules. `apply` calls `real` exactly as often as `real_runs` says:
-once or not at all. `apply` returns a `Result` or a `ToolError` and nothing else. And `apply`
-uses no randomness but `rng`. A fault that breaks a rule, or raises, stops the run as Break's
-own failure. The run is not counted, and the agent is never blamed for it.
+Break checks two rules on every call. `apply` calls `real` exactly as often as `real_runs`
+says: once or not at all. And `apply` returns a `Result` or a `ToolError` and nothing else. A
+fault that breaks either rule, or raises an error of its own, stops the run as Break's own
+failure: the run is not counted, and the agent is never blamed for it. An error the real tool
+raises inside `real()` is not the fault's, and it passes to the agent as it is. A third rule is
+yours to keep: use no randomness but `rng`, or a replay will not repeat the run.
 
 ## An example
 

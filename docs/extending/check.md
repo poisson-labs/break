@@ -2,15 +2,15 @@
 
 Break decides that a run failed from what the agent did: it crashed, it ran past its time, it
 called a tool it must never call, it reported an outcome you listed as failing. Some failures
-only you can name. A refund issued without a look-up, a reply that states a delivery date the
-agent never read. For those you give Break one function.
+only you can name: a refund issued without a look-up, or a reply that states a delivery date
+the agent never read. For those you give Break one function.
 
 The interface is versioned as `CHECK_INTERFACE_VERSION`, which is 1.
 
 ## What a check is
 
-A function that takes one run and returns `None` when the run is fine, or one word that names
-the failure. Break records the word as the failure kind `own:<word>`. The word is ASCII
+A check is a function that takes one run and returns `None` when the run is fine, or one word
+that names the failure. Break records the word as the failure kind `own:<word>`. The word is ASCII
 letters, digits, `_` and `-`.
 
 The run it is given is a read-only view:
@@ -30,8 +30,8 @@ A field your way in cannot fill is `None`.
 Break calls the check once for each run, after the run, and only when its own checks found the
 run ok. The check cannot change the run. If it raises, or returns anything but `None` or a
 word, the run is not counted, and Break says why. A check may call a model. Break does not pay
-for that and does not prevent it, and every finding that rests on your check is marked
-`judged by  your check` where it is printed.
+for that and does not prevent it, and every finding that rests on your check says so where it
+is printed: its `judged by` line reads `your check`.
 
 ## An example
 

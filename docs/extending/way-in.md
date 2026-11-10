@@ -10,7 +10,7 @@ The interface is versioned as `TARGET_INTERFACE_VERSION`, which is 1.
 
 ## What a way in is
 
-An object with two attributes and three methods:
+A way in is an object with two attributes and three methods:
 
 | Member | What it is |
 |---|---|

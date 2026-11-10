@@ -89,8 +89,8 @@ this finding.
 | `kinds` | why the failed runs failed, counted. `failed` is an outcome your settings list as failing; the other kinds are in the table below |
 | `signals` | three things counted beside every run that are not failures on their own: `gave_up`, `retry_storm`, `over_budget` |
 | `judged by` | `break` when Break's own checks decided every failed run, `your check` when a check of yours decided one |
-| `flagged`, `left out` | cases Trace flagged, and Trace's count of runs it could not compare |
-| `cases` | the design: every case, the same number of repeats, in both arms |
+| `flagged`, `left out` | cases Trace flagged, and Trace's count of the cases it left out of the comparison, by reason |
+| `cases` | the design: every case, the same number of repeats, in both arms. A case that failed every control run is set aside and is in neither arm |
 | `arms` | the two sets of runs that were compared, by name |
 | `reference` | the finding's reference run, which a later fix is compared with |
 
@@ -99,7 +99,8 @@ says how: in every one of those runs the look-up failed and the agent never call
 
 ## Why a run failed
 
-A failed run has one kind, the first of these that applies:
+A failed run has one kind, the first of these that applies. There is one exception: a run
+stopped at its time limit is `hung` even if the agent then raised.
 
 | Kind | Applies when |
 |---|---|
