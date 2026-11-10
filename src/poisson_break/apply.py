@@ -355,7 +355,7 @@ def _classed(tool: str, line: object) -> _ToolClass:
         return _ToolClass("read", False, stand_in)
     if not repeatable and stand_in is None:
         raise ToolRefused(f'"{tool}" is a write tool, and its line does not say how it is made '
-                          "safe: repeatable = true, or a stand_in to call in its place",
+                          "safe to repeat: repeatable = true, or a stand_in to call in its place",
                           tool=tool)
     return _ToolClass("write", True, stand_in)
 

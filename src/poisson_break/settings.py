@@ -1105,7 +1105,8 @@ class _Check:
                                   "touches: class it read or write, or take the stand-in out")
         if tool_class == "write" and not repeatable and stand_in is None:
             raise self.refuse(path, "is a write tool, and its line does not say how it is "
-                                    'made safe: { class = "write", repeatable = true } where '
+                                    "made safe to repeat: "
+                                    '{ class = "write", repeatable = true } where '
                                     "the test environment absorbs repeats, or a stand_in to "
                                     "call in its place")
         return ToolLine(name=name, tool_class=tool_class, repeatable=repeatable,
