@@ -758,12 +758,12 @@ dropped.
 them, is bold with no colour. A number is never coloured, and only the terminal's sixteen named
 colours are used, so your theme decides the shades.
 
-**Problems go to stderr, one line each.**
+**Problems go to stderr, one line each.** Here `hunt` refuses the `stand-in` example after its
+`issue_refund` line in `break.toml` is changed to `"write"`, with neither `repeatable` nor a stand-in:
 
 ```text
-error: the tool issue_refund changes things outside and has no stand-in
+error: tools.issue_refund on line 15 is a write tool, and its line does not say how it is made safe to repeat: { class = "write", repeatable = true } where the test environment absorbs repeats, or a stand_in to call in its place
   next: poisson-break doctor
-note: Break calls your tools for real.
 ```
 
 `look.run(tool, argv, body)` runs a command under the look and returns its exit code. A body
