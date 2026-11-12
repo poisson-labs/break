@@ -56,9 +56,10 @@ call to `lookup_order`. The other seven, among them every fault on `check_policy
 changes to the request, did not. The line `not looked at` says what this hunt left untried.
 
 Those three are candidates: a few runs each, and chosen because they failed. `confirm` runs
-each of them again on every case, three times, beside a control arm that runs the same cases
-with no change, and asks Trace whether the difference holds. Trace is the Poisson Labs tool
-that checks whether a fix held:
+each of them again on every case, three times, beside a control arm. The control arm is the
+set of runs on the same cases with no change, and each candidate's runs are compared with it.
+`confirm` then asks Trace whether the difference holds. Trace is the Poisson Labs tool that
+checks whether a fix held:
 
 ```text
 plan  confirm 3 candidates against a control
@@ -98,7 +99,14 @@ The desk has no second try: one failed look-up ends the request.
 
 ## On your own agent
 
-Break needs your agent as a Python function it can call, with each tool wrapped once:
+A way in is how Break runs your agent and reaches its tools. This version has one, `rollout`:
+your agent as a Python function that Break calls once for each run, with each tool wrapped
+once.
+
+The function takes `cfg` and `seed` and returns an `Episode`. `cfg` is one case from your case
+file, as a mapping that holds the request under `input`. `seed` is the run's seed. `Episode` is
+Prove's record of one run, and Break reads the agent's own `outcome` from it. Prove is the
+Poisson Labs tool that tells you whether a difference is real.
 
 ```python
 from poisson_prove import Episode
