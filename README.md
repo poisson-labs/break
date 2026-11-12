@@ -134,7 +134,7 @@ key and no network against a scripted model.
 | `own-check` | a desk that always answers, with a check of the team's own | 3 findings judged by that check (`own:made_up`) |
 | `own-fault` | a desk, with a fault the team added to the catalogue | 1 finding: the desk falls over on an error page (`crashed`) |
 
-[The examples' page](https://github.com/poisson-labs/break/blob/main/examples/README.md) walks through each.
+[The examples page](https://github.com/poisson-labs/break/blob/main/examples/README.md) walks through each.
 
 ## The docs
 
