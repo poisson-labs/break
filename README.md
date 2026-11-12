@@ -1,6 +1,6 @@
 # Poisson Break
 
-Poisson Break finds where an AI agent fails. It runs the agent you already have, many times,
+Break finds where an AI agent fails. It runs the agent you already have, many times,
 while changing how its tools behave and what the user asks, and keeps the conditions under
 which the agent fails more often than it does with no change. Each one is a finding: a named
 condition you can replay, with the numbers behind it, that a fix can later be checked against.
@@ -57,7 +57,8 @@ changes to the request, did not. The line `not looked at` says what this hunt le
 
 Those three are candidates: a few runs each, and chosen because they failed. `confirm` runs
 each of them again on every case, three times, beside a control arm that runs the same cases
-with no change, and asks Poisson Trace whether the difference holds:
+with no change, and asks Trace whether the difference holds. Trace is the Poisson Labs tool
+that checks whether a fix held:
 
 ```text
 plan  confirm 3 candidates against a control
@@ -156,8 +157,7 @@ A hunt that finds nothing has shown that the conditions it tried, on the cases y
 not fail more than the control in the runs it had. It has not shown more than that, and Break
 does not say it has. A finding says the agent fails more under one named condition; it does not
 say how often that condition happens to you. Every test, interval and p-value Break prints
-beside a finding is computed by Poisson Trace or Poisson Prove; Break itself only counts runs
-and divides. Each finding prints the command that gives the full report. [What Break does not claim](https://github.com/poisson-labs/break/blob/main/docs/claims.md) sets the limits out.
+beside a finding is computed by Trace or Prove; Break itself only counts runs and divides. Each finding prints the command that gives the full report. [What Break does not claim](https://github.com/poisson-labs/break/blob/main/docs/claims.md) sets the limits out.
 
 ## Status
 
@@ -168,7 +168,7 @@ changes to the conversation and to the model's own calls, and a search that lear
 this version; the catalogue names what waits for them. It runs on macOS and Linux, on Python
 3.11 or later.
 
-Break depends on Poisson Prove and Poisson Trace, each at one exact version. Trace is not on
+Break depends on Prove and Trace, each at one exact version. Trace is not on
 PyPI yet, so for now the install takes it from its repository at one commit, which needs git
 and read access to `github.com/poisson-labs/trace`.
 
