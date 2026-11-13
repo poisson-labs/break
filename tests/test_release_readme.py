@@ -23,6 +23,8 @@ import re
 import shlex
 from pathlib import Path
 
+import pytest
+
 from tests.conftest import REPO, run_command
 from tests.release_docs import Command, blocks, break_verb, is_break_install, marked
 
@@ -204,3 +206,40 @@ def test_a_stored_run_holds_no_prompt_and_no_reply(tmp_path: Path) -> None:
     assert [text for text in said if text in rows] == []
     section = _sections()[SEE]
     assert "prompt" in section and "reply" in section
+
+
+OWN = "On your own agent"
+
+
+def test_on_your_own_agent_says_what_the_wrap_costs(tmp_path: Path,
+                                                    monkeypatch: pytest.MonkeyPatch) -> None:
+    """The section says what the one `wrap` line a tool costs, and each thing it says is so: the
+    line goes where the tool is defined, at the module's top level, and is found by importing the
+    module, while a tool wrapped inside a function is not; outside a run the wrapped tool is the
+    tool itself; an `async def` tool is refused. It names `init`, `poisson_break` and `async
+    def`, and points to Status for the adapters rather than saying it again."""
+    from poisson_break.apply import ToolRefused, wrap, wrapped_while
+
+    section = _sections()[OWN]
+    for words in ("`init`", "`poisson_break`", "`async def`", "where the tool is defined",
+                  "Status"):
+        assert words in section, words
+
+    (tmp_path / "readme_wrapped_agent.py").write_text(
+        "from poisson_break.apply import wrap\n\n"
+        "def _lookup(order):\n    return order\n\n"
+        "lookup = wrap('lookup', _lookup)\n\n"
+        "def later():\n    return wrap('inside', _lookup)\n", encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    assert wrapped_while("readme_wrapped_agent") == ("lookup",)
+
+    def plain(order: str) -> str:
+        return f"order {order}"
+
+    assert wrap("plain", plain)("4821") == plain("4821")
+
+    async def later(order: str) -> str:
+        return order
+
+    with pytest.raises(ToolRefused):
+        wrap("later", later)

@@ -157,6 +157,13 @@ def refund_agent(cfg, seed):
     return Episode(outcome="resolved", t=1.0, horizon=1.0, meta={"reply": reply})
 ```
 
+The `wrap` line is what this way in asks of your code. You write it yourself, once for each
+tool, where the tool is defined, at the top of its module, and not at each call. `init` does not
+add it: it finds the tools already wrapped by importing your module. The line makes your module
+import `poisson_break`. Outside a run the wrapped tool is the tool itself, so the line can stay
+in. A tool that is `async def` is refused. Adapters for agent frameworks and MCP servers are not
+in this version (see Status, below).
+
 Then, in the folder that holds it, `poisson-break init` asks where the agent is, where your
 test cases are, what each tool does when called, and what counts as a failure, and writes
 `break.toml`. `poisson-break doctor` checks that everything loads. `hunt` and `confirm` work as
