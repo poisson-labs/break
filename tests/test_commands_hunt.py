@@ -874,3 +874,45 @@ def test_under_json_a_hunt_lists_the_failing_conditions_it_left_out(crowded: tup
 def test_a_hunt_that_kept_every_failing_condition_says_nothing_was_left_out(found: tuple[Project, Any]) -> None:
     proj, ran = found
     assert not [line for line in detail(result_of(ran, "found")) if "left out" in line], ran.out
+
+
+# ---------------------------------------------------------------------------
+# the cases the search ran on
+# ---------------------------------------------------------------------------
+
+
+def cases_run(proj: Project, name: str) -> dict[str, int]:
+    """Each condition the search ran, with the number of cases it ran on, read from the search arm's rows."""
+    on_cases: dict[str, set[str]] = {}
+    for one in stored(proj, name, "search"):
+        cell = one["config"]
+        on_cases.setdefault(cell["condition"], set()).add(cell["case"])
+    return {condition: len(ran_on) for condition, ran_on in on_cases.items()}
+
+
+def test_the_search_line_counts_the_cases_that_ran_not_the_setting(tmp_path: Path) -> None:
+    """`cases_per_condition = 4` on three cases: every condition ran on the three there are, and the line says 3."""
+    proj = project(tmp_path, search={"cases_per_condition": 4, "runs": 60})
+    ran = cli(proj, "hunt", "--yes")
+    assert ran.exit == CODES["done"], ran
+    (name,) = hunt_names(proj)
+    counts = cases_run(proj, name)
+    assert set(counts.values()) == {3}, counts
+    search = row(result_of(ran, "found"), "search")
+    assert search.endswith(f"{len(counts)} conditions tried on 3 cases each"), search
+
+
+def test_the_search_line_says_in_words_when_conditions_ran_on_different_numbers_of_cases(tmp_path: Path) -> None:
+    """One case of three never looks the order up, so a change to the look-up runs on two cases and a change to the
+    policy on three: the line gives how many conditions ran on each number of cases, the most cases first."""
+    proj = project(tmp_path, [*cases(2, weak_to=["error"]), *cases(1, first=3, lookups=0)],
+                   search={"cases_per_condition": 3, "runs": 60})
+    ran = cli(proj, "hunt", "--yes")
+    assert ran.exit == CODES["done"], ran
+    (name,) = hunt_names(proj)
+    counts = cases_run(proj, name)
+    by_cases = {n: sum(1 for c in counts.values() if c == n) for n in sorted(set(counts.values()), reverse=True)}
+    assert list(by_cases) == [3, 2], counts
+    search = row(result_of(ran, "found"), "search")
+    assert search.endswith(f"{len(counts)} conditions tried, {by_cases[3]} on 3 cases each and {by_cases[2]} on 2 "
+                           "cases each"), search

@@ -1049,6 +1049,20 @@ def _coverage_line(settings: Settings, cover: Any) -> look.Line:
     return look.Line("not looked at: " + "; ".join(bits))
 
 
+def _tried(ran_on: Mapping[Condition, set[str]]) -> str:
+    """The conditions the search ran, by the number of cases each ran on: one number when every
+    condition ran on as many, and otherwise how many ran on each number, the most cases first."""
+    tried = f"{_n(len(ran_on), 'condition')} tried"
+    sizes = sorted({len(cases) for cases in ran_on.values()}, reverse=True)
+    if not sizes:
+        return tried
+    if len(sizes) == 1:
+        return f"{tried} on {_n(sizes[0], 'case')} each"
+    parts = [f"{look.fmt_count(sum(len(cases) == size for cases in ran_on.values()))} on "
+             f"{_n(size, 'case')} each" for size in sizes]
+    return f"{tried}, {', '.join(parts[:-1])} and {parts[-1]}"
+
+
 def _hunt_result(call: _Call, settings: Settings, hunt: Any, summary: Any, stage: Any,
                  found: Sequence[Condition], left_out: Sequence[Condition],
                  search_rows: Sequence[Any], shrink_rows: Sequence[Any]) -> look.Result:
@@ -1066,10 +1080,12 @@ def _hunt_result(call: _Call, settings: Settings, hunt: Any, summary: Any, stage
         fails = "case fails" if count == 1 else "cases fail"
         control_text += (f" · {look.fmt_count(count)} {fails} every time, set aside: "
                          f"{', '.join(summary.set_aside)}")
-    conditions = {row.condition for row in search_rows if row.condition.changes}
-    search_text = (f"{_n(len(search_rows), 'run')} · "
-                   f"{_n(len(conditions), 'condition')} tried on "
-                   f"{_n(settings.search.cases_per_condition, 'case')} each")
+    ran_on: dict[Condition, set[str]] = {}
+    for row in search_rows:
+        if row.condition.changes:
+            ran_on.setdefault(row.condition, set()).add(row.case)
+    conditions = set(ran_on)
+    search_text = f"{_n(len(search_rows), 'run')} · {_tried(ran_on)}"
     cover = coverage(stage.seen)
     cover_line = _coverage_line(settings, cover)
     detail: list[look.Row | look.Line | look.Table] = []
