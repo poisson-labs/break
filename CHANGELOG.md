@@ -56,6 +56,11 @@ Changed since the last development build:
   them. A tool that changes things, is not safe to repeat and has no stand-in is refused with
   the `init` command that leaves its stand-in to fill in, and never written `off`. Every flag
   still sets its value.
+- `init` takes only the kind `rollout`, and `break.toml` too, wherever it is read: any other
+  kind is refused before anything is written or run, in one line saying this version has only
+  the rollout way in, with the same `init` command and `--kind rollout` to run instead. No
+  `pip install` line is printed for an extra, since none exists; `settings.install_command`
+  is gone.
 - The package's version is 0.1.0, its status Alpha. An sdist is built beside the wheel and
   holds only the source, the tests, the docs, the examples, the scripts and the project's own
   files.
@@ -80,8 +85,7 @@ Everything in the release, module by module:
   flag; `--yes` takes every default and needs `--entry`. It writes `break.toml`, refuses to
   write over one without `--force`, writes `cases.jsonl` only when the starter file was asked
   for, and ends with the one command that writes the same file, which runs as printed with no
-  terminal; a kind whose adapter is not installed is still written, with the `pip install` line
-  first. A line it prints back (`--force`, `--entry MODULE:NAME`) is the user's own words.
+  terminal. A line it prints back (`--force`, `--entry MODULE:NAME`) is the user's own words.
 - `doctor` finds the first problem of the settings, the cases, the target, the strategy, the
   changes the way in cannot make, each tool line and stand-in and your own check, and says
   `not ready`, exit 4, in one line with the command to run next: `init` when there is no
@@ -111,9 +115,7 @@ Everything in the release, module by module:
 - `poisson_break.apply`: `wrapped_while(import_path)` names the tools wrapped while a module is
   imported, in order, each once. `poisson_break.hunt`: `run_once(settings, target=, case=)`
   runs one case once with no change, stored nowhere; a tool nobody classed raises
-  `ToolRefused`. `poisson_break.settings`: `install_command(kind)` is the `pip install` line
-  for a kind whose way in is not installed, or `None`; `load`'s refusal names the same line.
-  `poisson_break.hunt`: `Hunt.stored()` is every arm the hunt's store holds, by its word, with
+  `ToolRefused`. `poisson_break.hunt`: `Hunt.stored()` is every arm the hunt's store holds, by its word, with
   the rows Prove counts in it. `poisson_break.confirm`: `read_stages(hunt)` is each confirm
   stage written, a `Stage` with its arms' rows; `Replayed.error` carries a run not counted's
   one line of error; `read_findings(hunt)` reads every finding file in number order and
@@ -373,9 +375,9 @@ Everything in the release, module by module:
 - Reading, checking and writing settings run nobody's code: no framework is imported, and
   neither is the target, the strategy, a stand-in or your own check. Nothing here asks what a
   way in can do; that is refused before any run by what holds the target.
-- A `kind` whose way in is an optional extra (`openai-agents`, `langgraph`, `crewai`, `mcp`,
-  `command`) parses with `loads`, and `load` refuses it in one line naming the install command
-  until its module is there, found without importing it. The `adaptive` strategy parses and is
+- This version has one way in, `rollout`. A `kind` a later version will bring (`openai-agents`,
+  `langgraph`, `crewai`, `mcp`, `command`) parses with `loads`, and `load` refuses it in one
+  line saying this version has only the rollout way in. The `adaptive` strategy parses and is
   refused by `load` the same way.
 - `read_cases`: the case file, JSON Lines. A case needs only `input`, non-empty text; it may
   carry an `id`, an `expect` table (`reply_contains`, `calls`, `never_calls`), `variants` and

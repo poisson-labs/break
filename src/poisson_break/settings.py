@@ -22,10 +22,11 @@ form, ``module:name``, and whether the module is there is asked by what loads it
 run. Nothing here asks what a way in can do either: a conversation move for a kind that cannot
 play one reads, and is refused before any run by what holds the target.
 
-**What is not installed yet.** A ``kind`` whose way in is an optional extra parses, so a file
-written for it reads today; ``load`` refuses it in one line naming the install command, by
-looking for the way in's module without importing it, so the refusal lifts the day the module
-is there. The ``adaptive`` strategy is treated the same way.
+**What this version runs.** It has one way in, ``rollout``. ``loads`` still parses the other
+kinds a later version will bring, so the settings code knows them, and ``load``, which every
+command reads ``break.toml`` with, refuses any of them in one line saying this version has only
+the rollout way in. The ``adaptive`` strategy is refused the same way. Which module and extra
+each later way in will come as is kept for that version, and printed nowhere.
 
 **Cases.** ``read_cases`` reads a file of JSON Lines into a tuple of cases, each the mapping of
 its line with an ``id`` filled in. A case needs only ``input``, non-empty text. It may carry an
@@ -53,7 +54,6 @@ smallest number that fits.
 from __future__ import annotations
 
 import bisect
-import importlib.util
 import json
 import math
 import os
@@ -90,7 +90,6 @@ __all__ = [
     "INIT_FLAGS",
     "settings_from_init_args",
     "equivalent_init_command",
-    "install_command",
     "HuntPlan",
     "ConfirmPlan",
     "plan_hunt",
@@ -100,8 +99,9 @@ __all__ = [
 SCHEMA_VERSION = 1
 """The number ``init`` writes as ``version``. A file with a larger one is from a newer Break."""
 
-# The six kinds of target. The core ships the first; each of the rest is an optional extra,
-# found by the module its way in is built as and installed under the extra beside it.
+# The six kinds of target. This version runs the first; each of the rest is a way in a later
+# version will bring, with the module it will be built as and the extra it will come in.
+# `loads` parses them, `load` refuses them, and nothing a user reads names the extras.
 _KINDS = ("rollout", "openai-agents", "langgraph", "crewai", "mcp", "command")
 _WAYS_IN: Mapping[str, tuple[str, str]] = MappingProxyType({
     "openai-agents": ("poisson_break.adapters.openai_agents", "openai-agents"),
@@ -1347,43 +1347,19 @@ def _file_text(path: str | os.PathLike[str], what: str) -> tuple[str, str]:
         raise SettingsError(f"line {line} of {name} is not text in UTF-8", line=line) from None
 
 
-def _module_is_there(name: str) -> bool:
-    """Whether a module of this package can be found, without importing it."""
-    try:
-        return importlib.util.find_spec(name) is not None
-    except (ImportError, ValueError, AttributeError):
-        return False
-
-
-def install_command(kind: str) -> str | None:
-    """The ``pip install`` line that puts the way in for ``kind`` on this machine, when it is an
-    optional extra that is not installed; ``None`` for the core's own kind, and for a kind whose
-    way in is there. Looking for the way in imports nothing. The line is the one ``load``'s
-    refusal names, and the one ``init`` ends with for such a kind."""
-    if not isinstance(kind, str):
-        raise TypeError(f"a kind is a word, not {type(kind).__name__}")
-    if kind not in _WAYS_IN:
-        return None
-    module, extra = _WAYS_IN[kind]
-    if _module_is_there(module):
-        return None
-    return f"pip install 'poisson-break[{extra}]'"
-
-
 def load(path: str | os.PathLike[str]) -> Settings:
-    """The settings in a file, checked as ``loads`` checks them, and then for what is not
-    installed: a ``kind`` whose way in is an optional extra that is not there is refused in one
-    line naming the install command (``install_command``), and so is a strategy that is not
-    built yet. Looking for a way in imports nothing."""
+    """The settings in a file, checked as ``loads`` checks them, and then for what this version
+    runs: a ``kind`` other than the ones it has a way in for is refused in one line saying so,
+    and so is a strategy that is not built yet. Nothing is imported."""
     text, _ = _file_text(path, "settings file")
     settings, source = _read(text)
     kind = settings.target.kind
-    install = install_command(kind)
-    if install is not None:
+    if kind not in _RUN_HERE:
         at = ("target", "kind")
+        have = " and ".join(_RUN_HERE)
         raise SettingsError(
-            f'{source.named(at)} is "{kind}", and that way in is not installed: {install}',
-            key=_dotted(at), line=source.line(at))
+            f'{source.named(at)} is "{kind}", and this version of Break has only the {have} way '
+            f'in: set kind = "{_RUN_HERE[0]}"', key=_dotted(at), line=source.line(at))
     if settings.search.strategy in _NOT_BUILT:
         at = ("search", "strategy")
         raise SettingsError(

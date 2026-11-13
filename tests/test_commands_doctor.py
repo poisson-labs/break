@@ -161,12 +161,23 @@ def test_the_adaptive_strategy_is_not_ready(tmp_path: Path) -> None:
     not_ready(cli(project(tmp_path, search={"strategy": "adaptive"}), "doctor"))
 
 
-@pytest.mark.parametrize("kind", ["langgraph", "openai-agents", "mcp"])
-def test_a_kind_whose_way_in_is_not_installed_is_not_ready_naming_the_extra(tmp_path: Path, kind: str) -> None:
-    """BK4.7: the refusal names the extra to install."""
-    extra = {"langgraph": "langgraph", "openai-agents": "openai-agents", "mcp": "mcp"}[kind]
-    text = not_ready(cli(_kind(tmp_path, kind), "doctor"))
-    assert extra in text, text
+@pytest.mark.parametrize("verb", ["doctor", "hunt", "confirm", "recheck"])
+@pytest.mark.parametrize("kind", ["openai-agents", "langgraph", "crewai", "mcp", "command"])
+def test_a_kind_this_version_has_no_way_in_for_is_refused_saying_only_rollout(tmp_path: Path, kind: str,
+                                                                              verb: str) -> None:
+    """Taylor's yes on hands-on issue 17 (2026-11-13): `kind` in `break.toml` naming any kind but rollout is refused
+    before anything runs, in one line saying this version has only the rollout way in, and with no `pip install` line
+    for an extra that does not exist."""
+    proj = _kind(tmp_path, kind)
+    ran = cli(proj, verb, "--yes") if verb != "doctor" else cli(proj, verb)
+    if verb == "doctor":
+        not_ready(ran)
+        problem = verdict(ran)[1]
+    else:
+        problem = refused_once(ran, CODES["refused"])
+    assert "only the rollout way in" in problem and kind in problem and 'kind = "rollout"' in problem, problem
+    assert "pip" not in ran.out + ran.err, ran
+    assert proj.runs() == []
 
 
 def _kind(tmp_path: Path, kind: str) -> Any:

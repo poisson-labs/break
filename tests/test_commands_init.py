@@ -283,3 +283,34 @@ def test_the_commented_conversation_and_model_lines_say_they_need_a_way_in_this_
     for key in ("conversation", "model"):
         (line,) = [one for one in lines if one.startswith(f"# {key} = [")]
         assert line.rstrip().endswith("# needs a way in this version does not have"), line
+
+
+# ---------------------------------------------------------------------------
+# Taylor's yes on hands-on issue 17 (2026-11-13): this version takes only the kind rollout
+# ---------------------------------------------------------------------------
+
+OTHER_KINDS = ("openai-agents", "langgraph", "crewai", "mcp", "command")
+
+
+@pytest.mark.parametrize("given", ["apart", "joined"])
+@pytest.mark.parametrize("kind", OTHER_KINDS)
+def test_a_kind_this_version_has_no_way_in_for_is_refused_with_the_command_for_rollout(
+        tmp_path: Path, kind: str, given: str) -> None:
+    """`init --kind KIND` for any kind but rollout writes nothing and is refused in one line saying this version has
+    only the rollout way in; its `next:` is the same command with `--kind rollout`, and no `pip install` line is
+    printed for an extra that does not exist."""
+    proj = empty(tmp_path)
+    before = files_under(proj.folder)
+    kind_words = ["--kind", kind] if given == "apart" else [f"--kind={kind}"]
+    rest = ["--entry", "tests.commands_targets:desk", "--tool", 'lookup_order = "read"', "--tool",
+            'check_policy = "read"']
+    ran = cli(proj, "init", "--yes", *kind_words, *rest)
+    line = refused_once(ran, CODES["refused"])
+    assert "only the rollout way in" in line and kind in line, line
+    assert files_under(proj.folder) == before
+    assert "pip" not in ran.out + ran.err, ran
+    (command,) = nexts(ran)
+    rollout = ["--kind", "rollout"] if given == "apart" else ["--kind=rollout"]
+    assert shlex.split(command) == [PROG, "init", "--yes", *rollout, *rest], command
+    again = cli(proj, *shlex.split(command)[1:])
+    assert again.exit == CODES["done"], again

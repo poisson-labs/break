@@ -65,7 +65,6 @@ from poisson_break.settings import (
     SettingsError,
     dump,
     equivalent_init_command,
-    install_command,
     load,
     plan_confirm,
     plan_hunt,
@@ -2052,9 +2051,31 @@ def _init_example(call: _Call, name: str) -> int:
     return EXIT_DONE
 
 
+def _only_rollout(call: _Call) -> None:
+    """Refuse, before anything is asked or written, a ``--kind`` this version has no way in
+    for, with the same command and the kind it has."""
+    from poisson_break.hunt import WAYS_IN
+
+    kind = call.args.kind
+    if kind is None or kind in WAYS_IN:
+        return
+    have = " and ".join(WAYS_IN)
+    words: list[str] = []
+    for word in call.own_words:
+        if word == kind and words and words[-1] == "--kind":
+            word = _DEFAULT_KIND
+        elif word == f"--kind={kind}":
+            word = f"--kind={_DEFAULT_KIND}"
+        words.append(word)
+    raise look.Refused(f'--kind is "{kind}", and this version of Break has only the {have} way '
+                       f"in: give --kind {_DEFAULT_KIND}, or leave it out",
+                       nexts=(_ours(call.prog, *words),))
+
+
 def _init(call: _Call) -> int:
     if call.args.example is not None:
         return _init_example(call, str(call.args.example))
+    _only_rollout(call)
     path = Path(SETTINGS_FILE)
     if path.exists() and not call.args.force:
         raise look.Refused(f"{SETTINGS_FILE} is already here",
@@ -2063,9 +2084,6 @@ def _init(call: _Call) -> int:
     path.write_text(dump(settings), encoding="utf-8")
     look.note(REAL)
     nexts = []
-    install = install_command(kind)
-    if install is not None:
-        nexts.append(install)
     stated = [equivalent_init_command(settings, prog=call.prog)]
     if turns and not settings.vary.conversation:
         stated += ["--vary-conversation", look.word("[]")]
@@ -2073,7 +2091,7 @@ def _init(call: _Call) -> int:
     data = {"file": SETTINGS_FILE, "kind": settings.target.kind, "entry": settings.target.entry,
             "cases_file": settings.target.cases,
             "tools": [{"name": tool.name, "class": tool.tool_class} for tool in settings.tools],
-            "install": install}
+            "install": None}
     look.show(look.Result("wrote", SETTINGS_FILE, detail=_chosen(settings), nexts=tuple(nexts),
                           schema=_schema("init"), data=data))
     return EXIT_DONE

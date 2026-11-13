@@ -23,8 +23,8 @@ against the catalogue before the module that registers the fault is imported).
 
 **An example** is a folder directly under `examples/` holding `break.toml`, its cases and its
 agent; its `init --example` word is the folder's name; its way in is `[target] kind`. **A way in
-that exists** is one of spec §7.1's six kinds whose way in this Break has (`install_command` is
-`None`). **The full loop's fix** (definition D6, `evidence/bk11/open-points.md`): the folder holds,
+that exists** is one of spec §7.1's six kinds whose way in this Break has (`poisson_break.hunt.WAYS_IN`
+holds it). **The full loop's fix** (definition D6, `evidence/bk11/open-points.md`): the folder holds,
 beside the agent's module `<module>.py` (the module `[target] entry` names), `<module>_fixed.py`,
 the agent as fixed, and the fix is copying it over `<module>.py`.
 
@@ -101,9 +101,9 @@ def examples() -> dict[str, str]:
 
 
 def ways_in() -> list[str]:
-    from poisson_break.settings import install_command
+    from poisson_break.hunt import WAYS_IN
 
-    return [kind for kind in KINDS if install_command(kind) is None]
+    return [kind for kind in KINDS if kind in WAYS_IN]
 
 
 class Folder:

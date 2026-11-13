@@ -308,10 +308,10 @@ none of your modules: not the target, the strategy, a stand-in or your own check
 is checked for its form, `module:name`, and whether the module is there is asked by what loads
 it, before any run.
 
-**A way in that is not installed.** Five of the six kinds are optional extras, and none is in
-this version. A file that names one reads with `loads`, so it can be written today, and `load` refuses
-it in one line naming the install command, such as `pip install 'poisson-break[openai-agents]'`.
-The `adaptive` strategy is treated the same way.
+**One way in.** This version has only the `rollout` way in. `init --kind` with any other kind
+is refused before anything is written, with the same command and `--kind rollout` to run
+instead, and so is a `break.toml` whose `kind` is another, wherever it is read. The `adaptive`
+strategy is refused the same way.
 
 **Prices and the cap.** Without prices Break caps runs and time and shows no dollars. With both
 prices and no `dollars`, the cap is $5.00. A cap needs both prices, since it is counted from
