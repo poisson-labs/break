@@ -55,9 +55,8 @@ from poisson_break.changes import (
     ChangeError,
     Condition,
     InstrumentError,
-    check_capabilities,
+    NeedsAdapter,
     check_registered,
-    parse,
 )
 from poisson_break.changes import name as condition_name
 from poisson_break.settings import (
@@ -315,8 +314,9 @@ def build_parser(prog: str) -> argparse.ArgumentParser:
                                    f"default under --yes{nothing}")
     init.add_argument("--yes", action="store_true",
                       help="take every question's default without asking: tool behaviour and "
-                           "inputs yes, the conversation yes when a case has turns, the rest "
-                           "no; it needs --entry, which has no default")
+                           "inputs yes, the conversation yes when a case has turns and the way "
+                           "in can play one, the rest no; it needs --entry, which has no "
+                           "default")
     init.add_argument("--example", metavar="NAME",
                       help="write the example of this name into the folder, with its agent, its "
                            "cases and its settings, and ask nothing: "
@@ -539,6 +539,9 @@ def _open(call: _Call, settings: Settings, *, name: str | None, existing: bool,
     except HuntError as wrong:
         verb = "hunt" if existing and "no hunt named" in str(wrong) else "doctor"
         raise look.Refused(_one_line(wrong), nexts=(_ours(call.prog, verb),)) from None
+    except NeedsAdapter as wrong:
+        raise look.Refused(_one_line(wrong),
+                           nexts=_cannot_nexts(call, settings, cases, wrong)) from None
     except _refusals() as wrong:
         raise look.Refused(_one_line(wrong), nexts=(_ours(call.prog, "doctor"),)) from None
 
@@ -560,6 +563,20 @@ def _init_line(call: _Call, settings: Settings, cases: Iterable[Mapping[str, Any
     words += [look.word(word) for word in more]
     words += ["--yes", "--force"]
     return " ".join(words)
+
+
+def _cannot_nexts(call: _Call, settings: Settings, cases: Iterable[Mapping[str, Any]],
+                  wrong: NeedsAdapter) -> tuple[str, ...]:
+    """What to run when the way in cannot make what a line of ``[vary]`` asks for: the ``init``
+    command that writes the settings back as they are with that line emptied; ``doctor`` for a
+    change that came from no line of the settings."""
+    key = wrong.key or ""
+    table, _, line = key.partition(".")
+    if table != "vary" or not hasattr(settings.vary, line):
+        return (_ours(call.prog, "doctor"),)
+    emptied: dict[str, Any] = {line: ()}
+    mended = dataclasses.replace(settings, vary=dataclasses.replace(settings.vary, **emptied))
+    return (_init_line(call, mended, cases),)
 
 
 def _classing_line(call: _Call, settings: Settings, cases: Iterable[Mapping[str, Any]],
@@ -1654,7 +1671,7 @@ def _recheck(call: _Call) -> int:
 
 def _doctor(call: _Call) -> int:
     from poisson_break.apply import Session
-    from poisson_break.hunt import run_once
+    from poisson_break.hunt import check_vary, run_once
     from poisson_break.search import load_strategy
 
     args = call.args
@@ -1683,14 +1700,13 @@ def _doctor(call: _Call) -> int:
         load_strategy(settings.search.strategy)
         check_registered(settings.vary.tools)
         capabilities = target.capabilities()
-        for move in settings.vary.conversation:
-            check_capabilities(parse(f"user:{move}@1"), capabilities)
-        for fault in settings.vary.model:
-            check_capabilities(parse(f"model:{fault}#1"), capabilities)
+        check_vary(settings, capabilities, kind=getattr(target, "kind", None))
         Session(Condition(changes=()), seed=0, tools=_tool_lines(settings),
                 capabilities=capabilities)
         if settings.fails.own is not None:
             _loads_check(settings.fails.own)
+    except NeedsAdapter as wrong:
+        return problem(_one_line(wrong), _cannot_nexts(call, settings, cases, wrong))
     except _refusals() as wrong:
         return problem(_one_line(wrong), again)
     tools = [tool.name for tool in target.tools()]
@@ -1831,7 +1847,7 @@ class _Dialogue:
         self.tools(kind, entry)
         self.failures()
         turns = self.has_turns(cases_file)
-        self.may_change(turns)
+        self.may_change(kind, turns)
         self.runs()
         self.money()
         for flag, values in self.given.items():
@@ -1979,21 +1995,32 @@ class _Dialogue:
 
     # --- question 6: what Break may change
 
-    def may_change(self, turns: bool) -> None:
+    def may_change(self, kind: str, turns: bool) -> None:
+        """A surface the way in cannot reach is not asked about and is not varied. What it can
+        reach is the way in's own word, read without loading anything; for a kind this version
+        has no way in for, only what needs nothing of one is offered beside the tools."""
+        from poisson_break.hunt import way_in_can
+
+        can = way_in_can(kind)
         moves = ",".join(entry.name for entry in CATALOG if entry.surface == "user")
         faults = ",".join(entry.name for entry in CATALOG if entry.surface == "model")
-        surfaces: tuple[tuple[str, str, bool, bool], ...] = (
-            ("--vary-tools", "May Break change how the tools behave?", True, True),
-            ("--vary-inputs", "May Break change what the user asks?", True, True),
-            ("--vary-conversation", "May Break change the conversation?", True, turns),
-            ("--vary-model", "May Break change the model's calls?", False, True),
-            ("--env", "May Break change settings of your own?", False, True),
+        reaches = {"--vary-tools": can is None or can.tool_calls,
+                   "--vary-conversation": can is not None and can.conversation and turns,
+                   "--vary-model": can is not None and can.model_calls}
+        surfaces: tuple[tuple[str, str, bool], ...] = (
+            ("--vary-tools", "May Break change how the tools behave?", True),
+            ("--vary-inputs", "May Break change what the user asks?", True),
+            ("--vary-conversation", "May Break change the conversation?", True),
+            ("--vary-model", "May Break change the model's calls?", False),
+            ("--env", "May Break change settings of your own?", False),
         )
-        for flag, question, default, asked in surfaces:
+        for flag, question, default in surfaces:
             if flag in self.given:
                 self.put(flag, *self.given[flag])
                 continue
-            if not asked:
+            if not reaches.get(flag, True):
+                if flag == "--vary-tools":
+                    self.put(flag, "[]")
                 continue
             answer = self.ask_yes_no(question, default)
             if flag in ("--vary-tools", "--vary-inputs"):

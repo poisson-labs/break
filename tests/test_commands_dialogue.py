@@ -38,6 +38,10 @@ Taylor's rulings on points 31 to 40 (2026-11-07) settle the rest of the form, an
 - point 47: that command runs exactly as printed with no terminal, as §9.3's "non-interactive" says;
 - point 40: the install command is the one `poisson_break.settings.install_command` hands back.
 
+Taylor's yes on issue 12 (2026-11-13): `init` asks nothing the chosen way in cannot do, read from the way in's own
+capabilities. A rollout target is never asked about the model's calls or the conversation, so points 35, 36 and 43
+hold only for a way in that can make those changes, and none in this version can.
+
 Invariants held here (Break — Plan, the commands module): BK8.3 (the dialogue under scripted answers and the equivalent
 command produce byte-identical files, under both renderings), BK8.5 and BK8.12 (the menus use the look's question and
 run under scripted answers in both renderings).
@@ -125,8 +129,9 @@ def answering(classes: dict[str, list[str]], rest: list[str]) -> Any:
 
 
 # Question 1 takes the default (Enter), 2 the entry, 3 the default file, the starter file not asked (the file is
-# there); 5 an outcome and the own check; 6 the defaults of the four surfaces asked; 7 123 runs; 8 two prices; 9 $2.50.
-WHOLE = ["", ENTRY, "", "unresolved", "tests.commands_targets:unresolved", "", "", "", "", "123", "0.4", "0.4", "2.5"]
+# there); 5 an outcome and the own check; 6 the defaults of the three surfaces asked (a rollout target is not asked
+# about the model's calls); 7 123 runs; 8 two prices; 9 $2.50.
+WHOLE = ["", ENTRY, "", "unresolved", "tests.commands_targets:unresolved", "", "", "", "123", "0.4", "0.4", "2.5"]
 WHOLE_FLAGS = ["--kind", "rollout", "--entry", ENTRY, "--cases", "cases.jsonl",
                "--tool", 'lookup_order = "read"',
                "--tool", f'check_policy = {{ class = "write", stand_in = "{STAND_IN}" }}',
@@ -195,7 +200,7 @@ def test_the_dialogue_ends_with_wrote_and_the_command_that_writes_the_same_file(
 def test_the_two_renderings_ask_the_same_questions_in_the_same_order(
         plain: tuple[Any, Any, list[Asked]], pretty: tuple[Any, Any, list[Asked]]) -> None:
     assert plain[1].exit == pretty[1].exit == CODES["done"], (plain[1], pretty[1])
-    assert len(plain[2]) == 17
+    assert len(plain[2]) == 16
     assert [a.question for a in pretty[2]] == [a.question for a in plain[2]]
     assert [a.answer for a in pretty[2]] == [a.answer for a in plain[2]]
 
@@ -211,14 +216,15 @@ def test_the_dialogue_says_break_calls_your_tools_for_real(plain: tuple[Any, Any
 
 def test_the_prompts_come_in_section_9_3_s_order_one_per_question(plain: tuple[Any, Any, list[Asked]]) -> None:
     """With the cases file there, two tools found, one of them `write` with a stand-in, both prices given: question 1
-    a menu, 2 text, 3 text, 4 a menu per tool and for the write tool a menu and a text, 5 two texts, 6 four yes/nos
-    (no turns, so no conversation), 7 text, 8 two texts, 9 text."""
+    a menu, 2 text, 3 text, 4 a menu per tool and for the write tool a menu and a text, 5 two texts, 6 three yes/nos
+    (no turns, so no conversation, and a rollout target cannot reach the model's calls), 7 text, 8 two texts, 9
+    text."""
     _, _, asked = plain
     assert kinds_of_prompt(asked) == [
         "menu", "text", "text",
         "menu", "menu", "menu", "text",
         "text", "text",
-        "[Y/n]", "[Y/n]", "[y/N]", "[y/N]",
+        "[Y/n]", "[Y/n]", "[y/N]",
         "text", "text", "text", "text",
     ], [a.text for a in asked]
 
@@ -241,8 +247,8 @@ def test_the_defaults_are_section_9_3_s(plain: tuple[Any, Any, list[Asked]]) -> 
     assert brackets[2] == "[cases.jsonl]"
     tool_menus = [a for a in asked if set(a.menu) == {"read", "write", "off"}]
     assert [a.bracket for a in tool_menus] == ["[read]"] * len(tool_menus)
-    assert brackets[13] == "[400]"
-    assert brackets[16] == "[5.00]"
+    assert brackets[12] == "[400]"
+    assert brackets[15] == "[5.00]"
 
 
 def test_question_4_is_a_menu_read_write_off_per_tool_found_naming_the_tool(
@@ -334,46 +340,6 @@ def test_none_answered_to_the_outcomes_and_the_own_check_is_neither(tmp_path: Pa
     assert "--outcomes" not in printed and "--own-check" not in printed, printed
 
 
-def every_conversation_move() -> str:
-    """Point 43: every conversation move of the catalogue, in the catalogue's order, as `--vary-conversation` takes
-    them."""
-    from poisson_break.changes import CATALOG
-
-    return ",".join(e.name for e in CATALOG if e.surface == "user")
-
-
-def test_the_conversation_is_asked_only_when_a_case_has_turns_and_defaults_to_yes(tmp_path: Path) -> None:
-    """Question 6 asks one yes/no more when a case is a conversation, third of its five, and it is `[Y/n]` (point 36);
-    Enter takes it, and the file is the one `--vary-conversation` with every move of the catalogue writes, in the
-    catalogue's order (point 43)."""
-    from poisson_break.changes import CATALOG
-    from poisson_break.settings import loads
-
-    proj = empty(tmp_path, turns=True)
-    rest = ["", ENTRY, "", "", "", "", "", "", "", "", "", "", ""]
-    ran, asked = converse(proj, ["init"], answering(dict(CLASSES), rest))
-    assert ran.exit == CODES["done"], (ran, asked)
-    assert [a.bracket for a in asked if a.yes_no] == ["[Y/n]", "[Y/n]", "[Y/n]", "[y/N]", "[y/N]"], [a.text for a in
-                                                                                                      asked]
-    text = proj.settings.read_text(encoding="utf-8")
-    assert loads(text).vary.conversation == tuple(e.name for e in CATALOG if e.surface == "user")
-    words = ["--kind", "rollout", "--entry", ENTRY, "--cases", "cases.jsonl", "--tool", 'lookup_order = "read"',
-             "--tool", f'check_policy = {{ class = "write", stand_in = "{STAND_IN}" }}',
-             "--vary-conversation", every_conversation_move()]
-    assert text == expected(words)
-
-
-def test_the_conversation_answered_no_is_not_varied(tmp_path: Path) -> None:
-    proj = empty(tmp_path, turns=True)
-    rest = ["", ENTRY, "", "", "", "", "", "n", "", "", "", "", ""]
-    ran, asked = converse(proj, ["init"], answering(dict(CLASSES), rest))
-    assert ran.exit == CODES["done"], (ran, asked)
-    assert [a.answer for a in asked if a.yes_no] == ["", "", "n", "", ""]
-    words = ["--kind", "rollout", "--entry", ENTRY, "--cases", "cases.jsonl", "--tool", 'lookup_order = "read"',
-             "--tool", f'check_policy = {{ class = "write", stand_in = "{STAND_IN}" }}']
-    assert proj.settings.read_text(encoding="utf-8") == expected(words)
-
-
 # ---------------------------------------------------------------------------
 # each question skipped when its flag was given
 # ---------------------------------------------------------------------------
@@ -394,12 +360,12 @@ def test_with_every_question_s_flag_given_nothing_is_asked(tmp_path: Path) -> No
 def test_a_flag_given_skips_its_question_and_only_its_own(tmp_path: Path) -> None:
     """`--kind` and `--runs` given: question 1's menu and question 7's `[400]` are not asked; the rest are."""
     proj = empty(tmp_path)
-    rest = [ENTRY, "", "", "", "", "", "", "", "", ""]
+    rest = [ENTRY, "", "", "", "", "", "", "", ""]
     ran, asked = converse(proj, ["init", "--kind", "rollout", "--runs", "77"], answering(dict(CLASSES), rest))
     assert ran.exit == CODES["done"], (ran, asked)
     assert not any(a.is_menu and len(a.menu) == 6 for a in asked)
     assert "[400]" not in [a.bracket for a in asked]
-    assert sum(a.yes_no for a in asked) == 4
+    assert sum(a.yes_no for a in asked) == 3
     words = ["--kind", "rollout", "--entry", ENTRY, "--cases", "cases.jsonl", "--tool", 'lookup_order = "read"',
              "--tool", f'check_policy = {{ class = "write", stand_in = "{STAND_IN}" }}', "--runs", "77"]
     assert proj.settings.read_text(encoding="utf-8") == expected(words)
@@ -612,18 +578,52 @@ def test_init_yes_takes_every_default_the_yes_no_ones_as_no(tmp_path: Path, stre
     assert (vary.model, vary.env, vary.conversation) == ((), (), ())
 
 
-def test_init_yes_with_conversations_takes_the_conversation_s_default_yes(tmp_path: Path) -> None:
-    """Points 31, 36 and 43: the conversation's default is yes, so `--yes` turns it on with every conversation move of
-    the catalogue, in the catalogue's order, and nothing else."""
-    from poisson_break.changes import CATALOG
+def test_init_yes_with_conversations_leaves_the_conversation_alone_for_a_way_in_that_cannot_play_one(
+        tmp_path: Path) -> None:
+    """The conversation's default is yes only where the way in can play a conversation's turns; the rollout way in
+    cannot, so `--yes` with a case that has turns varies nothing of the conversation, and nothing else is turned on."""
     from poisson_break.settings import loads
 
     proj = empty(tmp_path, turns=True)
     ran = cli(proj, "init", "--yes", "--entry", ENTRY)
     assert ran.exit == CODES["done"], ran
     vary = loads(proj.settings.read_text(encoding="utf-8")).vary
-    assert vary.conversation == tuple(e.name for e in CATALOG if e.surface == "user")
-    assert (vary.model, vary.env) == ((), ())
+    assert (vary.conversation, vary.model, vary.env) == ((), (), ())
+
+
+def test_init_asks_nothing_the_way_in_cannot_do(tmp_path: Path) -> None:
+    """The rollout way in cannot reach the model's own calls or play a conversation's turns: with a case that has turns,
+    `init` asks about neither, though each would be answered yes, and the file varies neither, asked or under `--yes`.
+    What the way in can do is its own word, not a kind's name."""
+    from poisson_break.hunt import RolloutTarget
+    from poisson_break.settings import loads
+
+    proj = empty(tmp_path, turns=True)
+    pending: list[str] = []
+
+    def answer(asked: Asked) -> str:
+        if pending:
+            return pending.pop(0)
+        tools = [t for t in CLASSES if t in asked.question]
+        if asked.is_menu and tools and set(asked.menu) == {"read", "write", "off"}:
+            first, *more = CLASSES[tools[0]]
+            pending.extend(more)
+            return first
+        if "Where is it" in asked.question:
+            return ENTRY
+        return "y" if asked.yes_no else ""
+
+    ran, asked = converse(proj, ["init"], answer)
+    assert ran.exit == CODES["done"], (ran, asked)
+    questions = [a.question for a in asked]
+    assert not [q for q in questions if "model" in q or "conversation" in q], questions
+    vary = loads(proj.settings.read_text(encoding="utf-8")).vary
+    assert (vary.model, vary.conversation) == ((), ())
+    other = empty(tmp_path / "yes", turns=True)
+    assert cli(other, "init", "--yes", "--entry", ENTRY).exit == CODES["done"]
+    vary = loads(other.settings.read_text(encoding="utf-8")).vary
+    assert (vary.model, vary.conversation) == ((), ())
+    assert not RolloutTarget.CAN.model_calls and not RolloutTarget.CAN.conversation
 
 
 # ---------------------------------------------------------------------------
@@ -780,14 +780,12 @@ def test_question_2_with_stdin_ending_first_is_the_look_s_refusal(tmp_path: Path
 # ---------------------------------------------------------------------------
 
 
-def test_a_yes_to_model_calls_and_to_settings_of_one_s_own(tmp_path: Path) -> None:
-    """Model calls yes: every model fault of the catalogue. Settings of one's own yes: one text prompt per setting, in
-    `--env`'s form, until an empty answer; then question 7."""
-    from poisson_break.changes import CATALOG
-
+def test_a_yes_to_settings_of_one_s_own(tmp_path: Path) -> None:
+    """Settings of one's own yes: one text prompt per setting, in `--env`'s form, until an empty answer; then question
+    7. A rollout target is not asked about the model's calls."""
     proj = empty(tmp_path)
     inventory, region = 'inventory = ["full", "empty"]', 'region = ["eu", "us"]'
-    rest = ["", ENTRY, "", "", "", "", "", "y", "y", inventory, region, "", "", "", ""]
+    rest = ["", ENTRY, "", "", "", "", "", "y", inventory, region, "", "", "", ""]
     ran, asked = converse(proj, ["init"], answering(dict(CLASSES), rest))
     assert ran.exit == CODES["done"], (ran, asked)
     at = next(i for i, a in enumerate(asked) if a.answer == inventory)
@@ -798,10 +796,9 @@ def test_a_yes_to_model_calls_and_to_settings_of_one_s_own(tmp_path: Path) -> No
     assert asked[at + 3].bracket == "[400]"
     numbered = numbered_questions(asked)
     assert numbered == sorted(numbered) and set(numbered) == set(range(1, 9)), numbered
-    model = ",".join(e.name for e in CATALOG if e.surface == "model")
     words = ["--kind", "rollout", "--entry", ENTRY, "--cases", "cases.jsonl", "--tool", 'lookup_order = "read"',
              "--tool", f'check_policy = {{ class = "write", stand_in = "{STAND_IN}" }}',
-             "--vary-model", model, "--env", inventory, "--env", region]
+             "--env", inventory, "--env", region]
     assert proj.settings.read_text(encoding="utf-8") == expected(words)
 
 
@@ -821,22 +818,19 @@ def taking_every_default(asked: Asked) -> str:
     return ""
 
 
-HOWS = ["turns, the dialogue's yes", "turns, the dialogue's no", "turns, init --yes", "turns, one move by flag",
-        "no turns, init --yes"]
+HOWS = ["turns, the dialogue", "turns, init --yes", "turns, one move by flag", "no turns, init --yes"]
 
 
 def first_init(tmp_path: Path, how: str) -> tuple[Any, list[str]]:
-    """`init` in a project whose case has turns, the conversation answered yes or no, taken by `--yes`, or given one
-    move by its flag; or, beside them, a case with no turns. Hands back the project and the command `init` printed, as
+    """`init` in a project whose case has turns, through the dialogue (a rollout target is not asked about the
+    conversation), taken by `--yes`, or given one move by its flag; or, beside them, a case with no turns. Hands back the project and the command `init` printed, as
     words; where a case has turns, the command says `--vary-conversation` itself (point 46)."""
     turns = how.startswith("turns")
     proj = empty(tmp_path / "first", turns=turns)
     default = ["", ENTRY, "", "", "", "", "", "", "", "", "", "", ""]
-    if how == "turns, the dialogue's yes":
+    if how == "turns, the dialogue":
         ran, asked = converse(proj, ["init"], answering(dict(CLASSES), default))
-    elif how == "turns, the dialogue's no":
-        ran, asked = converse(proj, ["init"], answering(dict(CLASSES), [*default[:7], "n", *default[8:]]))
-        assert [a.answer for a in asked if a.yes_no] == ["", "", "n", "", ""], [a.text for a in asked]
+        assert not [a for a in asked if "conversation" in a.question], [a.text for a in asked]
     elif how == "turns, one move by flag":
         ran = cli(proj, "init", "--yes", "--entry", ENTRY, "--vary-conversation", "interrupts")
     else:

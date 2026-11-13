@@ -55,10 +55,11 @@ first); where it is (`module:name`, imported to find its tools, never run); wher
 outside your test environment (`read`, `write`, `off`; a `write` tool is asked whether it is
 safe to repeat or has a stand-in); what counts as a failure; what Break may change (tool
 behaviour and inputs yes, the conversation when a case has turns, model calls and settings of
-your own no); how many runs a hunt may use; what your model's tokens cost; and, with prices,
-the most a hunt may spend. `--yes` takes every question's default and asks nothing: tool
-behaviour and inputs yes, the conversation yes when a case has turns, and model calls, settings
-of your own and the starter file no. Where the agent is has no default, so `--yes` needs
+your own no), asking only about what the way in can reach, so a `rollout` target is never asked
+about the conversation or the model's calls; how many runs a hunt may use; what your model's
+tokens cost; and, with prices, the most a hunt may spend. `--yes` takes every question's default
+and asks nothing: tool behaviour and inputs yes, the conversation yes when a case has turns and
+the way in can play one, and model calls, settings of your own and the starter file no. Where the agent is has no default, so `--yes` needs
 `--entry`. Every answer has a flag, listed under `init`'s flags below, and `init` ends with the
 one command that writes the same file. It runs as printed with no terminal in a folder that has
 no `break.toml`; where one is already there, add `--force`.
@@ -221,7 +222,7 @@ the whole file, and every line that is commented out is a setting that is off.
 version = 1
 
 [target]
-kind = "rollout"                    # rollout | openai-agents | langgraph | crewai | mcp | command
+kind = "rollout"                    # rollout
 entry = "my_app.agents:refund_agent"
 cases = "cases.jsonl"
 
@@ -255,7 +256,7 @@ max_call = 3                        # the latest call to a tool that a fault may
 # inventory = ["full", "empty"]
 
 [search]
-strategy = "screen"                 # screen | random | adaptive | module:Name (a strategy of your own)
+strategy = "screen"                 # screen | random | module:Name (a strategy of your own)
 runs = 400
 control_repeats = 5
 cases_per_condition = 4

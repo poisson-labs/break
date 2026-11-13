@@ -169,6 +169,9 @@ next: poisson-break hunt
 Break reaches a rollout target's tools and its request. It does not sit between the agent and
 its model, and it does not play a conversation's turns. So two kinds of change in the catalogue
 are refused for a rollout target before any run: the conversation moves and the model faults.
-They wait for adapters that are not in this version. An agent that is not reachable as a Python
+They wait for adapters that are not in this version. `init` does not ask about them, and when
+`[vary] conversation` or `[vary] model` in `break.toml` names one, `doctor`, `hunt`, `confirm`
+and `recheck` each say which line to empty and print the `init` command that writes the file
+with it emptied. An agent that is not reachable as a Python
 function, such as one behind an HTTP service, also needs a way in this version does not have.
 [Adding a way in](../extending/way-in.md) gives the interface one is written against.

@@ -115,6 +115,11 @@ _WAYS_IN: Mapping[str, tuple[str, str]] = MappingProxyType({
 _STRATEGIES = ("screen", "random", "adaptive")
 _NOT_BUILT = ("adaptive",)
 
+# What the comments of the file this version writes offer: the kinds it has a way in for, and the
+# strategies it has built.
+_RUN_HERE = tuple(kind for kind in _KINDS if kind not in _WAYS_IN)
+_BUILT = tuple(strategy for strategy in _STRATEGIES if strategy not in _NOT_BUILT)
+
 _CLASSES = ("read", "write", "off")
 _LINE_KEYS = ("class", "repeatable", "stand_in")
 _EXPECTATIONS = ("reply_contains", "calls", "never_calls")
@@ -347,7 +352,7 @@ class _Key:
 # Forms: "text" (a string), "words" (a list of strings), "whole" (a whole number), "time" (a
 # number of seconds or hours), "decimal" (a share, a price or a cap).
 _KEYS: tuple[_Key, ...] = (
-    _Key("target", "kind", "--kind", "text", comment=" | ".join(_KINDS)),
+    _Key("target", "kind", "--kind", "text", comment=" | ".join(_RUN_HERE)),
     _Key("target", "entry", "--entry", "text"),
     _Key("target", "cases", "--cases", "text"),
     _Key("fails", "checks", "--checks", "words"),
@@ -375,7 +380,7 @@ _KEYS: tuple[_Key, ...] = (
     _Key("vary", "max_call", "--max-call", "whole",
          comment="the latest call to a tool that a fault may land on"),
     _Key("search", "strategy", "--strategy", "text",
-         comment="screen | random | adaptive | module:Name (a strategy of your own)"),
+         comment=" | ".join(_BUILT) + " | module:Name (a strategy of your own)"),
     _Key("search", "runs", "--runs", "whole"),
     _Key("search", "control_repeats", "--control-repeats", "whole"),
     _Key("search", "cases_per_condition", "--cases-per-condition", "whole"),

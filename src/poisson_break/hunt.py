@@ -68,7 +68,15 @@ from poisson_prove.store import EpisodeRecord, RunManifest, Store, StoreError, c
 
 from poisson_break import __version__, records
 from poisson_break.apply import RunOutOfTime, RunResult, Session, ToolInfo, ToolRefused
-from poisson_break.changes import Change, ChangeError, Condition, InstrumentError, marker, parse
+from poisson_break.changes import (
+    Change,
+    ChangeError,
+    Condition,
+    InstrumentError,
+    NeedsAdapter,
+    marker,
+    parse,
+)
 from poisson_break.changes import check_capabilities as _check_capabilities
 from poisson_break.changes import check_registered as _check_registered
 from poisson_break.changes import name as _name_of
@@ -92,6 +100,9 @@ __all__ = [
     "HuntError",
     "Target",
     "RolloutTarget",
+    "WAYS_IN",
+    "way_in_can",
+    "check_vary",
     "load_target",
     "Limits",
     "ToolInfo",
@@ -285,6 +296,8 @@ class RolloutTarget:
 
     kind = "rollout"
     framework_versions: Sequence[str] = ()
+    #: What every rollout target can do, read without making one: route the tool calls.
+    CAN: Final = Capabilities(tool_calls=True, model_calls=False, conversation=False)
 
     def __init__(self, fn: Callable[[Mapping[str, Any], int], Any], *,
                  tools: Iterable[str]) -> None:
@@ -305,7 +318,7 @@ class RolloutTarget:
         return [ToolInfo(name=tool) for tool in self._tools]
 
     def capabilities(self) -> Capabilities:
-        return Capabilities(tool_calls=True, model_calls=False, conversation=False)
+        return self.CAN
 
     def run(self, case: Mapping[str, Any], session: Session, *, seed: int,
             limits: Limits) -> RunResult:
@@ -322,6 +335,18 @@ class RolloutTarget:
             tokens_out=said.get("tokens_out"),
             ended="limit" if said.get("ended") == "limit" else "returned",
         )
+
+
+WAYS_IN: Final[Mapping[str, type[RolloutTarget]]] = MappingProxyType({
+    RolloutTarget.kind: RolloutTarget})
+"""Each kind this version has a way in for, by the name the settings file uses, and its class."""
+
+
+def way_in_can(kind: str) -> Capabilities | None:
+    """What the way in for ``kind`` can do, read from its class, so nothing is loaded or run;
+    ``None`` for a kind this version has no way in for."""
+    way_in = WAYS_IN.get(kind)
+    return None if way_in is None else way_in.CAN
 
 
 def _is_import_path(text: str) -> bool:
@@ -652,9 +677,29 @@ def _asked_of(target: Target, settings: Settings) -> tuple[tuple[str, ...], Capa
             raise HuntError(f'the agent has the tool "{tool}", and [tools] has no line for it: '
                             "class it read, write or off")
     _check_registered(settings.vary.tools)
-    for change in _varied(settings):
-        _check_capabilities(Condition(changes=(change,)), capabilities)
+    check_vary(settings, capabilities, kind=getattr(target, "kind", None))
     return listed, capabilities
+
+
+#: The line of ``[vary]`` the changes of each surface come from.
+_VARY_LINES = {"tool": "tools", "user": "conversation", "model": "model"}
+
+
+def check_vary(settings: Settings, capabilities: Capabilities, *,
+               kind: str | None = None) -> None:
+    """Refuse, before any run, a ``[vary]`` entry the way in cannot make: ``NeedsAdapter``
+    naming the change at its first position, the line of ``break.toml`` it comes from (its
+    ``key``, such as ``vary.model``), and what to write there. ``kind`` names the way in."""
+    for change in _varied(settings):
+        try:
+            _check_capabilities(Condition(changes=(change,)), capabilities)
+        except NeedsAdapter as wrong:
+            line = _VARY_LINES[change.surface]
+            way_in = f"the {kind} way in" if isinstance(kind, str) and kind else "this way in"
+            raise NeedsAdapter(
+                f'[vary] {line} in break.toml asks for "{wrong.change}", and {way_in} cannot '
+                f"{wrong.doing or 'make it'}: set {line} = [] under [vary]",
+                change=wrong.change, doing=wrong.doing, key=f"vary.{line}") from None
 
 
 def _varied(settings: Settings) -> Iterator[Change]:

@@ -41,6 +41,12 @@ Changed since the last development build:
 - `none`, given to `--outcomes` or `--own-check` or answered to their questions, means no
   outcome counts as a failure and there is no check of your own. It was written as an outcome
   named "none", and refused as a check's import path.
+- `init` asks only about what the way in can reach, read from the way in itself: a `rollout`
+  target is not asked whether Break may change the model's calls or the conversation, and
+  `--yes` varies neither for it. `break.toml`'s comments list only the kind and the strategies
+  this version runs. A `[vary]` line the way in cannot make is named, in `doctor`, `hunt`,
+  `confirm` and `recheck` alike, with what to write there, and the command printed under it is
+  the `init` command that writes the file with that line emptied.
 - The package's version is 0.1.0, its status Alpha. An sdist is built beside the wheel and
   holds only the source, the tests, the docs, the examples, the scripts and the project's own
   files.

@@ -256,3 +256,18 @@ def test_none_given_to_outcomes_and_own_check_is_no_outcomes_and_no_own_check(tm
     assert proj.settings.read_text(encoding="utf-8") == expected(TARGET)
     command = printed_command(ran)
     assert "--outcomes" not in command and "--own-check" not in command, command
+
+
+def test_the_file_names_only_the_ways_in_and_the_strategies_this_version_runs(tmp_path: Path) -> None:
+    """The comments beside `kind` and `strategy` list what this version can run: the kinds it has a way in for, and the
+    strategies it has built, beside a strategy of your own."""
+    import re
+
+    proj = empty(tmp_path)
+    assert cli(proj, "init", "--yes", *TARGET).exit == CODES["done"]
+    text = proj.settings.read_text(encoding="utf-8")
+    kind = re.search(r"^kind = .*#\s*(.*)$", text, re.MULTILINE)
+    strategy = re.search(r"^strategy = .*#\s*(.*)$", text, re.MULTILINE)
+    assert kind is not None and strategy is not None, text
+    assert kind.group(1) == "rollout", kind.group(0)
+    assert strategy.group(1) == "screen | random | module:Name (a strategy of your own)", strategy.group(0)
