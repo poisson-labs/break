@@ -13,8 +13,9 @@ Invariants held here (Break — Plan, the commands module; spec §9.1, §9.2, §
 - §5.5    Per candidate, its verdict; the numbers on a line are Trace's, as the look prints them; too small to tell
           carries the repeats that would decide; a finished stage asked again runs nothing and gives the same answer;
           `--repeats N` asks again about what was too small to tell.
-- trace#31 (open): a stage whose control arm and one candidate's arm hold no failed run is no answer from Trace; the
-          command reports it as the confirm module refuses it, in one line with a refusal's exit code, not as a crash.
+- trace#31 (fixed in Trace 0.1.0a1, the pin): a stage whose control arm and one candidate's arm hold no failed run
+          is answered, that candidate too small to tell. No answer from Trace, which the stand-in still gives, is
+          reported as the confirm module refuses it, in one line with a refusal's exit code, not as a crash.
 
 Taylor's rulings on BK8's open points (2026-11-07), held here: under `--json` only the result's document (point 6);
 no answer from Trace exits 1 (point 8); "start?" answered no runs nothing, exits 0 and says `stopped  nothing was run`
@@ -461,19 +462,39 @@ def test_the_stand_in_answers_the_same_stage_when_nothing_is_wrong(tmp_path: Pat
 
 
 # ---------------------------------------------------------------------------
-# trace#31: no answer from Trace when neither arm failed
+# trace#31: neither arm failed, and no answer from Trace
 # ---------------------------------------------------------------------------
 
 
-def test_no_answer_from_trace_is_one_refusal_line_not_a_crash(tmp_path: Path) -> None:
-    """A desk that never fails but under `error`: the control arm and `timeout`'s arm hold no failed run, and the pinned
-    Trace refuses `--event failed` for them (poisson-labs/trace#31). The confirm module refuses the stage as no answer
-    from Trace, with the runs kept and no finding written; the command prints that refusal as one `error:` line and
-    exits as a refusal does. No traceback, no errors log, and no result but the plan on stdout."""
+def test_a_stage_where_neither_arm_failed_is_answered_by_the_pinned_trace(tmp_path: Path) -> None:
+    """A desk that never fails but under `error`: the control arm and `timeout`'s arm hold no failed run. The pinned
+    Trace answers `--event failed` for them (poisson-labs/trace#31, fixed in 0.1.0a1; before it Trace refused the
+    event and the stage had no answer): `timeout` is too small to tell, with the repeats that would decide, and `error`
+    is confirmed and written as the one finding."""
     proj = project(tmp_path, SOUND)
     proj.write(case_list=cases(3, weak_to=["error"]))
     prepared(proj, (on("error"), on("timeout")))
     ran = cli(proj, "confirm", "--yes")
+    assert ran.exit == CODES["done"], ran
+    assert not errors(ran), ran
+    assert "Traceback" not in ran.err
+    by_condition = {line.split()[1]: line for line in out_lines(ran) if line.split()[:1] in (["1"], ["2"])}
+    assert "confirmed" in by_condition[on("error")], ran
+    assert "too small to tell" in by_condition[on("timeout")], ran
+    assert re.search(r"\d+ repeats would decide", by_condition[on("timeout")]), ran
+    assert sorted(p.name for p in (proj.hunt("desk-1") / "findings").iterdir()) == ["1.toml"]
+    assert {"desk-1-confirm-control", "desk-1-confirm-1", "desk-1-confirm-2"} <= set(store_runs(proj, "desk-1"))
+
+
+def test_no_answer_from_trace_is_one_refusal_line_not_a_crash(tmp_path: Path) -> None:
+    """The same desk asked of the stand-in, which holds no recorded document for these counts and so prints no JSON:
+    no answer from Trace. The confirm module refuses the stage as no answer from Trace, with the runs kept and no
+    finding written; the command prints that refusal as one `error:` line and exits as a refusal does. No traceback,
+    no errors log, and no result but the plan on stdout."""
+    proj = project(tmp_path, SOUND)
+    proj.write(case_list=cases(3, weak_to=["error"]))
+    prepared(proj, (on("error"), on("timeout")))
+    ran = cli(proj, "confirm", "--yes", **stand_in(proj, tmp_path))
     assert ran.exit == CODES["refused"], ran
     assert len(errors(ran)) == 1, ran
     assert "Traceback" not in ran.err
