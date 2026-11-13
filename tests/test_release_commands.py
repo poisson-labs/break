@@ -5,13 +5,13 @@ Invariant held here (Break — Plan, the release pass):
 - BK11.1  Every command the README and docs show runs in CI from the installed wheel, outside
           the checkout.
 
-How a command is marked, and how the clean-install job takes the marked commands, is written
-in `tests/release_docs.py` (rules 1 to 7). Here: every page a user reads marks its commands by
-those rules; the clean-install script lists exactly the commands the pages mark, with the wheel
-put in place of the requirement in an install; and a shell block that is not marked, in each
-form it can take, is refused by the script, naming the file and the line of its fence. That the
-listed commands then run, and pass, is the clean-install job's own run in CI, whose results name
-each command by its file and line.
+How a command is marked, and how the clean-install job takes the marked commands, is written in
+`tests/release_docs.py` (rules 1 to 7, and 9 for a file a page writes). Here: every page a user
+reads marks its commands by those rules; the clean-install script lists exactly the commands
+the pages mark, with the wheel put in place of the requirement in an install; and a shell block
+that is not marked, in each form it can take, is refused by the script, naming the file and the
+line of its fence. That the listed commands then run, and pass, is the clean-install job's own
+run in CI, whose results name each command by its file and line.
 """
 
 from __future__ import annotations
@@ -29,6 +29,7 @@ from tests.release_docs import (
     blocks,
     commands_of,
     exit_of,
+    file_of,
     marked,
     problems,
     runs,
@@ -263,3 +264,81 @@ def test_a_page_under_examples_is_read_too(wheel: Path, tmp_path: Path) -> None:
     done = list_commands(root2, wheel, tmp_path)
     assert done.returncode == 1
     assert done.stderr.startswith("examples/desk/README.md:3: ")
+
+
+# ---------------------------------------------------------------------------
+# a file the page writes (rule 9)
+# ---------------------------------------------------------------------------
+
+FILES = '''# A page that writes its files
+
+```sh
+mkdir shop
+cd shop
+```
+
+```python file=shop.py
+STOCK = {"dune": 3}
+
+
+def shop(cfg, seed):
+    return STOCK
+```
+
+```json file=cases.jsonl
+{"id": "dune", "input": "Can you hold dune for me?"}
+```
+
+```sh
+cat shop.py cases.jsonl
+```
+'''
+
+
+def test_a_file_block_is_listed_where_it_stands_and_what_runs_writes_it(wheel: Path,
+                                                                      tmp_path: Path) -> None:
+    """Rule 9: a block tagged `LANGUAGE file=NAME` is a file the page writes. It is listed among
+    the page's commands at the first line of its content, with `kind` `file`, its lines as
+    `command`, and as `runs` the shell text that writes them to NAME; run in the page's one
+    shell, that text writes the block's lines, each ended by a line break, into the folder the
+    shell is in, before the next command. The listing and the rules in `release_docs` agree."""
+    root = planted_tree(tmp_path, GOOD_README, {"docs/files.md": FILES})
+    done = list_commands(root, wheel, tmp_path)
+    assert done.returncode == 0, done.stderr
+    listed = [e for e in json.loads(done.stdout) if e["file"] == "docs/files.md"]
+    assert [(e["line"], e["kind"]) for e in listed] == [
+        (4, "sh"), (5, "sh"), (9, "file"), (17, "file"), (21, "sh")]
+    shown = blocks(FILES, "docs/files.md")
+    assert [b for b in shown if problems(b)] == []
+    files = [b for b in shown if b.language != "sh"]
+    assert [e["command"] for e in listed if e["kind"] == "file"] == ["\n".join(b.lines) for b in files]
+    expected = [c for b in shown for c in (commands_of(b) if b.info == "sh" else [file_of(b)])]
+    assert [(e["line"], e["kind"], e["command"]) for e in listed] == \
+        [(c.line, c.kind, c.command) for c in expected]
+    assert [e["runs"] for e in listed] == [runs(c, str(wheel)) for c in expected]
+    assert [e["exit"] for e in listed] == [0] * 5
+
+    here = tmp_path / "page"
+    here.mkdir()
+    ran = subprocess.run(["bash", "-e", "-c", "\n".join(e["runs"] for e in listed)], cwd=here,
+                         capture_output=True, text=True, timeout=60)
+    assert ran.returncode == 0, ran.stderr
+    for block, name in zip(files, ("shop.py", "cases.jsonl"), strict=True):
+        assert (here / "shop" / name).read_text(encoding="utf-8") == "\n".join(block.lines) + "\n"
+    assert ran.stdout == "".join("\n".join(b.lines) + "\n" for b in files)
+
+
+@pytest.mark.parametrize("info", ["python file=", "python file=../shop.py", "python file=a/b.py",
+                                  "json file=.hidden", "python file=shop.py file=two.py"])
+def test_a_file_block_with_a_name_that_is_no_plain_file_name_is_refused(
+        info: str, wheel: Path, tmp_path: Path) -> None:
+    """A file block names one plain file in the page's folder: no folder, no `..`, no hidden
+    file, one name. Any other is refused by the listing and by the rules, at the block's fence."""
+    page = f"# A page\n\n```{info}\nSTOCK = 1\n```\n"
+    assert problems(blocks(page, "docs/planted.md")[0]) != []
+    root = planted_tree(tmp_path, GOOD_README, {"docs/planted.md": page})
+    done = list_commands(root, wheel, tmp_path)
+    assert done.returncode == 1, (done.stdout, done.stderr)
+    assert done.stdout == ""
+    assert done.stderr.splitlines() and all(
+        line.startswith("docs/planted.md:3: ") for line in done.stderr.splitlines()), done.stderr
