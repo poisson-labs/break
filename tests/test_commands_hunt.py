@@ -45,6 +45,7 @@ import pytest
 
 from tests.commands_support import (
     CODES,
+    FAULTS,
     PROG,
     SOUND,
     Project,
@@ -827,3 +828,49 @@ def test_under_json_a_hunt_lists_what_it_wrote(tmp_path: Path) -> None:
     wrote = json_document(ran)["wrote"]
     assert f"break-runs/{name}/candidates.json" in wrote and f"break-runs/{name}/store" in wrote, wrote
     assert all((proj.folder / path).exists() for path in wrote), wrote
+
+
+# ---------------------------------------------------------------------------
+# the conditions that failed and were left out
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def crowded(tmp_path_factory: pytest.TempPathFactory) -> tuple[Project, Any, Any]:
+    """A desk weak to all three faults on its look-up, where a hunt keeps one candidate: three conditions fail more
+    than the control, and two of them are left out. Run once to read and once under `--json`."""
+    proj = project(tmp_path_factory.mktemp("crowded"), cases(3, weak_to=list(FAULTS)),
+                   search={"cases_per_condition": 3, "runs": 60}, confirm={"candidates": 1})
+    ran = cli(proj, "hunt", "--yes")
+    shown = cli(proj, "hunt", "--yes", "--json")
+    return proj, ran, shown
+
+
+def test_a_hunt_says_how_many_failing_conditions_it_left_out_and_the_setting_that_keeps_more(
+        crowded: tuple[Project, Any, Any]) -> None:
+    """Of three conditions that failed more than the control, `[confirm] candidates = 1` keeps the best; the result
+    says the other two were left out, why, and which setting raises the limit."""
+    proj, ran, _ = crowded
+    assert ran.exit == CODES["done"], ran
+    (name, _) = hunt_names(proj)
+    assert len(candidates(proj, name)) == 1
+    lines = [line for line in detail(result_of(ran, "found")) if "left out" in line]
+    assert len(lines) == 1, ran.out
+    assert holds_number(lines[0], "2") and "confirm.candidates" in lines[0], lines
+
+
+def test_under_json_a_hunt_lists_the_failing_conditions_it_left_out(crowded: tuple[Project, Any, Any]) -> None:
+    proj, _, shown = crowded
+    assert shown.exit == CODES["done"], shown
+    document = json_document(shown)
+    (kept,) = [c["condition"] for c in document["candidates"]]
+    left = document["left_out"]
+    assert sorted([kept, *(c["condition"] for c in left)]) == sorted(on(fault) for fault in FAULTS), left
+    for one in left:
+        assert set(one) == {"condition", "failed", "runs", "kind"}, one
+        assert (one["failed"], one["runs"], one["kind"]) == (3, 3, "failed"), one
+
+
+def test_a_hunt_that_kept_every_failing_condition_says_nothing_was_left_out(found: tuple[Project, Any]) -> None:
+    proj, ran = found
+    assert not [line for line in detail(result_of(ran, "found")) if "left out" in line], ran.out

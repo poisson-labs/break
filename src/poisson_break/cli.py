@@ -883,7 +883,7 @@ def _hunt(call: _Call) -> int:
         arm = "search"
         stage = _search(hunt, settings, strategy, summary, plan, search_rows)
         arm = "shrink"
-        found = _candidates(hunt, settings, stage.seen, summary, shrink_rows)
+        found, left_out = _candidates(hunt, settings, stage.seen, summary, shrink_rows)
     except HuntStopped as stop:
         raise _stopped(call, settings, hunt, stop, "hunt", resume) from None
     except KeyboardInterrupt:
@@ -896,7 +896,7 @@ def _hunt(call: _Call) -> int:
         from poisson_break.confirm import write_candidates
 
         write_candidates(hunt, found)
-    look.show(_hunt_result(call, settings, hunt, summary, stage, found, search_rows,
+    look.show(_hunt_result(call, settings, hunt, summary, stage, found, left_out, search_rows,
                            shrink_rows))
     return EXIT_DONE
 
@@ -969,9 +969,11 @@ def _search(hunt: Any, settings: Settings, strategy: Any, summary: Any, plan: An
 
 
 def _candidates(hunt: Any, settings: Settings, seen: Any, summary: Any,
-                shrink_rows: list[Any]) -> list[Condition]:
+                shrink_rows: list[Any]) -> tuple[list[Condition], list[Condition]]:
     """The candidates: the conditions that failed more than the control, best first, at most
-    the settings' number, each shrunk to the smallest change that still fails as often."""
+    the settings' number, each shrunk to the smallest change that still fails as often. And
+    the conditions that failed more than the control past that number, best first, which are
+    left out: those no candidate was shrunk to."""
     from poisson_break.hunt import run_search
     from poisson_break.search import LogEntry, SearchError, score, shrink
 
@@ -1011,7 +1013,9 @@ def _candidates(hunt: Any, settings: Settings, seen: Any, summary: Any,
             if kept not in found:
                 found.append(kept)
             tell(len(found), len(scored))
-    return found
+    left_out = [condition for _, _, _, condition in scored[settings.confirm.candidates:]
+                if condition not in found]
+    return found, left_out
 
 
 def _main_kind(rows: Sequence[Any]) -> str:
@@ -1046,8 +1050,8 @@ def _coverage_line(settings: Settings, cover: Any) -> look.Line:
 
 
 def _hunt_result(call: _Call, settings: Settings, hunt: Any, summary: Any, stage: Any,
-                 found: Sequence[Condition], search_rows: Sequence[Any],
-                 shrink_rows: Sequence[Any]) -> look.Result:
+                 found: Sequence[Condition], left_out: Sequence[Condition],
+                 search_rows: Sequence[Any], shrink_rows: Sequence[Any]) -> look.Result:
     from poisson_break.search import coverage
 
     spent = hunt.budget()
@@ -1086,11 +1090,26 @@ def _hunt_result(call: _Call, settings: Settings, hunt: Any, summary: Any, stage
             listed.append({"number": number, "condition": text, "failed": failed,
                            "runs": len(rows), "kind": None if kind == "none" else kind})
         detail.append(look.Table(("", "condition", "failed", "kind"), tuple(table)))
+        if left_out:
+            count = len(left_out)
+            were = "condition failed more than the control and was" if count == 1 else \
+                   "conditions failed more than the control and were"
+            detail.append(look.Line(
+                f"{look.fmt_count(count)} more {were} left out, since a hunt keeps at most "
+                f"{_n(settings.confirm.candidates, 'candidate')}; confirm.candidates in "
+                f"{SETTINGS_FILE} raises that limit"))
         detail.append(cover_line)
         detail.append(look.Line("these are candidates, not findings: a few runs each, chosen "
                                 "for having failed"))
     wrote_row, wrote = _hunt_wrote(hunt)
     detail += wrote_row
+    dropped = []
+    for condition in left_out:
+        rows = [row for row in search_rows if row.condition == condition]
+        kind = _main_kind(rows)
+        dropped.append({"condition": condition_name(condition),
+                        "failed": sum(row.outcome == "failed" for row in rows),
+                        "runs": len(rows), "kind": None if kind == "none" else kind})
     data: dict[str, Any] = {
         "hunt": hunt.name, "runs": spent.runs_spent,
         "dollars": spent.dollars_spent if _priced(settings) else None,
@@ -1098,6 +1117,7 @@ def _hunt_result(call: _Call, settings: Settings, hunt: Any, summary: Any, stage
                     "set_aside": list(summary.set_aside)},
         "search": {"runs": len(search_rows), "conditions": len(conditions)},
         "candidates": listed,
+        "left_out": dropped,
         "not_looked_at": {"faults_off": list(cover.faults_off),
                           "never_called": list(cover.never_called),
                           "past_limit": dict(cover.past_limit),

@@ -338,8 +338,8 @@ def test_hunt_result(road: Any) -> None:
     proj, docs = road
     document = docs["hunt"]
     assert document["verdict"] == "found"
-    assert data_keys(document) == {"hunt", "runs", "dollars", "control", "search", "candidates", "not_looked_at",
-                                   "wrote"}
+    assert data_keys(document) == {"hunt", "runs", "dollars", "control", "search", "candidates", "left_out",
+                                   "not_looked_at", "wrote"}
     counts = hunts.stored_counts(proj)
     assert document["hunt"] == "desk-1"
     assert document["runs"] == sum(counts.get(arm, 0) for arm in ("control", "search", "shrink"))
