@@ -1938,14 +1938,18 @@ class _Dialogue:
                                "Break may call it again and again?", False):
                 self.put("--tool", f'{tool} = {{ class = "write", repeatable = true }}')
                 continue
-            where = self.import_path(f"Where is a stand-in that Break can call in place of "
-                                     f"{tool}, as module:name? Empty if there is none, and "
-                                     f"Break leaves {tool} alone", "stand-in",
-                                     empty_is_none=True)
-            if where:
-                self.put("--tool", f'{tool} = {{ class = "write", stand_in = "{where}" }}')
-            else:
-                self.put("--tool", f'{tool} = "off"')
+            where = self.import_path(f"Where is the stand-in Break calls in place of {tool}, "
+                                     "a function with the same arguments that changes nothing? "
+                                     "As module:name", "stand-in", empty_is_none=True)
+            if not where:
+                # off would pass every call to the real tool, so nothing is written
+                filled = f'{tool} = {{ class = "write", stand_in = "{_ENTRY_PLACEHOLDER}" }}'
+                raise look.Refused(
+                    f"{tool} changes things and is not safe to repeat, so Break needs a stand-in "
+                    "to call in its place: a function with the same arguments that changes "
+                    "nothing, given as module:name; nothing was written",
+                    nexts=(_ours(self.call.prog, "init", *self.words, "--tool", filled),))
+            self.put("--tool", f'{tool} = {{ class = "write", stand_in = "{where}" }}')
 
     def has_turns(self, cases_file: str) -> bool:
         """Whether a case in the file is a conversation. The file is read line by line as JSON,

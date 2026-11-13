@@ -52,8 +52,10 @@ to paste a hash.
 the cases are (and, when there is no such file, whether to write a starter file of three); and,
 for each tool it finds, whether calling it changes anything, even in a test environment. A tool
 that changes nothing is `read`. For one that does, it asks whether it is safe to repeat in your
-test environment, and if not, where its stand-in is; with no stand-in, Break leaves that tool
-alone (`off`). Every other setting takes its default without a question: the kind `rollout`,
+test environment, and if not, where its stand-in is: a function with the same arguments that
+changes nothing. Given none, `init` writes nothing and refuses, printing the `init` command with
+the answers so far and that tool's stand-in left to fill in, since Break never calls such a tool
+for real. Every other setting takes its default without a question: the kind `rollout`,
 Break's own checks for what fails a run, tool behaviour and inputs varied (the conversation too
 when a case has turns and the way in can play one; the model's calls and settings of your own
 not), 400 runs and 2 hours a hunt, and no prices. `init` then lists what it chose and says that

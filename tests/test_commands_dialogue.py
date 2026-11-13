@@ -8,8 +8,8 @@ Taylor's yes on issue 13 (2026-11-13) settles what `init` asks, and these tests 
    that file is not there;
 3. for each tool found, one `[y/N]`: does calling it change anything, even in a test environment. A no is `read`. A yes
    is followed by a `[y/N]` on whether it is safe to repeat (`repeatable`), and a no to that by the place of its stand-in
-   as text, asked again like the agent's place, where an empty answer means there is none and Break leaves the tool
-   alone (`off`).
+   as text, asked again like the agent's place. Given none, `init` writes nothing and refuses, naming the stand-in it
+   needs, since `off` would let Break call the real tool in every run.
 
 Everything else (the kind, what fails a run, what Break may change, the runs, the prices and the cap) takes its default
 and is not asked. Every flag still sets its value and skips its question, and `--yes` takes every default. `init` then
@@ -414,7 +414,7 @@ def test_a_kind_whose_extra_is_missing_is_written_and_ends_with_the_install_comm
 
 def test_the_tools_asked_about_are_those_the_target_s_module_wrapped_on_import(tmp_path: Path) -> None:
     """BK8.5: a module that wraps three tools on import, one of them never called: each is asked about by name, and no
-    other; the agent is never run. One that changes things, is not safe to repeat and has no stand-in is `off`."""
+    other; the agent is never run."""
     proj = empty(tmp_path)
     (proj.folder / "three_tools.py").write_text(
         "from poisson_break.apply import wrap\n"
@@ -424,7 +424,7 @@ def test_the_tools_asked_about_are_those_the_target_s_module_wrapped_on_import(t
         "never_called = wrap('never_called', _a)\n"
         "def agent(cfg, seed):\n"
         "    raise SystemExit('the agent was run')\n", encoding="utf-8")
-    classes = {"find_order": ["n"], "send_mail": ["y", "n", ""], "never_called": ["n"]}
+    classes = {"find_order": ["n"], "send_mail": ["y", "y"], "never_called": ["n"]}
     ran, asked = converse(proj, ["init"], answering(classes, entry="three_tools:agent"),
                           PYTHONPATH=f"{proj.folder}:" + child_env(proj)["PYTHONPATH"])
     assert ran.exit == CODES["done"], (ran, asked)
@@ -433,7 +433,8 @@ def test_the_tools_asked_about_are_those_the_target_s_module_wrapped_on_import(t
     assert len(named) == 3
     assert proj.runs() == []
     words = ["--kind", "rollout", "--entry", "three_tools:agent", "--cases", "cases.jsonl",
-             "--tool", 'find_order = "read"', "--tool", 'send_mail = "off"', "--tool", 'never_called = "read"']
+             "--tool", 'find_order = "read"', "--tool", 'send_mail = { class = "write", repeatable = true }',
+             "--tool", 'never_called = "read"']
     assert proj.settings.read_text(encoding="utf-8") == expected(words)
 
 
@@ -563,9 +564,9 @@ IN_BODY = ("from poisson_break.apply import wrap\n"
            "    lookup = wrap('lookup_order', _a)\n"
            "    send = wrap('send_mail', _a)\n"
            "    raise SystemExit('the agent was run')\n")
-IN_BODY_CLASSES = {"lookup_order": ["n"], "send_mail": ["y", "n", ""]}
+IN_BODY_CLASSES = {"lookup_order": ["n"], "send_mail": ["y", "y"]}
 IN_BODY_WORDS = ["--kind", "rollout", "--entry", "in_body:agent", "--cases", "cases.jsonl",
-                 "--tool", 'lookup_order = "read"', "--tool", 'send_mail = "off"']
+                 "--tool", 'lookup_order = "read"', "--tool", 'send_mail = { class = "write", repeatable = true }']
 
 
 def in_body(folder: Path) -> tuple[Any, dict[str, str]]:
@@ -723,18 +724,12 @@ def test_init_asks_only_where_the_agent_and_the_cases_are_and_what_each_tool_cha
     assert len(printed) == 1, nexts(ran)
 
 
-@pytest.mark.parametrize(("where", "line"), [
-    (STAND_IN, f'check_policy = {{ class = "write", stand_in = "{STAND_IN}" }}'),
-    ("", 'check_policy = "off"'),
-], ids=["a stand-in", "none"])
-def test_a_tool_that_changes_things_and_is_not_safe_to_repeat_is_asked_for_its_stand_in(
-        tmp_path: Path, where: str, line: str) -> None:
-    """A no to whether it is safe to repeat asks where its stand-in is, as module:name; with none given, Break leaves
-    the tool alone (`off`)."""
-    proj = empty(tmp_path)
+def answering_check_policy(where: str) -> Any:
+    """The agent's place, then `check_policy` said to change things and not to be safe to repeat, its stand-in's place
+    answered with `where`; every other question by Enter."""
 
     def answer(asked: Asked) -> str:
-        if "Where is your agent" in asked.question:
+        if asked.question.startswith(AGENT):
             return ENTRY
         if "Does calling check_policy" in asked.question:
             return "y"
@@ -742,9 +737,39 @@ def test_a_tool_that_changes_things_and_is_not_safe_to_repeat_is_asked_for_its_s
             return where
         return ""
 
-    ran, asked = converse(proj, ["init"], answer)
+    return answer
+
+
+def test_a_tool_that_changes_things_and_is_not_safe_to_repeat_is_asked_for_its_stand_in(tmp_path: Path) -> None:
+    """A no to whether it is safe to repeat asks where its stand-in is, as module:name, and the stand-in is written."""
+    proj = empty(tmp_path)
+    ran, asked = converse(proj, ["init"], answering_check_policy(STAND_IN))
     assert ran.exit == CODES["done"], (ran, asked)
     assert kinds_of_prompt(asked) == ["text", "text", "[y/N]", "[y/N]", "[y/N]", "text"], [a.text for a in asked]
     words = ["--kind", "rollout", "--entry", ENTRY, "--cases", "cases.jsonl", "--tool", 'lookup_order = "read"',
-             "--tool", line]
+             "--tool", f'check_policy = {{ class = "write", stand_in = "{STAND_IN}" }}']
     assert proj.settings.read_text(encoding="utf-8") == expected(words)
+
+
+def test_a_tool_that_changes_things_with_no_stand_in_is_refused_and_never_left_off(tmp_path: Path) -> None:
+    """The coordinator's review of issue 13 (2026-11-13): a tool that changes things, is not safe to repeat and has no
+    stand-in is never `off`, which would pass every call to the real tool. The stand-in question offers no empty answer;
+    given none, `init` writes nothing and refuses in one line that says what is missing, a stand-in, a function with the
+    same arguments that changes nothing, as module:name; its `next:` is the `init` command with the answers so far and
+    that tool given a stand-in to fill in."""
+    proj = empty(tmp_path)
+    before = files_under(proj.folder)
+    ran, asked = converse(proj, ["init"], answering_check_policy(""))
+    assert ran.exit == CODES["refused"], (ran, asked)
+    assert files_under(proj.folder) == before
+    question = asked[-1].question
+    assert "stand-in" in question and "alone" not in question and "Empty" not in question, question
+    said = strip(ran.err)
+    assert said.count("error: ") == 1, ran  # on the line of the last prompt, which the answer did not end
+    line = said.split("error: ", 1)[1].splitlines()[0]
+    for words in ("check_policy", "stand-in", "same arguments", "changes nothing", "module:name"):
+        assert words in line, line
+    assert len(nexts(ran)) == 1, nexts(ran)
+    assert shlex.split(nexts(ran)[0]) == [
+        PROG, "init", "--kind", "rollout", "--entry", ENTRY, "--cases", "cases.jsonl",
+        "--tool", 'lookup_order = "read"', "--tool", 'check_policy = { class = "write", stand_in = "MODULE:NAME" }']

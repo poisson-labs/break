@@ -52,7 +52,9 @@ Changed since the last development build:
   environment, in place of a `read`, `write` or `off` menu about changes outside it. The kind,
   what fails a run, what Break may change, the runs, the prices and the cap take their defaults
   without a question; `init` lists them after `wrote` and says `break.toml` is where to change
-  them. Every flag still sets its value.
+  them. A tool that changes things, is not safe to repeat and has no stand-in is refused with
+  the `init` command that leaves its stand-in to fill in, and never written `off`. Every flag
+  still sets its value.
 - The package's version is 0.1.0, its status Alpha. An sdist is built beside the wheel and
   holds only the source, the tests, the docs, the examples, the scripts and the project's own
   files.
@@ -70,7 +72,8 @@ Everything in the release, module by module:
   plan, and in `init`'s and `doctor`'s output, the note that Break calls your tools for real.
 - `init` asks only what Break cannot find out for itself: where the agent is, where the cases
   are, and for each tool whether calling it changes anything, with a yes followed by whether it
-  is safe to repeat and, if not, where its stand-in is. The tools of a `rollout` target are the
+  is safe to repeat and, if not, where its stand-in is; given none, it writes nothing and
+  refuses, with the command to fill the stand-in in. The tools of a `rollout` target are the
   ones its module wraps while it is imported (never run). Every other setting takes its default,
   and `init` lists what it chose and says `break.toml` is where to change it. Every setting has a
   flag; `--yes` takes every default and needs `--entry`. It writes `break.toml`, refuses to
