@@ -50,6 +50,15 @@ test itself.
    bytes of the stored sample, `docs/export/samples/<tool>.jsonl`. The listing of rule 7
    carries the program as an extension page's is carried: `kind` `python`, at the first line of
    the page's first `python` block's content.
+9. A block whose info string is a language and then `file=NAME` (`python file=shop.py`,
+   `json file=cases.jsonl`) is a file the page writes, so a page can show a whole agent and its
+   cases and then run them. NAME is one plain file name in the page's folder: letters, digits,
+   `.`, `_` and `-`, not starting with `.`; any other name, or a second `file=`, is refused. Its
+   lines are read under rule 4 as any other block's are. The listing of rule 7 carries it among
+   the page's commands, at the first line of its content, with `kind` `file`, its lines as
+   `command`, `exit` 0, and as `runs` the shell text that writes them, each ended by a line
+   break, to NAME in the folder the page's one shell is in at that point, before the commands
+   after it run.
 """
 
 from __future__ import annotations
@@ -109,6 +118,8 @@ class Command:
     line: int
     kind: str
     command: str
+    #: For a file the page writes (rule 9), the file's name; else None.
+    name: str | None = None
 
 
 class Unclosed(ValueError):
@@ -178,6 +189,26 @@ def looks_like_a_command(line: str) -> bool:
     return base in COMMAND_WORDS or bool(_PYTHON.match(base))
 
 
+#: A file block's info string (rule 9): a language, then `file=` and what follows it.
+_FILE_INFO = re.compile(r"^\S+\s+file=(?P<name>.*)$")
+_FILE_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]*$")
+#: The line that ends the text a file block's `runs` writes.
+FILE_END = "POISSON_BREAK_FILE_END"
+
+
+def file_name(block: Block) -> str | None:
+    """The name a file block writes (rule 9), as its info string gives it, or None for a block
+    that is no file block. The name may be one the rules refuse."""
+    found = _FILE_INFO.match(block.info)
+    return found["name"] if found else None
+
+
+def file_of(block: Block) -> Command:
+    """A file block as the listing carries it (rule 9)."""
+    return Command(block.file, block.first_line, "file", "\n".join(block.lines),
+                   name=file_name(block))
+
+
 def problems(block: Block) -> list[str]:
     """Why a block is refused under the marking rules, each as `FILE:LINE: what`; empty for a
     block the rules take."""
@@ -190,7 +221,11 @@ def problems(block: Block) -> list[str]:
     if block.language == "sh" or block.language.lower() in OTHER_SHELLS:
         return [at + f"a shell block tagged {block.info!r}, not sh"]
     shown = [n for n, line in enumerate(block.lines) if looks_like_a_command(line)]
-    return [at + f"an unmarked shell block: its line {n + 1} is a command" for n in shown]
+    found = [at + f"an unmarked shell block: its line {n + 1} is a command" for n in shown]
+    name = file_name(block)
+    if name is not None and not _FILE_NAME.match(name):
+        found.append(at + f"a file block named {name!r}, not one plain file name")
+    return found
 
 
 def commands_of(block: Block) -> Iterator[Command]:
@@ -280,6 +315,8 @@ def marked(root: Path = REPO) -> tuple[list[Command], list[str]]:
             refused += problems(block)
             if block.info == "sh":
                 commands += commands_of(block)
+            elif file_name(block) is not None:
+                commands.append(file_of(block))
         if page in constants:
             program = python_program(page, root)
             if program is not None:
@@ -332,7 +369,11 @@ def install_words(words: list[str]) -> bool:
 
 
 def runs(command: Command, wheel: str) -> str:
-    """What the clean-install job runs for a marked command (rule 5)."""
+    """What the clean-install job runs for a marked command (rule 5), or for a file the page
+    writes (rule 9)."""
+    if command.kind == "file":
+        return (f"cat > {shlex.quote(str(command.name))} <<'{FILE_END}'\n{command.command}\n"
+                f"{FILE_END}")
     if command.kind != "sh":
         return command.command
     out = []

@@ -51,7 +51,10 @@ docs/ whose title names LangSmith, Langfuse or Phoenix) shows its call to the se
 tagged `python service`, which are never run; its `python` blocks are one program, written to
 `recipe.py` in a fresh folder beside a copy of the page's stored export
 (`docs/export/samples/<tool>-export.<ext>`), and what it writes, `<tool>.jsonl`, must equal the
-stored sample byte for byte.
+stored sample byte for byte. A block tagged with a language and then `file=NAME` (`python
+file=shop.py`) is a file the page writes: at its place among the page's commands, the shell
+writes its lines to NAME in the folder it is in, so the commands after it run on that file. NAME
+is one plain file name; any other is refused.
 
     python scripts/clean_install.py --list-commands --wheel WHEEL
 
@@ -340,6 +343,9 @@ _PROMPT = re.compile(r"^(?:\$|%|>)\s")
 _SETTING = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=\S*$")
 _PYTHON = re.compile(r"^python(?:3(?:\.\d+)?)?$")
 _EXITS = re.compile(r"#\s*exits\s+(\d+)\s*$")
+_FILE_INFO = re.compile(r"^\S+\s+file=(?P<name>.*)$")
+_FILE_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]*$")
+_FILE_END = "POISSON_BREAK_FILE_END"
 _INSTALLER = re.compile(r"^(?:pip3?|pipx)$")
 _REQUIREMENT = re.compile(
     r"""^(?P<q>['"]?)poisson-break(?P<extras>\[[^\]]*\])?"""
@@ -494,6 +500,16 @@ def marked(root: Path, wheel: Path | None = None) -> tuple[list[dict[str, object
             else:
                 refused += [f"{name}:{at}: an unmarked shell block: its line {n + 1} is a command"
                             for n, line in enumerate(body) if looks_like_a_command(line)]
+                writes = _FILE_INFO.match(info)
+                if writes and not _FILE_NAME.match(writes["name"]):
+                    refused.append(f"{name}:{at}: a file block named {writes['name']!r}, not one "
+                                   "plain file name")
+                elif writes:
+                    content = "\n".join(body)
+                    writer = (f"cat > {shlex.quote(writes['name'])} <<'{_FILE_END}'\n{content}\n"
+                              f"{_FILE_END}")
+                    listed.append({"file": name, "line": at + 1, "kind": "file",
+                                   "command": content, "runs": writer, "exit": 0})
                 if info == "python":
                     python.append((at + 1, body))
         if page in programs and python:
@@ -533,7 +549,7 @@ def run_marked(listed: list[dict[str, object]], wheel: Path, venv: Path, work: P
         shutil.rmtree(folder, ignore_errors=True)
         env = fresh_env(folder)
         env["PATH"] = f"{venv / 'bin'}{os.pathsep}{env.get('PATH', '')}"
-        commands = [e for e in entries if e["kind"] == "sh"]
+        commands = [e for e in entries if e["kind"] in ("sh", "file")]
         if commands:
             here = folder / "sh"
             here.mkdir(parents=True)
@@ -541,7 +557,7 @@ def run_marked(listed: list[dict[str, object]], wheel: Path, venv: Path, work: P
             stopped = False
             for entry in commands:
                 at = f"{name}:{entry['line']}"
-                first = str(entry["command"]).split("\n")[0]
+                first = str(entry["runs" if entry["kind"] == "file" else "command"]).split("\n")[0]
                 code = codes.get(at)
                 if code is None:
                     check(False, f"{at}  {first}  (not run: "
@@ -590,7 +606,8 @@ def _in_one_shell(commands: list[dict[str, object]], wheel: Path, here: Path, fo
     status = folder / "status"
     lines = ["cd " + shlex.quote(str(here))]
     for entry in commands:
-        runs, _ = with_the_wheel(str(entry["command"]), wheel)
+        runs = (str(entry["runs"]) if entry["kind"] == "file"
+                else with_the_wheel(str(entry["command"]), wheel)[0])
         lines.append(runs)
         lines.append("__code=$?")
         lines.append(f"echo {shlex.quote(str(entry['file']) + ':' + str(entry['line']))} "
