@@ -118,6 +118,22 @@ failed  finding 1 on case status-4821, seed 56661626: failed
 The desk has no second try: one failed look-up ends the request.
 [Reading a finding](https://github.com/poisson-labs/break/blob/main/docs/findings.md) goes through every line a finding prints.
 
+The hunt called the desk's function 42 times, once for each run: 12 control runs, two on each of
+the six cases, and 30 runs for the ten conditions it tried. `confirm` called it 126 more times:
+72 runs with no change and under the three candidates, and 54 for the reference, the runs
+`recheck` later compares a fix with.
+
+Everything is kept in `break-runs/desk-1/`, one folder for each hunt. `hunt.json` holds the
+settings as resolved and the stages run, `candidates.json` the candidates `hunt` handed to
+`confirm`, `findings/1.toml` and the two beside it one finding each, and `store/` every run, as
+a Prove store. Prove is the Poisson Labs tool that tells you whether a difference is real, and
+its own commands read the store.
+
+A stored run is Break's record of the run: the case by its id, the change, the outcome and the
+kind of failure, and each tool call with whether the real tool ran. It holds none of the agent's
+prompt, reply or tool results. `replay` is how you see what the agent did: it runs a finding
+once more, stores nothing, and shows each tool call with the change on it.
+
 ## On your own agent
 
 A way in is how Break runs your agent and reaches its tools. This version has one, `rollout`:
@@ -126,8 +142,7 @@ once.
 
 The function takes `cfg` and `seed` and returns an `Episode`. `cfg` is one case from your case
 file, as a mapping that holds the request under `input`. `seed` is the run's seed. `Episode` is
-Prove's record of one run, and Break reads the agent's own `outcome` from it. Prove is the
-Poisson Labs tool that tells you whether a difference is real.
+Prove's record of one run, and Break reads the agent's own `outcome` from it.
 
 ```python
 from poisson_prove import Episode

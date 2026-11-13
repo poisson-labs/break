@@ -18,10 +18,12 @@ Taylor's rulings (2026-11-09, `evidence/bk11/open-points.md`):
 
 from __future__ import annotations
 
+import json
 import re
 import shlex
+from pathlib import Path
 
-from tests.conftest import REPO
+from tests.conftest import REPO, run_command
 from tests.release_docs import Command, blocks, break_verb, is_break_install, marked
 
 SCREEN = 40
@@ -146,3 +148,59 @@ def test_each_fault_the_section_names_is_a_tool_fault_that_runs_the_tool_as_it_s
     assert "`TimeoutError`" in section
     assert lines["timeout"].real_runs is False
     assert isinstance(ToolFailure("timeout", "the request timed out"), TimeoutError)
+
+
+SEE = "What you see"
+
+
+def _desk_runs(tmp_path: Path) -> dict[str, int]:
+    """The first screen's three commands, run in an empty folder: how many runs the hunt's store
+    held after `hunt`, and after `confirm`."""
+    from poisson_prove.store import Store
+
+    stored = {}
+    for words in (["init", "--example", "desk"], ["hunt", "--yes"], ["confirm", "--yes"]):
+        ran = run_command(words, cwd=tmp_path)
+        assert ran.exit == 0, ran.stderr
+        store = tmp_path / "break-runs" / "desk-1" / "store"
+        if store.is_dir():
+            stored[words[0]] = sum(Store(store).count(run) for run in Store(store).runs())
+    return stored
+
+
+def test_what_you_see_says_what_ran_and_what_the_hunt_s_folder_holds(tmp_path: Path) -> None:
+    """The section says how many times the first screen called the desk's function, each count
+    the store holds; it names what `break-runs/desk-1/` holds, and the folder holds each; and it
+    names `replay` as what shows what the agent did."""
+    stored = _desk_runs(tmp_path)
+    section = _sections()[SEE]
+    hunted, confirmed = stored["hunt"], stored["confirm"] - stored["hunt"]
+    assert f"{hunted} times" in section, hunted
+    assert f"{confirmed} more" in section, confirmed
+    folder = tmp_path / "break-runs" / "desk-1"
+    assert "`break-runs/desk-1/`" in section
+    for name in ("hunt.json", "candidates.json", "findings/1.toml", "store/"):
+        assert f"`{name}`" in section, name
+        assert (folder / name).exists(), name
+    assert "`replay`" in section
+
+
+def test_a_stored_run_holds_no_prompt_and_no_reply(tmp_path: Path) -> None:
+    """What the section says a stored run is: Break's record, which holds the case by its id and
+    none of the agent's request, reply or tool results. Every row of every arm of the desk's
+    store is read, and no request of the cases, no reply the desk gives and no result its order
+    look-up returns is in it."""
+    from poisson_prove.store import Store
+
+    _desk_runs(tmp_path)
+    store = Store(tmp_path / "break-runs" / "desk-1" / "store")
+    rows = repr([store.read(run).to_dict("records") for run in store.runs()])
+    assert "status-4821" in rows
+    cases = [json.loads(line) for line in
+             (REPO / "examples" / "desk" / "cases.jsonl").read_text(encoding="utf-8").splitlines()
+             if line.strip()]
+    said = [case["input"] for case in cases] + [
+        "Order 48", "could not look that order up", "shipped on Tuesday, due Thursday"]
+    assert [text for text in said if text in rows] == []
+    section = _sections()[SEE]
+    assert "prompt" in section and "reply" in section
