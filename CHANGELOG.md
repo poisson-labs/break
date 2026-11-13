@@ -174,9 +174,8 @@ Everything in the release, module by module:
   `trace missing`, `trace version`, `trace schema`, `trace answer`, `no candidates`,
   `no control`, `nothing to ask again`, `unfinished` or `unknown finding`. `trace answer` is an
   answer Break could not read after the arms ran, and the arms are kept.
-- Break now depends on Trace, pinned at one commit of its repository until Trace is on PyPI,
-  and its Prove pin moves to 0.1.3, the version that Trace pins. CI installs Trace with a
-  read-only token used by the install step alone.
+- Break now depends on Trace, pinned at 0.1.0a1, a pre-release on PyPI, and its Prove pin
+  moves to 0.1.3, the version that Trace pins.
 - `poisson_break.search`: the search without learning, and the door every strategy comes
   through. A strategy is anything with `propose(seen, budget, *, rng)` that returns a list of
   `Proposal`: a condition, the reason in one line, and the probability the strategy gave that
@@ -451,8 +450,7 @@ Everything in the release, module by module:
   through JSON and refuse a field the shape does not name or a value outside its closed set.
 - `poisson_break.interfaces`: the four extension points, each at version 1: a fault, a way in,
   a strategy and your own failure check.
-- Prove pinned to the exact version Trace pins. Trace is not yet on PyPI, so it is pinned at
-  a commit of its repository until it is.
+- Prove pinned to the exact version Trace pins, and Trace pinned exactly, both from PyPI.
 - CI: lint, type check and the tests on Python 3.11 to 3.13, under a guard that fails any
   connection and a check that no statistic is computed locally; a clean install of the built
   wheel into a fresh environment outside the checkout that runs the command.

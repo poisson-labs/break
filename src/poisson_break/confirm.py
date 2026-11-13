@@ -120,7 +120,7 @@ __all__ = [
     "ask_trace",
 ]
 
-TRACE_VERSION: Final = "0.1.0rc2"
+TRACE_VERSION: Final = "0.1.0a1"
 """The one version of Trace this module reads: the version the pinned Trace declares."""
 
 FIX_CHECK_SCHEMA: Final = "poisson-trace.fix-check/2"

@@ -176,9 +176,8 @@ changes to the conversation and to the model's own calls, and a search that lear
 this version; the catalogue names what waits for them. It runs on macOS and Linux, on Python
 3.11 or later.
 
-Break depends on Prove and Trace, each at one exact version. Trace is not on
-PyPI yet, so for now the install takes it from its repository at one commit, which needs git
-and read access to `github.com/poisson-labs/trace`.
+Break depends on Prove and Trace, each at one exact version, and `pip` installs both from
+PyPI with it. Trace is a pre-release there, 0.1.0a1.
 
 [The reference](https://github.com/poisson-labs/break/blob/main/docs/reference.md) has the
 commands, the settings file, how runs are stored, and the library under the command.

@@ -5,8 +5,7 @@ outside the checkout, runs the command.
 
 WORK is a folder outside the checkout (CI uses the runner's temporary folder). The script makes
 a fresh virtual environment there, installs the wheel into it with pip (its dependencies come
-from PyPI, and Trace from its repository at the commit the wheel pins, which needs git and read
-access to that repository), and checks, from an empty folder with its own HOME:
+from PyPI, Prove and Trace among them), and checks, from an empty folder with its own HOME:
 
   * every file under src/poisson_break that is not bytecode is in the wheel, by the same path,
     and every file the wheel carries under the package is installed;
@@ -529,7 +528,6 @@ def run_marked(listed: list[dict[str, object]], wheel: Path, venv: Path, work: P
     by_file: dict[str, list[dict[str, object]]] = {}
     for entry in listed:
         by_file.setdefault(str(entry["file"]), []).append(entry)
-    token = {k: v for k, v in os.environ.items() if k.startswith("GIT_CONFIG_")}
     for number, (name, entries) in enumerate(by_file.items(), start=1):
         folder = work / "pages" / f"{number:02d}"
         shutil.rmtree(folder, ignore_errors=True)
@@ -539,7 +537,7 @@ def run_marked(listed: list[dict[str, object]], wheel: Path, venv: Path, work: P
         if commands:
             here = folder / "sh"
             here.mkdir(parents=True)
-            codes = _in_one_shell(commands, wheel, here, folder, env, token)
+            codes = _in_one_shell(commands, wheel, here, folder, env)
             stopped = False
             for entry in commands:
                 at = f"{name}:{entry['line']}"
@@ -586,25 +584,15 @@ def run_marked(listed: list[dict[str, object]], wheel: Path, venv: Path, work: P
 
 
 def _in_one_shell(commands: list[dict[str, object]], wheel: Path, here: Path, folder: Path,
-                  env: dict[str, str], token: dict[str, str]) -> dict[str, int]:
+                  env: dict[str, str]) -> dict[str, int]:
     """Run a page's commands in order in one shell, in ``here``; the code each exited with, by
-    `FILE:LINE`. The shell stops at the first command that does not exit as it is shown to.
-    Only an install of the wheel is handed the git settings the job was given and its HOME."""
+    `FILE:LINE`. The shell stops at the first command that does not exit as it is shown to."""
     status = folder / "status"
     lines = ["cd " + shlex.quote(str(here))]
     for entry in commands:
-        runs, installs = with_the_wheel(str(entry["command"]), wheel)
-        if installs:
-            # the install alone is handed what the job was given to reach Trace's repository:
-            # the git settings, and the job's own HOME, where git's credentials may be
-            lines += [f"export {key}={shlex.quote(value)}" for key, value in token.items()]
-            lines.append(f"export HOME={shlex.quote(os.environ.get('HOME', env['HOME']))}")
+        runs, _ = with_the_wheel(str(entry["command"]), wheel)
         lines.append(runs)
         lines.append("__code=$?")
-        if installs:
-            lines.append(f"export HOME={shlex.quote(env['HOME'])}")
-            if token:
-                lines.append("unset " + " ".join(token))
         lines.append(f"echo {shlex.quote(str(entry['file']) + ':' + str(entry['line']))} "
                      f"$__code >> {shlex.quote(str(status))}")
         lines.append(f"[ $__code -eq {entry['exit']} ] || exit 97")

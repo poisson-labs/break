@@ -30,13 +30,8 @@ classifiers = [
 ]
 # Prove and Trace are real dependencies, each pinned exactly. Break's Prove is the version Trace
 # pins, so the three tools agree on one Prove; Break pins Trace exactly because it reads a named
-# JSON schema from Trace's command. Trace is not yet on PyPI (the `poisson-trace` name there
-# holds a 0.0.1 placeholder with no code and no Prove pin), so it is pinned at a commit of its
-# repository, by the full hash: the commit declares version 0.1.0rc2 and pins
-# poisson-prove==0.1.3. The line becomes `poisson-trace==<version>` the day Trace is published,
-# and until then the one test that reads `==` for Trace is red (tests/test_dependencies.py).
-# Trace's repository is private, so installing Break needs read access to it: git's own
-# credentials on a developer's machine, and a read-only token in CI (.github/workflows/ci.yml).
+# JSON schema from Trace's command. Trace 0.1.0a1 is a pre-release on PyPI and pins
+# poisson-prove==0.1.3; pip takes an exact `==` pin on a pre-release without `--pre`.
 #
 # Rich draws what the command prints on a terminal, questionary asks its menus there, and
 # prompt_toolkit, which questionary is built on, puts a menu on stderr. All three are ordinary
@@ -46,7 +41,7 @@ classifiers = [
 # is claimed.
 dependencies = [
     "poisson-prove==0.1.3",
-    "poisson-trace @ git+https://github.com/poisson-labs/trace@7e6fef64d067ecd2654bb5d4fda74d5aac03503c",
+    "poisson-trace==0.1.0a1",
     "rich>=14.2.0",
     "questionary>=2.1.1",
     "prompt_toolkit>=3.0.53",
@@ -78,10 +73,6 @@ Issues = "https://github.com/poisson-labs/break/issues"
 # One version, declared once, in the package: `poisson_break.__version__`.
 [tool.hatch.version]
 path = "src/poisson_break/__init__.py"
-
-# Trace's pin is a direct reference to a commit, which hatchling takes only when told to.
-[tool.hatch.metadata]
-allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/poisson_break"]
