@@ -167,8 +167,8 @@ in. A tool that is `async def` is refused. Adapters for agent frameworks and MCP
 in this version (see Status, below).
 
 Then, in the folder that holds it, `poisson-break init` asks where the agent is, where your
-test cases are, what each tool does when called, and what counts as a failure, and writes
-`break.toml`. `poisson-break doctor` checks that everything loads. `hunt` and `confirm` work as
+test cases are, and, for each tool it finds, whether calling it changes anything. It chooses
+everything else, says what it chose, and writes `break.toml`, where you can change any of it. `poisson-break doctor` checks that everything loads. `hunt` and `confirm` work as
 above. [The rollout way in](https://github.com/poisson-labs/break/blob/main/docs/ways-in/rollout.md) has the details, and the
 [catalogue](https://github.com/poisson-labs/break/blob/main/docs/catalog.md) lists every change a hunt can make.
 

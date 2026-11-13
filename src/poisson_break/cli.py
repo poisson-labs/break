@@ -55,9 +55,8 @@ from poisson_break.changes import (
     ChangeError,
     Condition,
     InstrumentError,
-    check_capabilities,
+    NeedsAdapter,
     check_registered,
-    parse,
 )
 from poisson_break.changes import name as condition_name
 from poisson_break.settings import (
@@ -72,6 +71,7 @@ from poisson_break.settings import (
     plan_hunt,
     read_cases,
     settings_from_init_args,
+    way_in_installed,
 )
 
 __all__ = ["main", "build_parser", "version_line"]
@@ -93,16 +93,6 @@ REAL = ("Break calls your tools for real: run it against a test environment, nev
 _LOOKS_OWN = ("--plain", "--debug")
 #: The one placeholder a printed command may hold, where only the user knows the value.
 _ENTRY_PLACEHOLDER = "MODULE:NAME"
-#: The six kinds of target as `break.toml` writes them, each with a few words for the menu;
-#: the core's own kind last, where the menu opens.
-_KINDS = (
-    ("openai-agents", "an agent built with the OpenAI Agents SDK"),
-    ("langgraph", "a LangGraph graph"),
-    ("crewai", "a CrewAI crew"),
-    ("mcp", "an MCP server"),
-    ("command", "a program on its standard input and output"),
-    ("rollout", "a function Break can call"),
-)
 _DEFAULT_KIND = "rollout"
 _STARTER_CASES = (
     {"id": "order-status", "input": "Where is my order 4821?"},
@@ -119,7 +109,8 @@ _DESCRIPTION = (
 
 #: Each verb, with the one line its help opens with.
 _VERBS: Mapping[str, str] = {
-    "init": "ask a few questions and write break.toml, the settings every other command reads",
+    "init": ("ask where the agent and its cases are and what each tool changes, and write "
+             "break.toml, the settings every other command reads"),
     "doctor": ("check break.toml, load the target and list its tools; with --run, run one case "
                "once, asked first"),
     "hunt": "run the control, search and shrink stages, and write the candidates",
@@ -323,13 +314,16 @@ def build_parser(prog: str) -> argparse.ArgumentParser:
                                        "as 'inventory = [\"full\", \"empty\"]'; repeat it for "
                                        "each setting of your own")))
         else:
+            nothing = {"--outcomes": "; none means no outcome counts as a failure",
+                       "--own-check": "; none means no check of your own"}.get(flag, "")
+            left_out = ("that question is asked, or takes its default under --yes"
+                        if flag in ("--entry", "--cases") else "it takes its default")
             init.add_argument(flag, metavar="VALUE",
-                              help=f"sets {key}; left out, that question is asked, or takes its "
-                                   "default under --yes")
+                              help=f"sets {key}; left out, {left_out}{nothing}")
     init.add_argument("--yes", action="store_true",
-                      help="take every question's default without asking: tool behaviour and "
-                           "inputs yes, the conversation yes when a case has turns, the rest "
-                           "no; it needs --entry, which has no default")
+                      help="take every question's default without asking: each tool read, "
+                           "and no starter file of cases; it needs --entry, which has no "
+                           "default")
     init.add_argument("--example", metavar="NAME",
                       help="write the example of this name into the folder, with its agent, its "
                            "cases and its settings, and ask nothing: "
@@ -553,6 +547,9 @@ def _open(call: _Call, settings: Settings, *, name: str | None, existing: bool,
     except HuntError as wrong:
         verb = "hunt" if existing and "no hunt named" in str(wrong) else "doctor"
         raise look.Refused(_one_line(wrong), nexts=(_ours(call.prog, verb),)) from None
+    except NeedsAdapter as wrong:
+        raise look.Refused(_one_line(wrong),
+                           nexts=_cannot_nexts(call, settings, cases, wrong)) from None
     except _refusals() as wrong:
         raise look.Refused(_one_line(wrong), nexts=(_ours(call.prog, "doctor"),)) from None
 
@@ -574,6 +571,20 @@ def _init_line(call: _Call, settings: Settings, cases: Iterable[Mapping[str, Any
     words += [look.word(word) for word in more]
     words += ["--yes", "--force"]
     return " ".join(words)
+
+
+def _cannot_nexts(call: _Call, settings: Settings, cases: Iterable[Mapping[str, Any]],
+                  wrong: NeedsAdapter) -> tuple[str, ...]:
+    """What to run when the way in cannot make what a line of ``[vary]`` asks for: the ``init``
+    command that writes the settings back as they are with that line emptied; ``doctor`` for a
+    change that came from no line of the settings."""
+    key = wrong.key or ""
+    table, _, line = key.partition(".")
+    if table != "vary" or not hasattr(settings.vary, line):
+        return (_ours(call.prog, "doctor"),)
+    emptied: dict[str, Any] = {line: ()}
+    mended = dataclasses.replace(settings, vary=dataclasses.replace(settings.vary, **emptied))
+    return (_init_line(call, mended, cases),)
 
 
 def _classing_line(call: _Call, settings: Settings, cases: Iterable[Mapping[str, Any]],
@@ -1759,7 +1770,7 @@ def _recheck(call: _Call) -> int:
 
 def _doctor(call: _Call) -> int:
     from poisson_break.apply import Session
-    from poisson_break.hunt import run_once
+    from poisson_break.hunt import check_vary, run_once
     from poisson_break.search import load_strategy
 
     args = call.args
@@ -1788,14 +1799,13 @@ def _doctor(call: _Call) -> int:
         load_strategy(settings.search.strategy)
         check_registered(settings.vary.tools)
         capabilities = target.capabilities()
-        for move in settings.vary.conversation:
-            check_capabilities(parse(f"user:{move}@1"), capabilities)
-        for fault in settings.vary.model:
-            check_capabilities(parse(f"model:{fault}#1"), capabilities)
+        check_vary(settings, capabilities, kind=getattr(target, "kind", None))
         Session(Condition(changes=()), seed=0, tools=_tool_lines(settings),
                 capabilities=capabilities)
         if settings.fails.own is not None:
             _loads_check(settings.fails.own)
+    except NeedsAdapter as wrong:
+        return problem(_one_line(wrong), _cannot_nexts(call, settings, cases, wrong))
     except _refusals() as wrong:
         return problem(_one_line(wrong), again)
     tools = [tool.name for tool in target.tools()]
@@ -1899,10 +1909,13 @@ def _dest(flag: str) -> str:
 class _Dialogue:
     """``init``'s questions, asked through the look, or answered by their flags and defaults.
 
-    Each question is skipped when its flag was given. Under ``--yes`` each takes its own
-    default and nothing is asked; a question that cannot be asked
-    otherwise (no terminal) is the look's refusal. The answers are gathered as the words of the
-    one ``init`` command that writes the same file, and the settings module reads them."""
+    ``init`` asks only what Break cannot find out for itself: where the agent is, where the
+    cases are, and for each tool whether calling it changes anything. Every other setting takes
+    its default without a question, and its flag still sets it. A question is skipped when its
+    flag was given. Under ``--yes`` each takes its own default and nothing is asked; a question
+    that cannot be asked otherwise (no terminal) is the look's refusal. The answers are gathered
+    as the words of the one ``init`` command that writes the same file, and the settings module
+    reads them."""
 
     def __init__(self, call: _Call) -> None:
         self.call = call
@@ -1924,21 +1937,16 @@ class _Dialogue:
     def ask_yes_no(self, question: str, default: bool) -> bool:
         return default if self.yes else look.ask(question, default)
 
-    def menu(self, question: str, default: str, choices: Sequence[str]) -> str:
-        return default if self.yes else look.ask(question, default, choices)
-
     def run(self) -> tuple[Settings, bool, str]:
         """Ask what is not given, in the file's order, and hand back the settings the answers
-        read as, whether a case has turns, and the kind chosen."""
-        kind = self.kind()
+        read as, whether a case has turns, and the kind."""
+        kind = self.given["--kind"][0] if "--kind" in self.given else _DEFAULT_KIND
+        self.put("--kind", kind)
         entry = self.entry()
         cases_file = self.cases_file()
         self.tools(kind, entry)
-        self.failures()
         turns = self.has_turns(cases_file)
-        self.may_change(turns)
-        self.runs()
-        self.money()
+        self.may_change(kind, turns)
         for flag, values in self.given.items():
             if flag not in self.words:
                 self.put(flag, *values)
@@ -1949,19 +1957,7 @@ class _Dialogue:
                              nexts=(_ours(self.call.prog, "init", "--help"),)) from None
         return settings, turns, kind
 
-    # --- question 1: what the agent is built with
-
-    def kind(self) -> str:
-        if "--kind" in self.given:
-            kind = self.given["--kind"][0]
-        else:
-            lines = {f"{word} ({what})": word for word, what in _KINDS}
-            default = next(line for line, word in lines.items() if word == _DEFAULT_KIND)
-            kind = lines[self.menu("What is your agent built with?", default, list(lines))]
-        self.put("--kind", kind)
-        return kind
-
-    # --- question 2: where it is
+    # --- where the agent is
 
     def entry(self) -> str:
         if "--entry" in self.given:
@@ -1972,35 +1968,41 @@ class _Dialogue:
                     "init cannot ask where the agent is: give it with --entry, as module:name",
                     nexts=(_ours(self.call.prog, *self.call.own_words, "--entry",
                                     _ENTRY_PLACEHOLDER),))
-            entry = self.entry_asked()
+            entry = self.import_path("Where is your agent? Its module and its name, as "
+                                     "module:name", "agent", empty_is_none=False)
         self.put("--entry", entry)
         return entry
 
-    def entry_asked(self) -> str:
+    def import_path(self, question: str, what: str, *, empty_is_none: bool) -> str:
+        """An import path asked until it is one: written ``module:name``, and its module there
+        to import from this folder. Each answer that is not says why in one ``note:`` line. With
+        ``empty_is_none`` an empty answer is taken, and means none."""
         import importlib.util
 
         if "" not in sys.path:
             sys.path.insert(0, "")
         while True:
-            entry = look.ask("Where is it? A module path and a name, module:name", "")
-            module, colon, attribute = entry.partition(":")
-            if not entry:
-                look.note("no agent was named: write it as module:name")
+            answer = look.ask(question, "")
+            module, colon, attribute = answer.partition(":")
+            if not answer:
+                if empty_is_none:
+                    return ""
+                look.note(f"no {what} was named: write it as module:name")
                 continue
             if not colon or not module or not attribute:
-                look.note(f'"{entry}" is not written module:name')
+                look.note(f'"{answer}" is not written module:name')
                 continue
             try:
                 found = importlib.util.find_spec(module) is not None
             except (ImportError, ValueError, AttributeError):
                 found = False
             if not found:
-                look.note(f'"{entry}" cannot be imported: there is no module "{module}" on the '
+                look.note(f'"{answer}" cannot be imported: there is no module "{module}" on the '
                           "import path from this folder")
                 continue
-            return entry
+            return answer
 
-    # --- question 3: the cases
+    # --- where the cases are
 
     def cases_file(self) -> str:
         if "--cases" in self.given:
@@ -2014,7 +2016,7 @@ class _Dialogue:
         self.put("--cases", cases_file)
         return cases_file
 
-    # --- question 4: the tools
+    # --- what each tool changes
 
     def tools(self, kind: str, entry: str) -> None:
         if "--tool" in self.given:
@@ -2032,36 +2034,30 @@ class _Dialogue:
                                    nexts=(_ours(self.call.prog, *self.call.own_words,
                                                    "--entry", _ENTRY_PLACEHOLDER),)) from None
         if not found:
-            typed = self.ask("No tool was found. Which tools does it call? Names, comma-separated",
-                             "")
+            typed = self.ask("No tool was found. Which tools does your agent call? Their names, "
+                             "with a comma between two", "")
             found = [name.strip() for name in typed.split(",") if name.strip()]
         for tool in found:
-            how = self.menu(f"{tool}: does it change things outside your test environment?",
-                            "read", ["read", "write", "off"])
-            if how != "write":
-                self.put("--tool", f'{tool} = "{how}"')
+            if not self.ask_yes_no(f"Does calling {tool} change anything, even in a test "
+                                   "environment?", False):
+                self.put("--tool", f'{tool} = "read"')
                 continue
-            made_safe = self.menu(f"{tool} changes things: is it safe to repeat here, or is there "
-                                  "a stand-in?", "repeatable", ["repeatable", "stand-in"])
-            if made_safe == "stand-in":
-                where = look.ask(f"The stand-in for {tool}, module:name", "")
-                self.put("--tool", f'{tool} = {{ class = "write", stand_in = "{where}" }}')
-            else:
+            if self.ask_yes_no(f"Is {tool} safe to repeat in your test environment, so that "
+                               "Break may call it again and again?", False):
                 self.put("--tool", f'{tool} = {{ class = "write", repeatable = true }}')
-
-    # --- question 5: what counts as a failure
-
-    def failures(self) -> None:
-        for flag, question in (
-                ("--outcomes", "Which outcomes your agent reports are failures? Comma-separated, "
-                               "or none"),
-                ("--own-check", "Your own check function, module:name, or none")):
-            if flag in self.given:
-                self.put(flag, *self.given[flag])
-            else:
-                answer = self.ask(question, "")
-                if answer:
-                    self.put(flag, answer)
+                continue
+            where = self.import_path(f"Where is the stand-in Break calls in place of {tool}, "
+                                     "a function with the same arguments that changes nothing? "
+                                     "As module:name", "stand-in", empty_is_none=True)
+            if not where:
+                # off would pass every call to the real tool, so nothing is written
+                filled = f'{tool} = {{ class = "write", stand_in = "{_ENTRY_PLACEHOLDER}" }}'
+                raise look.Refused(
+                    f"{tool} changes things and is not safe to repeat, so Break needs a stand-in "
+                    "to call in its place: a function with the same arguments that changes "
+                    "nothing, given as module:name; nothing was written",
+                    nexts=(_ours(self.call.prog, "init", *self.words, "--tool", filled),))
+            self.put("--tool", f'{tool} = {{ class = "write", stand_in = "{where}" }}')
 
     def has_turns(self, cases_file: str) -> bool:
         """Whether a case in the file is a conversation. The file is read line by line as JSON,
@@ -2082,68 +2078,26 @@ class _Dialogue:
                 return True
         return False
 
-    # --- question 6: what Break may change
+    # --- what Break may change, taken without a question
 
-    def may_change(self, turns: bool) -> None:
+    def may_change(self, kind: str, turns: bool) -> None:
+        """Each surface takes its default unless its flag was given: tool behaviour and inputs
+        on, the conversation on when a case has turns, the model's calls and settings of your own
+        off. A surface the way in cannot reach is never on by default. What it can reach is the
+        way in's own word, read without loading anything."""
+        from poisson_break.hunt import way_in_can
+
+        can = way_in_can(kind)
         moves = ",".join(entry.name for entry in CATALOG if entry.surface == "user")
-        faults = ",".join(entry.name for entry in CATALOG if entry.surface == "model")
-        surfaces: tuple[tuple[str, str, bool, bool], ...] = (
-            ("--vary-tools", "May Break change how the tools behave?", True, True),
-            ("--vary-inputs", "May Break change what the user asks?", True, True),
-            ("--vary-conversation", "May Break change the conversation?", True, turns),
-            ("--vary-model", "May Break change the model's calls?", False, True),
-            ("--env", "May Break change settings of your own?", False, True),
-        )
-        for flag, question, default, asked in surfaces:
+        for flag in ("--vary-tools", "--vary-inputs", "--vary-conversation", "--vary-model",
+                     "--env"):
             if flag in self.given:
                 self.put(flag, *self.given[flag])
-                continue
-            if not asked:
-                continue
-            answer = self.ask_yes_no(question, default)
-            if flag in ("--vary-tools", "--vary-inputs"):
-                if not answer:
-                    self.put(flag, "[]")
-            elif flag == "--vary-conversation" and answer:
-                self.put(flag, moves)
-            elif flag == "--vary-model" and answer:
-                self.put(flag, faults)
-            elif flag == "--env" and answer:
-                while True:
-                    line = look.ask('A setting of your own, as name = ["a", "b"]; Enter when done',
-                                    "")
-                    if not line:
-                        break
-                    self.put(flag, line)
-
-    # --- question 7: how many runs
-
-    def runs(self) -> None:
-        if "--runs" in self.given:
-            self.put("--runs", self.given["--runs"][0])
-        else:
-            self.put("--runs", self.ask("How many runs may a hunt use?", "400"))
-
-    # --- questions 8 and 9: the prices and the cap
-
-    def money(self) -> None:
-        prices = []
-        for flag, question in (
-                ("--input-per-million", "What does a million input tokens cost, in dollars? "
-                                        "Empty: no prices, and no dollars shown"),
-                ("--output-per-million", "And a million output tokens, in dollars?")):
-            if flag in self.given:
-                price = self.given[flag][0]
-            else:
-                price = self.ask(question, "")
-            prices.append(price)
-            if price:
-                self.put(flag, price)
-        if "--dollars" in self.given:
-            self.put("--dollars", self.given["--dollars"][0])
-        elif all(prices):
-            self.put("--dollars", self.ask("What is the most a hunt may spend, in dollars?",
-                                           "5.00"))
+        if "--vary-tools" not in self.given and can is not None and not can.tool_calls:
+            self.put("--vary-tools", "[]")
+        if ("--vary-conversation" not in self.given and turns and can is not None
+                and can.conversation):
+            self.put("--vary-conversation", moves)
 
 
 def look_can_ask() -> bool:
@@ -2206,9 +2160,31 @@ def _init_example(call: _Call, name: str) -> int:
     return EXIT_DONE
 
 
+def _only_rollout(call: _Call) -> None:
+    """Refuse, before anything is asked or written, a ``--kind`` whose way in is not on this
+    machine, with the same command and the kind this version has."""
+    from poisson_break.hunt import WAYS_IN
+
+    kind = call.args.kind
+    if kind is None or way_in_installed(kind):
+        return
+    have = " and ".join(WAYS_IN)
+    words: list[str] = []
+    for word in call.own_words:
+        if word == kind and words and words[-1] == "--kind":
+            word = _DEFAULT_KIND
+        elif word == f"--kind={kind}":
+            word = f"--kind={_DEFAULT_KIND}"
+        words.append(word)
+    raise look.Refused(f'--kind is "{kind}", and this version of Break has only the {have} way '
+                       f"in: give --kind {_DEFAULT_KIND}, or leave it out",
+                       nexts=(_ours(call.prog, *words),))
+
+
 def _init(call: _Call) -> int:
     if call.args.example is not None:
         return _init_example(call, str(call.args.example))
+    _only_rollout(call)
     path = Path(SETTINGS_FILE)
     if path.exists() and not call.args.force:
         raise look.Refused(f"{SETTINGS_FILE} is already here",
@@ -2228,9 +2204,36 @@ def _init(call: _Call) -> int:
             "cases_file": settings.target.cases,
             "tools": [{"name": tool.name, "class": tool.tool_class} for tool in settings.tools],
             "install": install}
-    look.show(look.Result("wrote", SETTINGS_FILE, nexts=tuple(nexts), schema=_schema("init"),
-                          data=data))
+    look.show(look.Result("wrote", SETTINGS_FILE, detail=_chosen(settings), nexts=tuple(nexts),
+                          schema=_schema("init"), data=data))
     return EXIT_DONE
+
+
+def _chosen(settings: Settings) -> tuple[look.Row | look.Line, ...]:
+    """What ``init`` did not ask, as the file now says it: what fails a run, what Break may
+    change, how far a hunt may go and what it costs; then where to change any of it."""
+    fails = settings.fails
+    own = []
+    own.append(f"the outcomes {', '.join(fails.outcomes)}" if fails.outcomes
+               else "no outcome your agent reports")
+    own.append(f"your check {fails.own}" if fails.own else "no check of your own")
+    limits = settings.limits
+    if limits.input_per_million is not None and limits.output_per_million is not None:
+        prices = (f"{look.fmt_dollars(limits.input_per_million)} a million tokens in, "
+                  f"{look.fmt_dollars(limits.output_per_million)} out")
+        if limits.dollars is not None:
+            prices += f", and a hunt spends at most {look.fmt_dollars(limits.dollars)}"
+    else:
+        prices = "none, so no dollars are shown"
+    return (
+        look.Row("fails on", ", ".join(fails.checks) + "; " + ", and ".join(own)),
+        look.Row("may change", _may_change(settings)),
+        look.Row("runs", f"at most {look.fmt_count(settings.search.runs)} a hunt, over at most "
+                         f"{_hours(limits.hours)}"),
+        look.Row("prices", prices),
+        look.Line(f"Break chose what it did not ask. Change any of it in {SETTINGS_FILE}, and "
+                  "doctor checks the file."),
+    )
 
 
 _RUN: Mapping[str, Callable[[_Call], int]] = {

@@ -307,3 +307,22 @@ def test_a_flag_with_no_value_is_refused() -> None:
     with pytest.raises(s.SettingsError) as caught:
         s.settings_from_init_args([*words, flag_for("search.runs")])
     assert_one_line(caught.value)
+
+
+@pytest.mark.parametrize("word", ["none", "None", "NONE"])
+def test_none_given_to_the_outcomes_or_the_own_check_sets_nothing(word: str) -> None:
+    """The word `none`, in any case, is no outcomes and no check of your own: what leaving the flag out gives."""
+    s = settings()
+    words = words_of(command(doc()))
+    plain = s.settings_from_init_args(words)
+    for key in ("fails.outcomes", "fails.own"):
+        assert s.settings_from_init_args([*words, flag_for(key), word]) == plain, key
+
+
+def test_an_outcome_that_is_the_word_none_still_round_trips() -> None:
+    """An outcome your agent reports as the word itself is kept: the command writes it as TOML, so it is not read
+    back as no outcomes."""
+    s = settings()
+    text = doc(fails='outcomes = ["none"]')
+    line = command(text)
+    assert s.settings_from_init_args(words_of(line)) == s.loads(text), line
