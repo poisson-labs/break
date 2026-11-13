@@ -37,7 +37,9 @@ environment. A stage that stops short, at a cap or on Ctrl-C, says how many runs
 Ctrl-C, the runs the stage's own arms hold, a confirm stage's among them the reference runs of
 the findings it confirmed; under `--json`, with the reason and the run it stopped in) and prints the command that goes on with the same hunt (`hunt --hunt NAME`, `confirm --hunt NAME`,
 `recheck --hunt NAME`, with `--old`, `--check` and `--strict` as they were given), and that
-command, run at a terminal, asks before it spends again. A tool the agent called that the
+command, run at a terminal, asks before it spends again. `confirm` without `--repeats` on a hunt
+whose latest confirm stage is finished runs nothing and asks nothing: it says the stage is
+already finished, shows its result again and leaves the finding files as they are. A tool the agent called that the
 settings do not class stops the stage naming it, and prints first the `init` command that
 writes the settings back as they are with that tool classed `off`, so the hunt can go on, and
 then the command that goes on with it.
@@ -651,7 +653,8 @@ of only the candidates the latest stage called *too small to tell*, with its own
 (`confirm-2-control`, `confirm-2-<candidate>`), on new seeds. It is read on its own: its runs
 are never pooled with the earlier stage's, because adding runs until a test passes makes the
 test mean less than it says. `confirm(hunt)` on a stage that is finished runs nothing and gives
-the same answer.
+the same answer. `finished_stage(hunt)` gives that answer without running or writing anything,
+and `None` while the latest stage has runs, findings or reference runs left to make.
 
 **A finding** is a confirmed candidate, numbered within the hunt from 1 in the order confirmed
 and written to `findings/<n>.toml`: the condition by name, the failure share under it and under

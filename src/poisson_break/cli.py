@@ -1115,7 +1115,14 @@ def _control_summary(call: _Call, settings: Settings, hunt: Any, verb: str) -> A
 
 
 def _confirm(call: _Call) -> int:
-    from poisson_break.confirm import ConfirmError, confirm, design, read_candidates, read_stages
+    from poisson_break.confirm import (
+        ConfirmError,
+        confirm,
+        design,
+        finished_stage,
+        read_candidates,
+        read_stages,
+    )
     from poisson_break.hunt import HuntStopped
 
     args = call.args
@@ -1160,6 +1167,16 @@ def _confirm(call: _Call) -> int:
         planned = design(candidates, settings, summary)
     except ConfirmError as wrong:
         raise look.Refused(_one_line(wrong), nexts=(_ours(call.prog, "hunt"),)) from None
+
+    if latest is not None and args.repeats is None and not _stage_left(latest):
+        # a stage with nothing left to run or write: its answer again, with no plan and no question
+        try:
+            answered = finished_stage(hunt)
+        except _refusals() as wrong:
+            raise look.Refused(_one_line(wrong), nexts=(resume,)) from None
+        if answered is not None:
+            look.show(_confirm_result(call, settings, hunt, answered, already=True))
+            return EXIT_DONE
 
     rows: list[look.Row | look.Line | look.Table] = []
     data: dict[str, Any] = {"dollars": None, "hunt": hunt.name, "candidates": len(candidates)}
@@ -1260,7 +1277,11 @@ def _more(runs: int) -> str:
     return f"{look.fmt_count(runs)} more {'run' if runs == 1 else 'runs'}"
 
 
-def _confirm_result(call: _Call, settings: Settings, hunt: Any, done: Any) -> look.Result:
+def _confirm_result(call: _Call, settings: Settings, hunt: Any, done: Any, *,
+                    already: bool = False) -> look.Result:
+    """A confirm stage's answer. ``already`` for a stage that was finished before this command,
+    which ran nothing and wrote nothing: the sentence says so, and the finding files are named
+    without a ``wrote`` line."""
     table = []
     listed = []
     control_rate = None
@@ -1291,22 +1312,29 @@ def _confirm_result(call: _Call, settings: Settings, hunt: Any, done: Any) -> lo
     if done.findings:
         paths = [f"{folder.as_posix()}/{done.findings[0].number}.toml"]
         paths += [f"{finding.number}.toml" for finding in done.findings[1:]]
-        detail.append(look.Row("wrote", ", ".join(paths)))
+        detail.append(look.Row("findings" if already else "wrote", ", ".join(paths)))
         reference_runs = len(done.findings) * done.design.reference_per_finding
         detail.append(look.Row("reference", _n(reference_runs, "run")))
     shown = "" if control_rate is None else f" ({look.fmt_rate(control_rate)})"
     verdict = "confirmed" if done.findings else "nothing confirmed"
     nexts = ((_ours(call.prog, "findings", str(done.findings[0].number)),)
              if done.findings else ())
-    data = {"hunt": hunt.name, "stage": done.stage, "candidates": listed,
-            "findings": [finding.number for finding in done.findings],
-            "wrote": [f"{folder.as_posix()}/{finding.number}.toml" for finding in done.findings],
-            "reference_runs": len(done.findings) * done.design.reference_per_finding}
+    data: dict[str, Any] = {
+        "hunt": hunt.name, "stage": done.stage, "candidates": listed,
+        "findings": [finding.number for finding in done.findings],
+        "wrote": [] if already else [f"{folder.as_posix()}/{finding.number}.toml"
+                                     for finding in done.findings],
+        "reference_runs": len(done.findings) * done.design.reference_per_finding}
+    if already:
+        data["already_finished"] = True
     fail = "fails" if len(done.findings) == 1 else "fail"
-    return look.Result(verdict, f"{look.fmt_count(len(done.findings))} of "
-                                f"{_n(len(done.tested), 'candidate')} {fail} more than the "
-                                f"control{shown}",
-                       detail=tuple(detail), nexts=nexts, schema=_schema("confirm"), data=data)
+    sentence = (f"{look.fmt_count(len(done.findings))} of {_n(len(done.tested), 'candidate')} "
+                f"{fail} more than the control{shown}")
+    if already:
+        sentence = (f"confirm stage {done.stage} of {hunt.name} is already finished, so nothing "
+                    f"ran: {sentence}")
+    return look.Result(verdict, sentence, detail=tuple(detail), nexts=nexts,
+                       schema=_schema("confirm"), data=data)
 
 
 # ---------------------------------------------------------------------------

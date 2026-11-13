@@ -261,15 +261,74 @@ def test_nothing_printed_names_a_hash(mixed: tuple[Project, Any, Any]) -> None:
     assert hashes((ran.out + ran.err).replace(str(proj.folder.parent), "")) == []
 
 
-def test_a_finished_stage_asked_again_runs_nothing_and_gives_the_same_answer(mixed: tuple[Project, Any, Any]) -> None:
+def _kept(proj: Project) -> tuple[dict[str, int], int, dict[str, tuple[bytes, int]], bytes]:
+    """What a confirm that runs nothing leaves as it was: each arm's rows, the runs the target made, each finding file's
+    bytes and modification time, and `confirm.json`."""
+    rows = {arm: len(stored(proj, "desk-1", arm)) for arm in ("confirm-control", "confirm-1", "confirm-2", "confirm-3",
+                                                              "reference-1")}
+    folder = proj.hunt("desk-1") / "findings"
+    files = {p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in sorted(folder.glob("*.toml"))}
+    return rows, len(proj.runs()), files, (proj.hunt("desk-1") / "confirm.json").read_bytes()
+
+
+@pytest.mark.parametrize("words", [["--yes"], [], ["--dry-run"]], ids=["yes", "no terminal and no yes", "dry run"])
+def test_a_finished_stage_asked_again_runs_nothing_asks_nothing_and_says_so(mixed: tuple[Project, Any, Any],
+                                                                             words: list[str]) -> None:
+    """Hands-on issue 5, as Taylor ruled it: with the latest stage finished and no `--repeats`, `confirm` shows no plan
+    and asks nothing, so a stdin that is not a terminal is not refused; it says that stage 1 is already finished and
+    nothing ran, shows the stage's answer again under the same verdict word, and leaves the finding files as they are,
+    with no `wrote` line."""
     proj, ran, done = mixed
-    rows = {arm: len(stored(proj, "desk-1", arm)) for arm in ("confirm-control", "confirm-1", "reference-1")}
-    made = len(proj.runs())
-    second = cli(proj, "confirm", "--yes")
+    before = _kept(proj)
+    second = cli(proj, "confirm", *words)
     assert second.exit == CODES["done"], second
-    assert result_of(second, "confirmed") == result_of(ran, "confirmed")
-    assert {arm: len(stored(proj, "desk-1", arm)) for arm in rows} == rows
-    assert len(proj.runs()) == made
+    assert [VERDICT_LINE.match(b[0]).group(1) for b in results(second.out)] == ["confirmed"], second  # type: ignore[union-attr]
+    word, sentence = verdict(second)
+    assert "confirm stage 1" in sentence and "already finished" in sentence and "nothing ran" in sentence, sentence
+    block, first = result_of(second, "confirmed"), result_of(ran, "confirmed")
+    assert [line for line in detail(block) if line.split()[:1] in (["1"], ["2"], ["3"])] == [
+        line for line in detail(first) if line.split()[:1] in (["1"], ["2"], ["3"])]
+    assert not [line for line in detail(block) if line.split()[:1] == ["wrote"]], block
+    assert "break-runs/desk-1/findings/1.toml" in "\n".join(block), block
+    assert nexts(second) == nexts(ran)
+    assert errors(second) == [] and notes(second) == [] and "[y/N]" not in second.err, second
+    assert _kept(proj) == before
+
+
+def test_a_finished_stage_asked_again_under_json_says_the_same(mixed: tuple[Project, Any, Any]) -> None:
+    """The document says what the text says: the same verdict and sentence, no file written, and that the stage was
+    already finished."""
+    proj, ran, done = mixed
+    before = _kept(proj)
+    text = cli(proj, "confirm", "--yes")
+    second = cli(proj, "confirm", "--yes", "--json")
+    assert second.exit == CODES["done"], second
+    document = json_document(second)
+    assert document["schema"] == "poisson_break.confirm-result/1"
+    assert (document["verdict"], document["sentence"]) == verdict(text)
+    assert document["already_finished"] is True
+    assert document["wrote"] == []
+    assert (document["stage"], document["findings"]) == (1, [1])
+    assert [c["verdict"] for c in document["candidates"]] == [t.verdict for t in done.tested]
+    assert _kept(proj) == before
+
+
+def test_a_finished_stage_that_confirmed_nothing_asked_again_says_so_and_names_no_file(tmp_path: Path) -> None:
+    """The other word of the closed set: `nothing confirmed`, said again with no plan, no question and no file."""
+    proj = project(tmp_path, MIXED, **MIXED_SETTINGS)
+    prepared(proj, (on("rate_limited"),))
+    first = cli(proj, "confirm", "--yes")
+    assert first.exit == CODES["done"] and result_of(first, "nothing confirmed"), first
+    runs = store_runs(proj, "desk-1"), len(proj.runs())
+    second = cli(proj, "confirm")
+    assert second.exit == CODES["done"], second
+    assert [VERDICT_LINE.match(b[0]).group(1) for b in results(second.out)] == ["nothing confirmed"], second  # type: ignore[union-attr]
+    word, sentence = verdict(second)
+    assert "already finished" in sentence and "nothing ran" in sentence, sentence
+    assert not [line for line in detail(result_of(second, "nothing confirmed")) if "findings" in line], second
+    assert errors(second) == [] and notes(second) == [], second
+    assert (store_runs(proj, "desk-1"), len(proj.runs())) == runs
+    assert not (proj.hunt("desk-1") / "findings").exists() or not list((proj.hunt("desk-1") / "findings").iterdir())
 
 
 # ---------------------------------------------------------------------------

@@ -34,6 +34,8 @@ otherwise, with a note where there is something to say: ``failed less``, ``not a
 correction``, or ``nothing to compare`` when no case is left with an outcome in both arms.
 ``confirm(hunt, repeats=N)`` asks again about the candidates the latest stage called *too small
 to tell*: a new stage with its own control arm, on new seeds, read on its own.
+``finished_stage`` gives the latest stage's answer when nothing of it is left to run or write,
+and runs nothing.
 
 **A finding** is a confirmed candidate, numbered within the hunt from 1 in the order confirmed,
 written to ``findings/<n>.toml`` and read back equal (``write_finding``, ``read_finding``). Each
@@ -104,6 +106,7 @@ __all__ = [
     "design",
     "Design",
     "confirm",
+    "finished_stage",
     "Confirmation",
     "read_stages",
     "Stage",
@@ -1156,6 +1159,44 @@ def confirm(hunt: Hunt, *, repeats: int | None = None,
                        max_difference=hunt.settings.confirm.max_difference)
         _write_stages(hunt, [*stages, stage])
     return _run_stage(hunt, stage, stored, on_progress)
+
+
+def finished_stage(hunt: Hunt) -> Confirmation | None:
+    """The latest confirm stage's answer when nothing of it is left to run or write: its arms
+    hold every run, each candidate it confirms has its finding written, and the reference arm of
+    every finding written holds every run. It is the answer ``confirm`` gives that stage asked
+    again, Trace checked and asked again as ``confirm`` asks it.
+
+    ``None`` for a hunt with no confirm stage, and for a stage that ``confirm`` would go on with:
+    runs missing from its arms, from a reference arm or from the hunt's control, or a candidate it
+    confirms with no finding file yet, as after a stage stopped once its last run was stored.
+    Runs nothing and writes nothing; Trace is asked only of a stage whose arms are full. Refused
+    as ``confirm`` refuses Trace (``trace missing``, ``trace version``, ``trace schema``,
+    ``trace answer``)."""
+    hunt = _of(hunt)
+    stages = _read_stages(hunt)
+    if not stages:
+        return None
+    stage = stages[-1]
+    stored = _Stored(hunt)
+    written = _written(hunt)
+    if not _finished(hunt, stage, stored) or not all(
+            stored.holds(finding.reference, len(finding.cases) * finding.repeats)
+            for finding in written):
+        return None
+    try:
+        _need_control(hunt, stored)  # what the stage's answer reads the cost of a run from
+    except ConfirmError:
+        return None
+    _check_trace(hunt)
+    tested = _judge(hunt, stage, stored)
+    by_arm = {finding.arm: finding for finding in written}
+    confirmed = [one.arm for one in tested if one.verdict == "confirmed"]
+    if not all(arm in by_arm for arm in confirmed):
+        return None
+    return Confirmation(stage=stage.number,
+                        design=_counts(hunt.settings, stage, control(hunt).dollars_per_run),
+                        tested=tested, findings=tuple(by_arm[arm] for arm in confirmed))
 
 
 # ---------------------------------------------------------------------------
