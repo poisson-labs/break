@@ -54,8 +54,9 @@ plan  recheck 3 findings on the agent as it is now
   estimate  54 runs, about 0 s; no prices, so no dollars, from the control stage's 0 s a run
 note: Break calls your tools for real: run it against a test environment, never against anything that matters
 rechecked  3 of 3 findings now fail less
-  1  tool:lookup_order#1=error  fails less  1.000 before · 0.000 now
-  2  tool:lookup_order#1=timeout  fails less  1.000 before · 0.000 now
+     condition                         verdict     numbers
+  1  tool:lookup_order#1=error         fails less  1.000 before · 0.000 now
+  2  tool:lookup_order#1=timeout       fails less  1.000 before · 0.000 now
   3  tool:lookup_order#1=rate_limited  fails less  1.000 before · 0.000 now
   gap  0.0 days since the reference runs
 ```
@@ -64,9 +65,9 @@ Three more `next:` lines follow, left out here because each holds a full path on
 ran on: the `poisson-trace fix-check` command for each finding's whole report.
 
 The plan comes first, as it does before anything that spends runs. Each finding is run over the
-cases and repeats of its reference run, here 6 cases × 3 repeats, 18 runs a finding. Each line
-of the result is one finding: its condition, a phrase, and the share of runs that failed before
-and now.
+cases and repeats of its reference run, here 6 cases × 3 repeats, 18 runs a finding. Each row
+of the table is one finding: its condition, a phrase under `verdict`, and under `numbers` the
+share of runs that failed before and now.
 
 | Phrase | What it means |
 |---|---|

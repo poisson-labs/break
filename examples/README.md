@@ -82,8 +82,9 @@ cd ..
 
 ```text
 rechecked  3 of 3 findings now fail less
-  1  tool:lookup_order#1=error  fails less  1.000 before · 0.000 now
-  2  tool:lookup_order#1=timeout  fails less  1.000 before · 0.000 now
+     condition                         verdict     numbers
+  1  tool:lookup_order#1=error         fails less  1.000 before · 0.000 now
+  2  tool:lookup_order#1=timeout       fails less  1.000 before · 0.000 now
   3  tool:lookup_order#1=rate_limited  fails less  1.000 before · 0.000 now
   gap  0.0 days since the reference runs
 ```
