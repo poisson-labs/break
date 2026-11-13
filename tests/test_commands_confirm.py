@@ -468,7 +468,7 @@ def test_the_stand_in_answers_the_same_stage_when_nothing_is_wrong(tmp_path: Pat
 
 def test_a_stage_where_neither_arm_failed_is_answered_by_the_pinned_trace(tmp_path: Path) -> None:
     """A desk that never fails but under `error`: the control arm and `timeout`'s arm hold no failed run. The pinned
-    Trace answers `--event failed` for them (poisson-labs/trace#31, fixed in 0.1.0a1; before it Trace refused the
+    Trace answers `--event failed` for them (trace#31, fixed in 0.1.0a1; before it Trace refused the
     event and the stage had no answer): `timeout` is too small to tell, with the repeats that would decide, and `error`
     is confirmed and written as the one finding."""
     proj = project(tmp_path, SOUND)
