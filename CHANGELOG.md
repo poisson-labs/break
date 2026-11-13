@@ -47,6 +47,12 @@ Changed since the last development build:
   this version runs. A `[vary]` line the way in cannot make is named, in `doctor`, `hunt`,
   `confirm` and `recheck` alike, with what to write there, and the command printed under it is
   the `init` command that writes the file with that line emptied.
+- `init` asks three things where it asked up to nine: where the agent is, where the cases are,
+  and for each tool one yes or no on whether calling it changes anything, even in a test
+  environment, in place of a `read`, `write` or `off` menu about changes outside it. The kind,
+  what fails a run, what Break may change, the runs, the prices and the cap take their defaults
+  without a question; `init` lists them after `wrote` and says `break.toml` is where to change
+  them. Every flag still sets its value.
 - The package's version is 0.1.0, its status Alpha. An sdist is built beside the wheel and
   holds only the source, the tests, the docs, the examples, the scripts and the project's own
   files.
@@ -62,18 +68,16 @@ Everything in the release, module by module:
   shows its plan and asks `start?` first; `--yes` answers, `--dry-run` runs nothing and writes
   nothing, and no terminal without `--yes` is the plan and a refusal in one line. After every
   plan, and in `init`'s and `doctor`'s output, the note that Break calls your tools for real.
-- `init` asks at most nine questions, each with a flag and all but the agent's place with a
-  default, skipped when its flag is given; `--yes` takes every question's own default (tool
-  behaviour and inputs yes, the conversation yes when a case has turns, the rest no) and needs
-  `--entry`. The kind is a menu of the six, the
-  tools of a `rollout` target are the ones its module wraps while it is imported (never run),
-  a `write` tool is asked whether it is safe to repeat or has a stand-in, the conversation is
-  asked only when a case has turns and a yes writes every conversation move, a yes to model
-  calls every model fault. It writes `break.toml`, refuses to write over one without `--force`,
-  writes `cases.jsonl` only when the starter file was asked for, and ends with the one command
-  that writes the same file, which runs as printed with no terminal; a kind whose adapter is
-  not installed is still written, with the `pip install` line first. A line it prints back
-  (`--force`, `--entry MODULE:NAME`) is the user's own words.
+- `init` asks only what Break cannot find out for itself: where the agent is, where the cases
+  are, and for each tool whether calling it changes anything, with a yes followed by whether it
+  is safe to repeat and, if not, where its stand-in is. The tools of a `rollout` target are the
+  ones its module wraps while it is imported (never run). Every other setting takes its default,
+  and `init` lists what it chose and says `break.toml` is where to change it. Every setting has a
+  flag; `--yes` takes every default and needs `--entry`. It writes `break.toml`, refuses to
+  write over one without `--force`, writes `cases.jsonl` only when the starter file was asked
+  for, and ends with the one command that writes the same file, which runs as printed with no
+  terminal; a kind whose adapter is not installed is still written, with the `pip install` line
+  first. A line it prints back (`--force`, `--entry MODULE:NAME`) is the user's own words.
 - `doctor` finds the first problem of the settings, the cases, the target, the strategy, the
   changes the way in cannot make, each tool line and stand-in and your own check, and says
   `not ready`, exit 4, in one line with the command to run next: `init` when there is no

@@ -6,7 +6,7 @@ The commands, the settings file, how runs are stored, and the library under the 
 
 | Verb | What it does | Spends | Verdict words |
 |---|---|---|---|
-| `init` | asks at most nine questions, each with a flag and all but the agent's place with a default, and writes `break.toml`; ends with the one command that writes the same file. `init --example NAME` asks nothing and writes an example's agent, cases and settings | nothing | `wrote` |
+| `init` | asks where the agent is, where the cases are and, for each tool, whether calling it changes anything; chooses every other setting, says what it chose, and writes `break.toml`; ends with the one command that writes the same file. `init --example NAME` asks nothing and writes an example's agent, cases and settings | nothing | `wrote` |
 | `doctor` | reads the settings and the cases, loads the target and lists its tools, finds the first problem; `--run` runs the first case once, asked first, and stores nothing | one run, if asked | `ready`, `not ready` |
 | `hunt` | the control stage, the search and the shrink stage; writes the candidates, best first | yes | `found`, `nothing found`, `stopped` |
 | `confirm` | the confirm stage against one shared control on fresh runs, Trace's test for each candidate, the findings written and their reference runs; `--repeats N` asks again about what was too small to tell | yes | `confirmed`, `nothing confirmed`, `stopped` |
@@ -47,22 +47,22 @@ then the command that goes on with it.
 `--hunt NAME` another. A finding is a number within its hunt. Nothing any verb prints asks you
 to paste a hash.
 
-`init`'s questions, in order: what the agent is
-built with (a menu of the six kinds; the core ships `rollout`, a function Break can call, and
-a kind whose adapter is not installed is still written, with the `pip install` line printed
-first); where it is (`module:name`, imported to find its tools, never run); where the cases are
-(and whether to write a starter file of three); for each tool found, whether it changes things
-outside your test environment (`read`, `write`, `off`; a `write` tool is asked whether it is
-safe to repeat or has a stand-in); what counts as a failure; what Break may change (tool
-behaviour and inputs yes, the conversation when a case has turns, model calls and settings of
-your own no), asking only about what the way in can reach, so a `rollout` target is never asked
-about the conversation or the model's calls; how many runs a hunt may use; what your model's
-tokens cost; and, with prices, the most a hunt may spend. `--yes` takes every question's default
-and asks nothing: tool behaviour and inputs yes, the conversation yes when a case has turns and
-the way in can play one, and model calls, settings of your own and the starter file no. Where the agent is has no default, so `--yes` needs
-`--entry`. Every answer has a flag, listed under `init`'s flags below, and `init` ends with the
-one command that writes the same file. It runs as printed with no terminal in a folder that has
-no `break.toml`; where one is already there, add `--force`.
+`init` asks only what Break cannot find out for itself, in this order: where the agent is
+(`module:name`, imported to find its tools, never run, and asked again until it imports); where
+the cases are (and, when there is no such file, whether to write a starter file of three); and,
+for each tool it finds, whether calling it changes anything, even in a test environment. A tool
+that changes nothing is `read`. For one that does, it asks whether it is safe to repeat in your
+test environment, and if not, where its stand-in is; with no stand-in, Break leaves that tool
+alone (`off`). Every other setting takes its default without a question: the kind `rollout`,
+Break's own checks for what fails a run, tool behaviour and inputs varied (the conversation too
+when a case has turns and the way in can play one; the model's calls and settings of your own
+not), 400 runs and 2 hours a hunt, and no prices. `init` then lists what it chose and says that
+`break.toml` is where to change it. `--yes` takes every default and asks nothing: each tool is
+`read` and no starter file is written. Where the agent is has no default, so `--yes` needs
+`--entry`. Every setting has a flag, listed under `init`'s flags below, which skips its question
+or sets what would otherwise be chosen, and `init` ends with the one command that writes the
+same file. It runs as printed with no terminal in a folder that has no `break.toml`; where one
+is already there, add `--force`.
 
 `--version` prints one line with the versions of Break, Prove, Trace and Python. A failure
 inside the command is one line that names the log its details went to, and exit 3; `--debug`

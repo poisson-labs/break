@@ -8,8 +8,8 @@ Invariants held here (Break — Plan, the commands module; spec §9.3, §9.4):
 - BK8.2   `--json` is one strict document.
 - §9.3    Every key has a flag, and a flag is written whole: an abbreviated one is a mistake on the command line.
 
-The dialogue itself (BK8.3's scripted answers, the nine questions, BK8.5's tool question and BK8.12's menus) is held
-in `tests/test_commands_dialogue.py`, on Taylor's rulings of BK8 points 1 to 5. Every test here answers no question:
+The dialogue itself (BK8.3's scripted answers, the questions Break cannot answer for itself and BK8.5's tool
+questions) is held in `tests/test_commands_dialogue.py`, on Taylor's yes on issue 13 and his rulings of BK8's points. Every test here answers no question:
 `--yes` takes each default, and the flags say the rest.
 """
 
