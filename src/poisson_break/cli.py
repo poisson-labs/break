@@ -1324,9 +1324,8 @@ def _confirm_result(call: _Call, settings: Settings, hunt: Any, done: Any, *,
         "findings": [finding.number for finding in done.findings],
         "wrote": [] if already else [f"{folder.as_posix()}/{finding.number}.toml"
                                      for finding in done.findings],
-        "reference_runs": len(done.findings) * done.design.reference_per_finding}
-    if already:
-        data["already_finished"] = True
+        "reference_runs": len(done.findings) * done.design.reference_per_finding,
+        "already_finished": already}
     fail = "fails" if len(done.findings) == 1 else "fail"
     sentence = (f"{look.fmt_count(len(done.findings))} of {_n(len(done.tested), 'candidate')} "
                 f"{fail} more than the control{shown}")

@@ -495,7 +495,9 @@ def test_confirm_result(confirmed: Any) -> None:
     proj, docs = confirmed
     document = docs["confirm"]
     assert document["verdict"] == "confirmed"
-    assert data_keys(document) == {"hunt", "stage", "candidates", "findings", "wrote", "reference_runs"}
+    assert data_keys(document) == {"hunt", "stage", "candidates", "findings", "wrote", "reference_runs",
+                                   "already_finished"}
+    assert document["already_finished"] is False  # a stage this command ran
     with contextlib.chdir(proj.folder):
         done = confirm(opened(proj, "desk-1"))  # the finished stage asked again: runs nothing
     keys = ["number", "condition", "verdict", "note", "rate", "control_rate", "difference", "lo", "hi", "p",

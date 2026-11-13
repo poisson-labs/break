@@ -313,6 +313,19 @@ def test_a_finished_stage_asked_again_under_json_says_the_same(mixed: tuple[Proj
     assert _kept(proj) == before
 
 
+def test_already_finished_is_on_every_result_false_for_a_stage_run_and_true_for_one_asked_again(
+        tmp_path: Path) -> None:
+    """Both shapes of the result carry the key, so no reader has to ask whether it is there: `false` on the stage
+    this command ran, `true` on the finished stage asked again, the other keys the same on both."""
+    proj = project(tmp_path, MIXED, **MIXED_SETTINGS)
+    prepared(proj, MIXED_CANDIDATES)
+    first = json_document(cli(proj, "confirm", "--yes", "--json"))
+    second = json_document(cli(proj, "confirm", "--yes", "--json"))
+    assert (first["already_finished"], second["already_finished"]) == (False, True)
+    assert list(first) == list(second)
+    assert first["wrote"] == ["break-runs/desk-1/findings/1.toml"] and second["wrote"] == []
+
+
 def test_a_finished_stage_that_confirmed_nothing_asked_again_says_so_and_names_no_file(tmp_path: Path) -> None:
     """The other word of the closed set: `nothing confirmed`, said again with no plan, no question and no file."""
     proj = project(tmp_path, MIXED, **MIXED_SETTINGS)
