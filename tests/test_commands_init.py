@@ -271,3 +271,15 @@ def test_the_file_names_only_the_ways_in_and_the_strategies_this_version_runs(tm
     assert kind is not None and strategy is not None, text
     assert kind.group(1) == "rollout", kind.group(0)
     assert strategy.group(1) == "screen | random | module:Name (a strategy of your own)", strategy.group(0)
+
+
+def test_the_commented_conversation_and_model_lines_say_they_need_a_way_in_this_version_does_not_have(
+        tmp_path: Path) -> None:
+    """The example lines for `[vary] conversation` and `[vary] model` stay in the file, commented out, and each says in
+    a short comment that it needs a way in this version does not have."""
+    proj = empty(tmp_path)
+    assert cli(proj, "init", "--yes", *TARGET).exit == CODES["done"]
+    lines = proj.settings.read_text(encoding="utf-8").splitlines()
+    for key in ("conversation", "model"):
+        (line,) = [one for one in lines if one.startswith(f"# {key} = [")]
+        assert line.rstrip().endswith("# needs a way in this version does not have"), line

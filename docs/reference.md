@@ -250,8 +250,8 @@ run_seconds = 120
 tools = ["error", "timeout", "slow", "rate_limited", "empty", "cut_off", "malformed", "stale",
          "lost_reply", "planted_instruction"]
 inputs = ["typos", "reordered", "padded", "cut_short", "variant"]
-# conversation = ["repeats", "interrupts", "goes_quiet", "presses"]
-# model = ["error", "timeout", "rate_limited", "empty", "cut_off"]
+# conversation = ["repeats", "interrupts", "goes_quiet", "presses"]   # needs a way in this version does not have
+# model = ["error", "timeout", "rate_limited", "empty", "cut_off"]   # needs a way in this version does not have
 max_call = 3                        # the latest call to a tool that a fault may land on
 
 # [vary.env]

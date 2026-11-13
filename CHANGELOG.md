@@ -44,7 +44,8 @@ Changed since the last development build:
 - `init` asks only about what the way in can reach, read from the way in itself: a `rollout`
   target is not asked whether Break may change the model's calls or the conversation, and
   `--yes` varies neither for it. `break.toml`'s comments list only the kind and the strategies
-  this version runs. A `[vary]` line the way in cannot make is named, in `doctor`, `hunt`,
+  this version runs, and its `conversation` and `model` lines say they need a way in this
+  version does not have. A `[vary]` line the way in cannot make is named, in `doctor`, `hunt`,
   `confirm` and `recheck` alike, with what to write there, and the command printed under it is
   the `init` command that writes the file with that line emptied.
 - `init` asks three things where it asked up to nine: where the agent is, where the cases are,

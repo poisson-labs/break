@@ -120,6 +120,9 @@ _NOT_BUILT = ("adaptive",)
 _RUN_HERE = tuple(kind for kind in _KINDS if kind not in _WAYS_IN)
 _BUILT = tuple(strategy for strategy in _STRATEGIES if strategy not in _NOT_BUILT)
 
+# Beside the two [vary] lines that need a way in that can reach the model or play a conversation.
+_NO_WAY_IN = "needs a way in this version does not have"
+
 _CLASSES = ("read", "write", "off")
 _LINE_KEYS = ("class", "repeatable", "stand_in")
 _EXPECTATIONS = ("reply_contains", "calls", "never_calls")
@@ -373,9 +376,9 @@ _KEYS: tuple[_Key, ...] = (
     _Key("fails", "run_seconds", "--run-seconds", "time"),
     _Key("vary", "tools", "--vary-tools", "words"),
     _Key("vary", "inputs", "--vary-inputs", "words"),
-    _Key("vary", "conversation", "--vary-conversation", "words",
+    _Key("vary", "conversation", "--vary-conversation", "words", comment=_NO_WAY_IN,
          example='["repeats", "interrupts", "goes_quiet", "presses"]'),
-    _Key("vary", "model", "--vary-model", "words",
+    _Key("vary", "model", "--vary-model", "words", comment=_NO_WAY_IN,
          example='["error", "timeout", "rate_limited", "empty", "cut_off"]'),
     _Key("vary", "max_call", "--max-call", "whole",
          comment="the latest call to a tool that a fault may land on"),
