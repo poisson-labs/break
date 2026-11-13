@@ -40,7 +40,7 @@ DOCUMENTS: dict[str, set[str]] = {
     "poisson_break.hunt-result/1": {"hunt", "runs", "dollars", "control", "search", "candidates",
                                     "left_out", "not_looked_at", "wrote"} | STOP,
     "poisson_break.confirm-result/1": {"hunt", "stage", "candidates", "findings", "wrote",
-                                       "reference_runs"} | STOP,
+                                       "reference_runs", "already_finished"} | STOP,
     "poisson_break.findings-result/1": {"hunt", "findings", "control", "finding"},
     "poisson_break.replay-result/1": {"hunt", "finding", "case", "seed", "outcome", "kind", "error",
                                       "calls"},
