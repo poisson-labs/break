@@ -38,6 +38,9 @@ Changed since the last development build:
   repeats"), as the verdict sentences already did.
 - A hunt taken up with no prices set estimates over the runs it has left, and once its control
   has run, from the control's seconds a run.
+- `none`, given to `--outcomes` or `--own-check` or answered to their questions, means no
+  outcome counts as a failure and there is no check of your own. It was written as an outcome
+  named "none", and refused as a check's import path.
 - The package's version is 0.1.0, its status Alpha. An sdist is built beside the wheel and
   holds only the source, the tests, the docs, the examples, the scripts and the project's own
   files.

@@ -308,9 +308,11 @@ def build_parser(prog: str) -> argparse.ArgumentParser:
                                        "as 'inventory = [\"full\", \"empty\"]'; repeat it for "
                                        "each setting of your own")))
         else:
+            nothing = {"--outcomes": "; none means no outcome counts as a failure",
+                       "--own-check": "; none means no check of your own"}.get(flag, "")
             init.add_argument(flag, metavar="VALUE",
                               help=f"sets {key}; left out, that question is asked, or takes its "
-                                   "default under --yes")
+                                   f"default under --yes{nothing}")
     init.add_argument("--yes", action="store_true",
                       help="take every question's default without asking: tool behaviour and "
                            "inputs yes, the conversation yes when a case has turns, the rest "

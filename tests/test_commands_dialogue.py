@@ -320,6 +320,20 @@ def test_question_9_is_not_asked_without_the_prices(tmp_path: Path) -> None:
     assert proj.settings.read_text(encoding="utf-8") == expected(words)
 
 
+def test_none_answered_to_the_outcomes_and_the_own_check_is_neither(tmp_path: Path) -> None:
+    """Both questions offer "or none": answered `none`, the file has no outcome counted as a failure and no check of
+    your own, as with both answered empty, and the printed command carries neither flag."""
+    proj = empty(tmp_path)
+    rest = ["", ENTRY, "", "none", "none", "", "", "", "", "", "", ""]
+    ran, asked = converse(proj, ["init"], answering(dict(CLASSES), rest))
+    assert ran.exit == CODES["done"], (ran, asked)
+    words = ["--kind", "rollout", "--entry", ENTRY, "--cases", "cases.jsonl", "--tool", 'lookup_order = "read"',
+             "--tool", f'check_policy = {{ class = "write", stand_in = "{STAND_IN}" }}']
+    assert proj.settings.read_text(encoding="utf-8") == expected(words)
+    printed = strip(ran.out + ran.err)
+    assert "--outcomes" not in printed and "--own-check" not in printed, printed
+
+
 def every_conversation_move() -> str:
     """Point 43: every conversation move of the catalogue, in the catalogue's order, as `--vary-conversation` takes
     them."""

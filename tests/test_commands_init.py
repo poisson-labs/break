@@ -238,3 +238,21 @@ def test_every_flag_init_flags_names_is_taken(tmp_path: Path) -> None:
     ran = cli(proj, "init", "--yes", *words)
     assert ran.exit == CODES["done"], ran
     assert proj.settings.read_text(encoding="utf-8") == expected(words)
+
+
+# ---------------------------------------------------------------------------
+# none: no outcomes and no own check
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("word", ["none", "None"])
+def test_none_given_to_outcomes_and_own_check_is_no_outcomes_and_no_own_check(tmp_path: Path, word: str) -> None:
+    """`--outcomes none` and `--own-check none` write what leaving both out writes: no outcome counts as a failure and
+    there is no check of your own. The word is not an outcome named "none", and the printed command does not carry
+    it."""
+    proj = empty(tmp_path)
+    ran = cli(proj, "init", "--yes", *TARGET, "--outcomes", word, "--own-check", word)
+    assert ran.exit == CODES["done"], ran
+    assert proj.settings.read_text(encoding="utf-8") == expected(TARGET)
+    command = printed_command(ran)
+    assert "--outcomes" not in command and "--own-check" not in command, command

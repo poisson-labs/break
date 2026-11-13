@@ -350,7 +350,10 @@ The command states the target and whatever differs from the defaults, since a fl
 reads as its default, and running it gives the same file byte for byte. A value is written
 plainly where a shell reads it back as written (`--checks crashed,hung`, `--folder break-runs`)
 and as TOML where it does not (`--folder '"--odd name"'`, `--outcomes '["a, b"]'`); a tool's line and a setting of your
-own are written as the file writes them. Flags are written whole.
+own are written as the file writes them. Flags are written whole. `--outcomes none` and
+`--own-check none` mean no outcome counts as a failure and there is no check of your own, as when
+the flag is left out; an outcome your agent reports as the word itself is written
+`--outcomes '["none"]'`.
 
 ### The plan a hunt shows before it spends
 

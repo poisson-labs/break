@@ -1487,6 +1487,11 @@ def read_cases(path: str | os.PathLike[str]) -> tuple[dict[str, Any], ...]:
 # ---------------------------------------------------------------------------
 
 
+#: The word that, given to one of these flags, sets nothing: no outcomes, no check of your own.
+_NONE = "none"
+_NONE_FLAGS = ("--outcomes", "--own-check")
+
+
 def _is_bare(text: str) -> bool:
     """Whether a flag can carry text as it stands, with nothing that reads as a flag, as TOML
     or as more than one line."""
@@ -1528,9 +1533,12 @@ def settings_from_init_args(words: Sequence[str]) -> Settings:
     """The settings ``init``'s flags ask for: ``words`` are the words after ``init``.
 
     A flag is written whole, and its value is the next word or follows an ``=``. A flag left
-    out reads as its default. Refused with ``SettingsError``: a word that is no flag, an
-    abbreviated flag, a flag with no value or given twice, and any value the settings file
-    would refuse, which carries the same ``key`` and no ``line``."""
+    out reads as its default. ``none``, in any case, given to ``--outcomes`` or ``--own-check``
+    means no outcome counts as a failure and there is no check of your own, as when the flag is
+    left out; an outcome that is the word itself is written as TOML, ``--outcomes '["none"]'``.
+    Refused with ``SettingsError``: a word that is no flag, an abbreviated flag, a flag with no
+    value or given twice, and any value the settings file would refuse, which carries the same
+    ``key`` and no ``line``."""
     if isinstance(words, str):
         raise TypeError("the words after init are a sequence of words, not one string")
     words = list(words)
@@ -1540,6 +1548,7 @@ def settings_from_init_args(words: Sequence[str]) -> Settings:
         if _has_surrogate(word):
             raise SettingsError("a flag or its value holds a character that is not text")
     document: dict[str, Any] = {"version": SCHEMA_VERSION}
+    said_none: set[str] = set()
     at = 0
     while at < len(words):
         flag, attached, value = words[at].partition("=")
@@ -1576,8 +1585,11 @@ def settings_from_init_args(words: Sequence[str]) -> Settings:
             continue
         key = _BY_FLAG[flag]
         table = document.setdefault(key.table, {})
-        if key.name in table:
+        if key.name in table or flag in said_none:
             raise SettingsError(f"{flag} is given twice", key=path)
+        if flag in _NONE_FLAGS and value.strip().lower() == _NONE:
+            said_none.add(flag)
+            continue
         try:
             table[key.name] = _flag_value(key, value)
         except ValueError:
@@ -1588,15 +1600,19 @@ def settings_from_init_args(words: Sequence[str]) -> Settings:
 
 def _flag_text(key: _Key, value: object) -> str:
     """A key's value as its flag carries it: plainly where that is safe, as TOML where it is
-    not."""
+    not. A value that would read back as ``none`` is written as TOML."""
+    said_none = key.flag in _NONE_FLAGS
     if key.form == "text":
         assert isinstance(value, str)
-        return value if _is_bare(value) else _quoted(value)
+        plain = _is_bare(value) and not (said_none and value.strip().lower() == _NONE)
+        return value if plain else _quoted(value)
     if key.form == "words":
         assert isinstance(value, tuple)
         if value and _is_bare(value[0]) and all(word and word.isprintable() and "," not in word
                                                 for word in value):
-            return ",".join(value)
+            joined = ",".join(value)
+            if not (said_none and joined.strip().lower() == _NONE):
+                return joined
         return _array(_quoted(word) for word in value)
     return _value_text(key, value)
 
