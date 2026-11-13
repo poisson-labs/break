@@ -166,11 +166,13 @@ def _plan_schema(verb: str) -> str:
 
 
 class _Usage(Exception):
-    """A mistake on the command line, in plain words."""
+    """A mistake on the command line, in plain words, and the verb whose parser found it: none
+    when the tool's own parser did, before any verb or over the verb itself."""
 
-    def __init__(self, message: str) -> None:
+    def __init__(self, message: str, verb: str | None = None) -> None:
         super().__init__(message)
         self.message = message
+        self.verb = verb
 
 
 class _Exit(Exception):
@@ -194,10 +196,23 @@ class _Formatter(argparse.HelpFormatter):
 
 class _Parser(argparse.ArgumentParser):
     """A command-line mistake raises ``_Usage``; leaving raises ``_Exit``; nothing here calls
-    ``sys.exit``, so ``main`` always returns a code. What argparse prints goes through the look."""
+    ``sys.exit``, so ``main`` always returns a code. What argparse prints goes through the look.
+    A verb's parser knows its verb, so that its mistakes name that verb's help."""
+
+    def __init__(self, *args: Any, verb: str | None = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.verb = verb
+
+    def parse_known_args(self, args: Any = None, namespace: Any = None) -> Any:
+        """A verb's parser refuses words it does not know itself, where argparse would hand
+        them up to the tool's parser and the mistake would no longer say which verb it was in."""
+        parsed, extras = super().parse_known_args(args, namespace)
+        if self.verb is not None and extras:
+            self.error("unrecognized arguments: " + " ".join(extras))
+        return parsed, extras
 
     def error(self, message: str) -> None:  # type: ignore[override]
-        raise _Usage(_plain_words(message))
+        raise _Usage(_plain_words(message), self.verb)
 
     def exit(self, status: int = 0, message: str | None = None) -> None:  # type: ignore[override]
         if message:
@@ -291,7 +306,7 @@ def build_parser(prog: str) -> argparse.ArgumentParser:
     made: dict[str, argparse.ArgumentParser] = {}
     for verb, what in _VERBS.items():
         made[verb] = verbs.add_parser(
-            verb, help=what, formatter_class=_Formatter, allow_abbrev=False,
+            verb, verb=verb, help=what, formatter_class=_Formatter, allow_abbrev=False,
             description=(f"{prog} {verb}: {what}. The settings are read from {SETTINGS_FILE} "
                          "in the folder the command runs in, and hunts are kept under the "
                          "folder those settings name."),
@@ -449,7 +464,8 @@ def _command(prog: str, words: Sequence[str]) -> int:
     try:
         args = parser.parse_args(list(words))
     except _Usage as wrong:
-        raise look.Usage(wrong.message, nexts=(_ours(prog, "--help"),)) from None
+        help_of = (wrong.verb,) if wrong.verb is not None else ()
+        raise look.Usage(wrong.message, nexts=(_ours(prog, *help_of, "--help"),)) from None
     except _Exit as left:
         return left.code
     if args.version:
