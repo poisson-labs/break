@@ -45,6 +45,7 @@ import pytest
 
 from tests.commands_support import (
     CODES,
+    FAULTS,
     PROG,
     SOUND,
     Project,
@@ -763,3 +764,156 @@ def test_a_candidate_s_line_carries_the_kind_most_of_its_failed_rows_have(
         assert kind in words, (kind, words)
         others = {"crashed", "wrong"} - {kind}
         assert not others & set(words), (kind, words)
+
+
+# ---------------------------------------------------------------------------
+# what a hunt wrote
+# ---------------------------------------------------------------------------
+
+
+def wrote_paths(proj: Project, value: str) -> list[Path]:
+    """The paths a `wrote` line names, as confirm's does: the first in full, each after it from the same folder, and
+    the store named by "every run in"."""
+    text = value.strip().removeprefix("wrote").strip()
+    head, _, store = text.partition(" and every run in ")
+    first, *rest = head.split(", ")
+    folder = Path(first).parent
+    named = [Path(first), *(folder / one for one in rest)]
+    if store:
+        named.append(folder / store.rstrip("/"))
+    return [proj.folder / path for path in named]
+
+
+def test_a_hunt_that_found_something_says_what_it_wrote(found: tuple[Project, Any]) -> None:
+    """Rule 12 of the look: a verb that writes files says what it wrote. The hunt's files, its candidates among them,
+    and its store, which holds every run, each named from the folder the command ran in, as confirm names its
+    findings."""
+    proj, ran = found
+    (name,) = hunt_names(proj)
+    line = row(result_of(ran, "found"), "wrote")
+    assert line.split()[1] == f"break-runs/{name}/hunt.json,", line
+    assert "candidates.json" in line and line.endswith(" and every run in store/"), line
+    named = wrote_paths(proj, line)
+    assert proj.hunt(name) / "candidates.json" in named and proj.hunt(name) / "store" in named, line
+    assert all(path.exists() for path in named), line
+
+
+def test_a_hunt_that_found_nothing_says_what_it_wrote_and_names_no_candidates(nothing: tuple[Project, Any]) -> None:
+    proj, ran = nothing
+    (name,) = hunt_names(proj)
+    line = row(result_of(ran, "nothing found"), "wrote")
+    assert "candidates.json" not in line and line.endswith(" and every run in store/"), line
+    named = wrote_paths(proj, line)
+    assert proj.hunt(name) / "hunt.json" in named and all(path.exists() for path in named), line
+
+
+def test_a_stopped_hunt_says_what_it_wrote(tmp_path: Path) -> None:
+    """The dollar cap's stop keeps one run: the hunt's file and the store that holds the run are named."""
+    proj = project(tmp_path, cases(3, weak_to=["error"], tokens=[1000, 0]),
+                   limits={"dollars": 0.0015, "input_per_million": 1.0, "output_per_million": 1.0})
+    ran = cli(proj, "hunt", "--yes")
+    assert ran.exit == CODES["stopped"], ran
+    (name,) = hunt_names(proj)
+    line = row(result_of(ran, "stopped"), "wrote")
+    named = wrote_paths(proj, line)
+    assert proj.hunt(name) / "hunt.json" in named and proj.hunt(name) / "store" in named, line
+    assert all(path.exists() for path in named), line
+
+
+def test_under_json_a_hunt_lists_what_it_wrote(tmp_path: Path) -> None:
+    proj = project(tmp_path)
+    ran = cli(proj, "hunt", "--yes", "--json")
+    assert ran.exit == CODES["done"], ran
+    (name,) = hunt_names(proj)
+    wrote = json_document(ran)["wrote"]
+    assert f"break-runs/{name}/candidates.json" in wrote and f"break-runs/{name}/store" in wrote, wrote
+    assert all((proj.folder / path).exists() for path in wrote), wrote
+
+
+# ---------------------------------------------------------------------------
+# the conditions that failed and were left out
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def crowded(tmp_path_factory: pytest.TempPathFactory) -> tuple[Project, Any, Any]:
+    """A desk weak to all three faults on its look-up, where a hunt keeps one candidate: three conditions fail more
+    than the control, and two of them are left out. Run once to read and once under `--json`."""
+    proj = project(tmp_path_factory.mktemp("crowded"), cases(3, weak_to=list(FAULTS)),
+                   search={"cases_per_condition": 3, "runs": 60}, confirm={"candidates": 1})
+    ran = cli(proj, "hunt", "--yes")
+    shown = cli(proj, "hunt", "--yes", "--json")
+    return proj, ran, shown
+
+
+def test_a_hunt_says_how_many_failing_conditions_it_left_out_and_the_setting_that_keeps_more(
+        crowded: tuple[Project, Any, Any]) -> None:
+    """Of three conditions that failed more than the control, `[confirm] candidates = 1` keeps the best; the result
+    says the other two were left out, why, and which setting raises the limit."""
+    proj, ran, _ = crowded
+    assert ran.exit == CODES["done"], ran
+    (name, _) = hunt_names(proj)
+    assert len(candidates(proj, name)) == 1
+    lines = [line for line in detail(result_of(ran, "found")) if "left out" in line]
+    assert len(lines) == 1, ran.out
+    assert lines[0].strip() == ("2 more conditions failed and were left out: a hunt keeps at most 1 candidate, and "
+                                "candidates under [confirm] in break.toml raises that limit"), lines
+
+
+def test_under_json_a_hunt_lists_the_failing_conditions_it_left_out(crowded: tuple[Project, Any, Any]) -> None:
+    proj, _, shown = crowded
+    assert shown.exit == CODES["done"], shown
+    document = json_document(shown)
+    (kept,) = [c["condition"] for c in document["candidates"]]
+    left = document["left_out"]
+    assert sorted([kept, *(c["condition"] for c in left)]) == sorted(on(fault) for fault in FAULTS), left
+    for one in left:
+        assert set(one) == {"condition", "failed", "runs", "kind"}, one
+        assert (one["failed"], one["runs"], one["kind"]) == (3, 3, "failed"), one
+
+
+def test_a_hunt_that_kept_every_failing_condition_says_nothing_was_left_out(found: tuple[Project, Any]) -> None:
+    proj, ran = found
+    assert not [line for line in detail(result_of(ran, "found")) if "left out" in line], ran.out
+
+
+# ---------------------------------------------------------------------------
+# the cases the search ran on
+# ---------------------------------------------------------------------------
+
+
+def cases_run(proj: Project, name: str) -> dict[str, int]:
+    """Each condition the search ran, with the number of cases it ran on, read from the search arm's rows."""
+    on_cases: dict[str, set[str]] = {}
+    for one in stored(proj, name, "search"):
+        cell = one["config"]
+        on_cases.setdefault(cell["condition"], set()).add(cell["case"])
+    return {condition: len(ran_on) for condition, ran_on in on_cases.items()}
+
+
+def test_the_search_line_counts_the_cases_that_ran_not_the_setting(tmp_path: Path) -> None:
+    """`cases_per_condition = 4` on three cases: every condition ran on the three there are, and the line says 3."""
+    proj = project(tmp_path, search={"cases_per_condition": 4, "runs": 60})
+    ran = cli(proj, "hunt", "--yes")
+    assert ran.exit == CODES["done"], ran
+    (name,) = hunt_names(proj)
+    counts = cases_run(proj, name)
+    assert set(counts.values()) == {3}, counts
+    search = row(result_of(ran, "found"), "search")
+    assert search.endswith(f"{len(counts)} conditions tried on 3 cases each"), search
+
+
+def test_the_search_line_says_in_words_when_conditions_ran_on_different_numbers_of_cases(tmp_path: Path) -> None:
+    """One case of three never looks the order up, so a change to the look-up runs on two cases and a change to the
+    policy on three: the line gives how many conditions ran on each number of cases, the most cases first."""
+    proj = project(tmp_path, [*cases(2, weak_to=["error"]), *cases(1, first=3, lookups=0)],
+                   search={"cases_per_condition": 3, "runs": 60})
+    ran = cli(proj, "hunt", "--yes")
+    assert ran.exit == CODES["done"], ran
+    (name,) = hunt_names(proj)
+    counts = cases_run(proj, name)
+    by_cases = {n: sum(1 for c in counts.values() if c == n) for n in sorted(set(counts.values()), reverse=True)}
+    assert list(by_cases) == [3, 2], counts
+    search = row(result_of(ran, "found"), "search")
+    assert search.endswith(f"{len(counts)} conditions tried, {by_cases[3]} on 3 cases each and {by_cases[2]} on 2 "
+                           "cases each"), search

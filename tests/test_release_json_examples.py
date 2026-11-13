@@ -38,7 +38,7 @@ DOCUMENTS: dict[str, set[str]] = {
                                      "asked_again"},
     "poisson_break.recheck-plan/1": {"dollars", "hunt", "findings", "runs", "old", "recheck"},
     "poisson_break.hunt-result/1": {"hunt", "runs", "dollars", "control", "search", "candidates",
-                                    "not_looked_at"} | STOP,
+                                    "left_out", "not_looked_at", "wrote"} | STOP,
     "poisson_break.confirm-result/1": {"hunt", "stage", "candidates", "findings", "wrote",
                                        "reference_runs"} | STOP,
     "poisson_break.findings-result/1": {"hunt", "findings", "control", "finding"},
@@ -52,6 +52,7 @@ PLANS = {name for name in DOCUMENTS if name.endswith("-plan/1")}
 #: The items of the lists the tables spell out, field for field, by document and key.
 ITEMS: dict[tuple[str, str], tuple[set[str], ...]] = {
     ("poisson_break.hunt-result/1", "candidates"): ({"number", "condition", "failed", "runs", "kind"},),
+    ("poisson_break.hunt-result/1", "left_out"): ({"condition", "failed", "runs", "kind"},),
     ("poisson_break.confirm-result/1", "candidates"): (
         {"number", "condition", "verdict", "note", "rate", "control_rate", "difference", "lo", "hi",
          "p", "adjusted_p", "repeats_needed", "no_outcome", "left_out"},),

@@ -591,11 +591,15 @@ def _stopped(call: _Call, settings: Settings, hunt: Any, stop: Any, verb: str,
     if tools:
         nexts.append(_classing_line(call, settings, hunt.cases, tools))
     nexts.append(resume)
-    data = {"hunt": hunt.name, "reason": str(getattr(stop, "reason", "")),
-            "arm": str(getattr(stop, "arm", "")), "kept": int(getattr(stop, "kept", 0)),
-            "unclassed": tools}
-    return look.Stopped(look.Result("stopped", _one_line(stop), nexts=tuple(nexts),
-                                    schema=_schema(verb), data=data), code=EXIT_STOPPED)
+    data: dict[str, Any] = {"hunt": hunt.name, "reason": str(getattr(stop, "reason", "")),
+                            "arm": str(getattr(stop, "arm", "")),
+                            "kept": int(getattr(stop, "kept", 0)), "unclassed": tools}
+    detail: tuple[look.Row, ...] = ()
+    if verb == "hunt":
+        detail, data["wrote"] = _hunt_wrote(hunt)
+    return look.Stopped(look.Result("stopped", _one_line(stop), detail=detail,
+                                    nexts=tuple(nexts), schema=_schema(verb), data=data),
+                        code=EXIT_STOPPED)
 
 
 def _interrupted(call: _Call, hunt: Any, verb: str, resume: str, *, kept: int,
@@ -603,11 +607,34 @@ def _interrupted(call: _Call, hunt: Any, verb: str, resume: str, *, kept: int,
     """Ctrl-C after work started: the runs kept, and how to go on; exit 130. The document
     carries a stop's keys: the reason ``interrupted``, the Prove run whose run was interrupted
     (``None`` between two), and ``kept``, the runs the stage's own arms hold."""
-    data = {"hunt": hunt.name, "reason": "interrupted",
-            "arm": None if arm is None else f"{hunt.name}-{arm}", "kept": kept, "unclassed": []}
+    data: dict[str, Any] = {"hunt": hunt.name, "reason": "interrupted",
+                            "arm": None if arm is None else f"{hunt.name}-{arm}", "kept": kept,
+                            "unclassed": []}
+    detail: tuple[look.Row, ...] = ()
+    if verb == "hunt":
+        detail, data["wrote"] = _hunt_wrote(hunt)
     return look.Stopped(look.Result("stopped", f"interrupted: kept {_n(kept, 'run')}",
-                                    nexts=(resume,), schema=_schema(verb), data=data),
+                                    detail=detail, nexts=(resume,), schema=_schema(verb),
+                                    data=data),
                         code=EXIT_INTERRUPTED)
+
+
+def _hunt_wrote(hunt: Any) -> tuple[tuple[look.Row, ...], list[str]]:
+    """What a hunt has written, as confirm names its findings: the hunt's files that are there,
+    in the order the hunt makes them, the first from the folder the command runs in and each
+    after it from the hunt's folder, then its store, which holds every run. The detail row, and
+    each path in full for the document."""
+    folder = (Path(hunt.settings.output.folder) / hunt.name).as_posix()
+    files = [one for one in ("hunt.json", "proposals.jsonl", "candidates.json")
+             if (Path(hunt.folder) / one).is_file()]
+    store = Path(hunt.store).is_dir()
+    paths = [f"{folder}/{one}" for one in files] + ([f"{folder}/store"] if store else [])
+    if not files:
+        return ((look.Row("wrote", f"every run in {folder}/store/"),) if store else (), paths)
+    text = ", ".join([f"{folder}/{files[0]}", *files[1:]])
+    if store:
+        text += " and every run in store/"
+    return (look.Row("wrote", text),), paths
 
 
 def _arm_running(order: Sequence[tuple[str, int]], held: Mapping[str, int]) -> str | None:
@@ -856,7 +883,7 @@ def _hunt(call: _Call) -> int:
         arm = "search"
         stage = _search(hunt, settings, strategy, summary, plan, search_rows)
         arm = "shrink"
-        found = _candidates(hunt, settings, stage.seen, summary, shrink_rows)
+        found, left_out = _candidates(hunt, settings, stage.seen, summary, shrink_rows)
     except HuntStopped as stop:
         raise _stopped(call, settings, hunt, stop, "hunt", resume) from None
     except KeyboardInterrupt:
@@ -869,7 +896,7 @@ def _hunt(call: _Call) -> int:
         from poisson_break.confirm import write_candidates
 
         write_candidates(hunt, found)
-    look.show(_hunt_result(call, settings, hunt, summary, stage, found, search_rows,
+    look.show(_hunt_result(call, settings, hunt, summary, stage, found, left_out, search_rows,
                            shrink_rows))
     return EXIT_DONE
 
@@ -942,9 +969,12 @@ def _search(hunt: Any, settings: Settings, strategy: Any, summary: Any, plan: An
 
 
 def _candidates(hunt: Any, settings: Settings, seen: Any, summary: Any,
-                shrink_rows: list[Any]) -> list[Condition]:
-    """The candidates: the conditions that failed more than the control, best first, at most
-    the settings' number, each shrunk to the smallest change that still fails as often."""
+                shrink_rows: list[Any]) -> tuple[list[Condition], list[Condition]]:
+    """The candidates: the conditions that failed, best first, at most the settings' number,
+    each shrunk to the smallest change that still fails as often. A condition failed when its
+    score is above nothing: a larger share of its runs failed than of the control's on its
+    cases. And the conditions that failed past that number, best first, which are left out:
+    those no candidate was shrunk to."""
     from poisson_break.hunt import run_search
     from poisson_break.search import LogEntry, SearchError, score, shrink
 
@@ -984,7 +1014,9 @@ def _candidates(hunt: Any, settings: Settings, seen: Any, summary: Any,
             if kept not in found:
                 found.append(kept)
             tell(len(found), len(scored))
-    return found
+    left_out = [condition for _, _, _, condition in scored[settings.confirm.candidates:]
+                if condition not in found]
+    return found, left_out
 
 
 def _main_kind(rows: Sequence[Any]) -> str:
@@ -1018,9 +1050,23 @@ def _coverage_line(settings: Settings, cover: Any) -> look.Line:
     return look.Line("not looked at: " + "; ".join(bits))
 
 
+def _tried(ran_on: Mapping[Condition, set[str]]) -> str:
+    """The conditions the search ran, by the number of cases each ran on: one number when every
+    condition ran on as many, and otherwise how many ran on each number, the most cases first."""
+    tried = f"{_n(len(ran_on), 'condition')} tried"
+    sizes = sorted({len(cases) for cases in ran_on.values()}, reverse=True)
+    if not sizes:
+        return tried
+    if len(sizes) == 1:
+        return f"{tried} on {_n(sizes[0], 'case')} each"
+    parts = [f"{look.fmt_count(sum(len(cases) == size for cases in ran_on.values()))} on "
+             f"{_n(size, 'case')} each" for size in sizes]
+    return f"{tried}, {', '.join(parts[:-1])} and {parts[-1]}"
+
+
 def _hunt_result(call: _Call, settings: Settings, hunt: Any, summary: Any, stage: Any,
-                 found: Sequence[Condition], search_rows: Sequence[Any],
-                 shrink_rows: Sequence[Any]) -> look.Result:
+                 found: Sequence[Condition], left_out: Sequence[Condition],
+                 search_rows: Sequence[Any], shrink_rows: Sequence[Any]) -> look.Result:
     from poisson_break.search import coverage
 
     spent = hunt.budget()
@@ -1035,10 +1081,12 @@ def _hunt_result(call: _Call, settings: Settings, hunt: Any, summary: Any, stage
         fails = "case fails" if count == 1 else "cases fail"
         control_text += (f" · {look.fmt_count(count)} {fails} every time, set aside: "
                          f"{', '.join(summary.set_aside)}")
-    conditions = {row.condition for row in search_rows if row.condition.changes}
-    search_text = (f"{_n(len(search_rows), 'run')} · "
-                   f"{_n(len(conditions), 'condition')} tried on "
-                   f"{_n(settings.search.cases_per_condition, 'case')} each")
+    ran_on: dict[Condition, set[str]] = {}
+    for row in search_rows:
+        if row.condition.changes:
+            ran_on.setdefault(row.condition, set()).add(row.case)
+    conditions = set(ran_on)
+    search_text = f"{_n(len(search_rows), 'run')} · {_tried(ran_on)}"
     cover = coverage(stage.seen)
     cover_line = _coverage_line(settings, cover)
     detail: list[look.Row | look.Line | look.Table] = []
@@ -1059,9 +1107,25 @@ def _hunt_result(call: _Call, settings: Settings, hunt: Any, summary: Any, stage
             listed.append({"number": number, "condition": text, "failed": failed,
                            "runs": len(rows), "kind": None if kind == "none" else kind})
         detail.append(look.Table(("", "condition", "failed", "kind"), tuple(table)))
+        if left_out:
+            count = len(left_out)
+            were = "condition failed and was" if count == 1 else "conditions failed and were"
+            detail.append(look.Line(
+                f"{look.fmt_count(count)} more {were} left out: a hunt keeps at most "
+                f"{_n(settings.confirm.candidates, 'candidate')}, and candidates under "
+                f"[confirm] in {SETTINGS_FILE} raises that limit"))
         detail.append(cover_line)
         detail.append(look.Line("these are candidates, not findings: a few runs each, chosen "
                                 "for having failed"))
+    wrote_row, wrote = _hunt_wrote(hunt)
+    detail += wrote_row
+    dropped = []
+    for condition in left_out:
+        rows = [row for row in search_rows if row.condition == condition]
+        kind = _main_kind(rows)
+        dropped.append({"condition": condition_name(condition),
+                        "failed": sum(row.outcome == "failed" for row in rows),
+                        "runs": len(rows), "kind": None if kind == "none" else kind})
     data: dict[str, Any] = {
         "hunt": hunt.name, "runs": spent.runs_spent,
         "dollars": spent.dollars_spent if _priced(settings) else None,
@@ -1069,12 +1133,14 @@ def _hunt_result(call: _Call, settings: Settings, hunt: Any, summary: Any, stage
                     "set_aside": list(summary.set_aside)},
         "search": {"runs": len(search_rows), "conditions": len(conditions)},
         "candidates": listed,
+        "left_out": dropped,
         "not_looked_at": {"faults_off": list(cover.faults_off),
                           "never_called": list(cover.never_called),
                           "past_limit": dict(cover.past_limit),
                           "set_aside": list(cover.set_aside),
                           "singles_untried": cover.singles_untried,
                           "pairs_untried": cover.pairs_untried},
+        "wrote": wrote,
     }
     if found:
         return look.Result("found", f"{_n(len(found), 'candidate')} in "
