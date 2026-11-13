@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.commands_support import CODES, PROG, VERBS, cli, project, refused_once, verdict
+from tests.commands_support import CODES, PROG, VERBS, cli, nexts, project, refused_once, verdict
 from tests.conftest import REPO
 from tests.look_support import strip
 
@@ -224,6 +224,50 @@ def test_an_unknown_verb_flag_or_value_is_one_line_and_exit_2(tmp_path: Path, wo
     proj = project(tmp_path)
     refused_once(cli(proj, *words), CODES["usage"])
     assert cli(proj, "catalog").exit == CODES["done"]
+
+
+#: A mistake in each verb's own options or arguments, which that verb's parser finds.
+_VERB_MISTAKES = {
+    "init": ["init", "--bogus"],
+    "doctor": ["doctor", "--run=yes"],
+    "hunt": ["hunt", "--name"],
+    "confirm": ["confirm", "--repeats", "zero"],
+    "findings": ["findings", "one"],
+    "replay": ["replay"],
+    "recheck": ["recheck", "--old"],
+    "catalog": ["catalog", "--labels=all"],
+}
+
+
+@pytest.mark.parametrize("where", ["alone", "--plain first", "--debug last"])
+@pytest.mark.parametrize("verb", VERBS)
+def test_a_mistake_in_a_verb_s_own_words_names_that_verb_s_help(tmp_path: Path, verb: str, where: str) -> None:
+    """Hands-on issue 18: the `next:` line of a mistake the verb's parser finds is that verb's `--help`, where the
+    option or argument is described, with the tool's own options before or after the verb; run as printed, it
+    prints that verb's help."""
+    proj = project(tmp_path)
+    words = _VERB_MISTAKES[verb]
+    if where == "--plain first":
+        words = ["--plain", *words]
+    elif where == "--debug last":
+        words = [*words, "--debug"]
+    ran = cli(proj, *words)
+    refused_once(ran, CODES["usage"])
+    assert nexts(ran) == [f"{PROG} {verb} --help"], ran
+    again = cli(proj, verb, "--help")
+    assert again.exit == CODES["done"] and f"{PROG} {verb}" in strip(again.out), again
+    assert proj.runs() == []
+
+
+@pytest.mark.parametrize("words", [["hunts"], ["--bogus"], ["--bogus", "catalog"], ["--version=2"]],
+                         ids=["an unknown verb", "an unknown option and no verb",
+                              "an unknown option before a verb", "the tool's own option given a value"])
+def test_a_mistake_before_any_verb_names_the_tool_s_help(tmp_path: Path, words: list[str]) -> None:
+    """The control: with no verb named, or a verb the command does not know, the line stays the tool's `--help`."""
+    proj = project(tmp_path)
+    ran = cli(proj, *words)
+    refused_once(ran, CODES["usage"])
+    assert nexts(ran) == [f"{PROG} --help"], ran
 
 
 # ---------------------------------------------------------------------------
