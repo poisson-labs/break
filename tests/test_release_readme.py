@@ -18,6 +18,7 @@ Taylor's rulings (2026-11-09, `evidence/bk11/open-points.md`):
 
 from __future__ import annotations
 
+import re
 import shlex
 
 from tests.conftest import REPO
@@ -92,3 +93,56 @@ def test_only_the_title_prose_and_a_virtual_environment_come_before_the_install(
                      if line.strip() and not line.strip().startswith("#")]
             assert block.info == "sh", f"a {block.info or 'bare'} block before the install"
         assert all(line.strip() in BEFORE_THE_INSTALL for line in shown), shown
+
+
+# ---------------------------------------------------------------------------
+# the sections after the first screen
+# ---------------------------------------------------------------------------
+
+
+def _sections() -> dict[str, str]:
+    """Each `## ` section of the README by its heading, its text up to the next `## `."""
+    found: dict[str, str] = {}
+    heading = None
+    for line in (REPO / "README.md").read_text(encoding="utf-8").split("\n"):
+        if line.startswith("## "):
+            heading = line[3:].strip()
+            found[heading] = ""
+        elif heading is not None:
+            found[heading] += line + "\n"
+    return found
+
+
+HOW = "How Break changes a tool"
+
+
+def test_how_break_changes_a_tool_comes_straight_after_the_first_screen() -> None:
+    """A reader who has run the first screen with no key reads next how it ran: the first `##`
+    section says how Break reaches the agent and its tools."""
+    assert list(_sections())[0] == HOW, list(_sections())
+
+
+def test_how_break_changes_a_tool_names_the_example_s_model_as_the_example_has_it() -> None:
+    """The section says the example's model is a plain function, by its name, and the desk's
+    module defines a function of that name; it names `wrap` and `break.toml`."""
+    section = _sections()[HOW]
+    assert "`scripted_model`" in section and "`wrap`" in section and "`break.toml`" in section
+    agent = (REPO / "examples" / "desk" / "desk_agent.py").read_text(encoding="utf-8")
+    assert "\ndef scripted_model(" in agent
+
+
+def test_each_fault_the_section_names_is_a_tool_fault_that_runs_the_tool_as_it_says() -> None:
+    """The section names a timeout, which arrives without the tool running, as a `TimeoutError`;
+    and `empty`, `malformed`, `stale` and `lost_reply`, which each run the real tool. Each is a
+    tool fault of the catalogue, and its catalogue line agrees on whether the real tool runs."""
+    from poisson_break.apply import ToolFailure
+    from poisson_break.changes import CATALOG
+
+    section = _sections()[HOW]
+    lines = {line.name: line for line in CATALOG if line.surface == "tool"}
+    named = {word for word in re.findall(r"`([a-z_]+)`", section) if word in lines}
+    assert {"empty", "malformed", "stale", "lost_reply"} <= named, named
+    assert all(lines[word].real_runs for word in named), named
+    assert "`TimeoutError`" in section
+    assert lines["timeout"].real_runs is False
+    assert isinstance(ToolFailure("timeout", "the request timed out"), TimeoutError)

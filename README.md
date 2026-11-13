@@ -23,6 +23,27 @@ conditions that make it fail. `confirm` tests what the hunt found on fresh runs.
 **Break calls your tools for real.** Run it against a test environment. It refuses a tool that
 changes something outside until you say how that tool is made safe to repeat.
 
+## How Break changes a tool
+
+The desk's model is a plain Python function, `scripted_model`, that picks the next step from the
+request and from what the tools have returned so far. That is why the example needs no key and
+no network. Break makes no model call of its own; on your own agent, the model calls are the
+ones your agent makes.
+
+Break starts no app and no server. It imports the function `break.toml` names, `desk_agent:desk`
+here, and calls it once for each run, in Break's own process. One run is one call of that
+function, on one case, with one seed, under one condition. The control runs the same cases with no
+change, and every condition is compared with it; each condition the desk's hunt tries is one
+change.
+
+Each tool is wrapped once with `wrap`, which puts Break between the agent and the tool. On the
+call a condition names, such as the first call to `lookup_order`, Break applies the condition's
+fault. A timeout, an error or a rate limit is raised where the tool's own failure would arrive,
+and the tool does not run, so a timeout reaches the agent as a `TimeoutError`. Other faults run
+the tool and change what comes back: `empty` hands back an empty result, `malformed` breaks its
+structure, and `stale` hands back the previous call's result. `lost_reply` lets the tool act and
+then reports an error. Every other call runs the real tool, as every call does in the control.
+
 ## What you see
 
 `hunt` shows its plan, then runs the agent with no change (the control), then tries one change
