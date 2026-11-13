@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 (2026-11-09)
+## 0.1.0 (2026-11-13)
 
 The first release, an alpha. Break runs an agent many times while changing how its tools behave
 and what the user asks, keeps the conditions that fail more than a control, confirms them on
