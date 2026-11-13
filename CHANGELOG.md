@@ -61,6 +61,22 @@ Changed since the last development build:
   the rollout way in, with the same `init` command and `--kind rollout` to run instead. No
   `pip install` line is printed for an extra, since this release publishes none:
   `settings.install_command` hands back `None` for every kind until a release ships one.
+- `hunt` ends with a `wrote` row naming `hunt.json`, `proposals.jsonl`, `candidates.json` and
+  every run in `store/`, and its `--json` names them under `wrote`. A hunt that found more
+  failing conditions than it keeps says how many it left out and that `candidates` under
+  `[confirm]` raises the limit, and its `--json` lists them under `left_out`. The search line
+  counts the cases each condition ran on, not the setting.
+- `confirm` asked again about a stage already finished runs nothing and writes nothing: it says
+  the stage is already finished and shows the stored result with a `findings` row. Every
+  `confirm --json` carries `already_finished`, and `confirm.finished_stage(hunt)` is the
+  finished stage, or `None`.
+- `recheck` shows its findings as a table under the headers `condition`, `verdict` and
+  `numbers`, as `confirm` does.
+- A mistake in a verb's own options prints that verb's help as the command to run next, such as
+  `poisson-break confirm --help`; a mistake before any verb still prints `poisson-break --help`.
+- The README says how Break changes a tool, what a hunt ran and what `break-runs/` holds, and
+  what the `wrap` line costs, and its first screen points to running Break on an agent of your
+  own. The rollout page has a whole agent and its cases to copy.
 - The package's version is 0.1.0, its status Alpha. An sdist is built beside the wheel and
   holds only the source, the tests, the docs, the examples, the scripts and the project's own
   files.
