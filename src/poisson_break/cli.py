@@ -970,10 +970,11 @@ def _search(hunt: Any, settings: Settings, strategy: Any, summary: Any, plan: An
 
 def _candidates(hunt: Any, settings: Settings, seen: Any, summary: Any,
                 shrink_rows: list[Any]) -> tuple[list[Condition], list[Condition]]:
-    """The candidates: the conditions that failed more than the control, best first, at most
-    the settings' number, each shrunk to the smallest change that still fails as often. And
-    the conditions that failed more than the control past that number, best first, which are
-    left out: those no candidate was shrunk to."""
+    """The candidates: the conditions that failed, best first, at most the settings' number,
+    each shrunk to the smallest change that still fails as often. A condition failed when its
+    score is above nothing: a larger share of its runs failed than of the control's on its
+    cases. And the conditions that failed past that number, best first, which are left out:
+    those no candidate was shrunk to."""
     from poisson_break.hunt import run_search
     from poisson_break.search import LogEntry, SearchError, score, shrink
 
@@ -1108,12 +1109,11 @@ def _hunt_result(call: _Call, settings: Settings, hunt: Any, summary: Any, stage
         detail.append(look.Table(("", "condition", "failed", "kind"), tuple(table)))
         if left_out:
             count = len(left_out)
-            were = "condition failed more than the control and was" if count == 1 else \
-                   "conditions failed more than the control and were"
+            were = "condition failed and was" if count == 1 else "conditions failed and were"
             detail.append(look.Line(
-                f"{look.fmt_count(count)} more {were} left out, since a hunt keeps at most "
-                f"{_n(settings.confirm.candidates, 'candidate')}; confirm.candidates in "
-                f"{SETTINGS_FILE} raises that limit"))
+                f"{look.fmt_count(count)} more {were} left out: a hunt keeps at most "
+                f"{_n(settings.confirm.candidates, 'candidate')}, and candidates under "
+                f"[confirm] in {SETTINGS_FILE} raises that limit"))
         detail.append(cover_line)
         detail.append(look.Line("these are candidates, not findings: a few runs each, chosen "
                                 "for having failed"))

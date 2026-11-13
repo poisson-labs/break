@@ -856,7 +856,8 @@ def test_a_hunt_says_how_many_failing_conditions_it_left_out_and_the_setting_tha
     assert len(candidates(proj, name)) == 1
     lines = [line for line in detail(result_of(ran, "found")) if "left out" in line]
     assert len(lines) == 1, ran.out
-    assert holds_number(lines[0], "2") and "confirm.candidates" in lines[0], lines
+    assert lines[0].strip() == ("2 more conditions failed and were left out: a hunt keeps at most 1 candidate, and "
+                                "candidates under [confirm] in break.toml raises that limit"), lines
 
 
 def test_under_json_a_hunt_lists_the_failing_conditions_it_left_out(crowded: tuple[Project, Any, Any]) -> None:
