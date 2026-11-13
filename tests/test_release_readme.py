@@ -243,3 +243,18 @@ def test_on_your_own_agent_says_what_the_wrap_costs(tmp_path: Path,
 
     with pytest.raises(ToolRefused):
         wrap("later", later)
+
+
+ANCHOR = "https://github.com/poisson-labs/break#on-your-own-agent"
+
+
+def test_the_first_screen_s_walk_through_ends_by_pointing_to_your_own_agent() -> None:
+    """The paragraph after the first screen that says what the three commands did ends with one
+    sentence linking the section on running Break on your own agent, by an absolute link, as
+    every README link is, to the heading's anchor."""
+    text = (REPO / "README.md").read_text(encoding="utf-8")
+    walk = next(p for p in text.split("\n\n") if p.startswith("`init --example desk`"))
+    last = re.split(r"(?<=\.)\s+(?=[A-Z\[`])", " ".join(walk.split()))[-1]
+    assert f"]({ANCHOR})" in last, last
+    assert OWN in _sections()
+    assert ANCHOR.rsplit("#", 1)[1] == OWN.lower().replace(" ", "-")

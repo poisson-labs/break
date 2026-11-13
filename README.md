@@ -18,7 +18,8 @@ poisson-break confirm --yes
 
 `init --example desk` writes a small help desk into the folder: an agent with two tools and a
 scripted model, six requests to try it on, and `break.toml`, the settings. `hunt` looks for
-conditions that make it fail. `confirm` tests what the hunt found on fresh runs.
+conditions that make it fail. `confirm` tests what the hunt found on fresh runs. To run Break on
+an agent of your own, go on to [On your own agent](https://github.com/poisson-labs/break#on-your-own-agent).
 
 **Break calls your tools for real.** Run it against a test environment. It refuses a tool that
 changes something outside until you say how that tool is made safe to repeat.
