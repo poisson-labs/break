@@ -17,6 +17,7 @@ run in CI, whose results name each command by its file and line.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -342,3 +343,73 @@ def test_a_file_block_with_a_name_that_is_no_plain_file_name_is_refused(
     assert done.stdout == ""
     assert done.stderr.splitlines() and all(
         line.startswith("docs/planted.md:3: ") for line in done.stderr.splitlines()), done.stderr
+
+
+# ---------------------------------------------------------------------------
+# the rollout page's whole agent
+# ---------------------------------------------------------------------------
+
+ROLLOUT = REPO / "docs" / "ways-in" / "rollout.md"
+WHOLE = "A whole agent to start from"
+
+
+def _whole() -> list:
+    """The blocks of the rollout page's section that shows a whole agent, in order."""
+    text = ROLLOUT.read_text(encoding="utf-8")
+    lines = text.split("\n")
+    start = lines.index(f"## {WHOLE}") + 1
+    end = next((n for n in range(start, len(lines)) if lines[n].startswith("## ")), len(lines))
+    return [b for b in blocks(text, "docs/ways-in/rollout.md") if start < b.fence_line <= end]
+
+
+def test_the_rollout_page_shows_a_whole_agent_its_cases_and_the_commands_to_a_hunt() -> None:
+    """The section shows two files, `shop.py` and `cases.jsonl`, and then the commands, with no
+    output: the agent imports nothing but `re`, Prove's `Episode` and `wrap`, so it needs no
+    model and no key, and is a function `shop(cfg, seed)`; the case file is three cases, each
+    with `id`, `input` and `expect.reply_contains`; `init` is shown by its flags alone, and the
+    last command is the hunt. The page links the section from its top."""
+    import ast
+
+    found = _whole()
+    assert [b.info for b in found] == ["sh", "python file=shop.py", "json file=cases.jsonl", "sh"]
+    agent = ast.parse("\n".join(found[1].lines))
+    imported = {node.module if isinstance(node, ast.ImportFrom) else alias.name
+                for node in ast.walk(agent) if isinstance(node, ast.Import | ast.ImportFrom)
+                for alias in node.names}
+    assert imported == {"re", "poisson_prove", "poisson_break.apply"}, imported
+    (shop,) = [n for n in agent.body if isinstance(n, ast.FunctionDef) and n.name == "shop"]
+    assert [a.arg for a in shop.args.args] == ["cfg", "seed"]
+    cases = [json.loads(line) for line in found[2].lines]
+    assert len(cases) == 3
+    assert all(set(case) == {"id", "input", "expect"} and set(case["expect"]) == {"reply_contains"}
+               for case in cases), cases
+    shown = [c.command.replace("\\\n", " ") for c in commands_of(found[3])]
+    assert [" ".join(c.split()[:2]) for c in shown] == \
+        ["poisson-break init", "poisson-break doctor", "poisson-break hunt"]
+    assert "--entry shop:shop" in shown[0] and "--cases cases.jsonl" in shown[0]
+    assert shown[0].endswith("--yes") and shown[2] == "poisson-break hunt --yes"
+    assert f"](#{WHOLE.lower().replace(' ', '-')})" in ROLLOUT.read_text(encoding="utf-8")
+
+
+def test_the_rollout_page_s_whole_agent_runs_as_printed_to_a_hunt(tmp_path: Path) -> None:
+    """What the section shows, run as the clean install runs it, in an empty folder under the
+    network guard with no key: every command exits 0, `init` classes the two tools the agent
+    wraps, one `read` and one `write`, and the hunt stores its runs."""
+    import tomllib
+
+    from tests.conftest import console_script
+
+    found = _whole()
+    shown = [c for b in found for c in (commands_of(b) if b.info == "sh" else [file_of(b)])]
+    env = guarded_env()
+    env["PATH"] = f"{console_script().parent}{os.pathsep}{env.get('PATH', '')}"
+    ran = subprocess.run(["bash", "-e", "-c", "\n".join(runs(c, "poisson-break") for c in shown)],
+                         cwd=tmp_path, env=env, stdin=subprocess.DEVNULL, capture_output=True,
+                         text=True, timeout=600)
+    assert ran.returncode == 0, ran.stdout + ran.stderr
+    folder = tmp_path / "shop"
+    with (folder / "break.toml").open("rb") as f:
+        tools = tomllib.load(f)["tools"]
+    assert tools == {"check_stock": "read", "hold_copy": {"class": "write", "repeatable": True}}
+    stored = list((folder / "break-runs").glob("*/store/*/episodes/*"))
+    assert stored, sorted(p.relative_to(folder).as_posix() for p in folder.rglob("*"))
