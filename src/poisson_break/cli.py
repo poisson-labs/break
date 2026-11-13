@@ -1625,9 +1625,7 @@ def _recheck(call: _Call) -> int:
                        "gap_days": None if one.gap_days is None else float(_days(one.gap_days)),
                        "before": one.before, "now": one.now, "trace": one.trace,
                        "no_outcome": list(one.no_outcome), "left_out": dict(one.left_out)})
-    # one line a finding, not a table: the rates and the repeats make a row wider than a
-    # terminal, and a table that folds says more words than its plain rendering
-    detail += [look.Line("  ".join(row)) for row in table]
+    detail.append(look.Table(("", "condition", "verdict", "numbers"), tuple(table)))
     gaps = [one.gap_days for one in done if one.gap_days is not None]
     if gaps and old is None:
         detail.append(look.Row("gap", f"{_days(max(gaps))} days since the reference runs"))
