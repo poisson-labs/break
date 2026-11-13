@@ -7,8 +7,8 @@ Invariants pinned here (Break — Plan, the settings module):
 - BK4.7 A `kind` the core does not ship (`openai-agents`, `langgraph`, `crewai`, `mcp`, `command`) is accepted by the
         schema, so a settings file written for an on-demand module parses, and refused at load in one line. Taylor's yes
         on hands-on issue 17 (2026-11-13): that line says this version has only the rollout way in and names no extra
-        to install, since none exists, and no module found on the path lifts it. The strategy not yet built is refused
-        at load too (yes/no 11).
+        to install, since this release publishes none. The refusal still lifts when the adapter's module is there (yes/no
+        12), the day a later version ships it. The strategy not yet built is refused at load too (yes/no 11).
 """
 
 from __future__ import annotations
@@ -178,6 +178,58 @@ def test_the_refusal_says_this_version_has_only_the_rollout_way_in_and_names_no_
     said = str(caught.value)
     assert "only the rollout way in" in said and 'kind = "rollout"' in said, said
     assert "pip" not in said and "poisson-break[" not in said, said
+
+
+# ---------------------------------------------------------------------------
+# what lifts the refusal (yes/no 12)
+# ---------------------------------------------------------------------------
+
+ADAPTERS = {"openai-agents": "adapters/openai_agents.py", "langgraph": "adapters/langgraph.py", "crewai": "adapters/crewai.py",
+            "mcp": "mcp.py", "command": "mcp.py"}
+
+LIFT_PROBE = r'''
+import json, sys
+from pathlib import Path
+import poisson_break
+poisson_break.__path__.append(str(Path("planted_package").resolve()))
+from poisson_break import settings as s
+try:
+    s.load(Path("break.toml"))
+    print(json.dumps(["taken", sorted(n for n in sys.modules if "adapters." in n or n == "poisson_break.mcp")]))
+except s.SettingsError as wrong:
+    print(json.dumps(["refused", wrong.key]))
+'''
+
+
+def lifted(tmp_path: Path, kind: str, adapter: str | None) -> list[object]:
+    """What `load` says, with the way in's module added to the package, as an installed extra adds it. The module writes a file if imported."""
+    plant(tmp_path)
+    (tmp_path / "break.toml").write_text(TEXT.replace('kind = "rollout"', f'kind = "{kind}"'), encoding="utf-8")
+    package = tmp_path / "planted_package"
+    (package / "adapters").mkdir(parents=True)
+    (package / "adapters" / "__init__.py").write_text("")
+    if adapter is not None:
+        (package / adapter).write_text("from pathlib import Path\nPath('adapter.imported').write_text('yes')\n")
+    ran = run_python(LIFT_PROBE, cwd=tmp_path)
+    assert ran.exit == 0, ran.stderr
+    assert not (tmp_path / "adapter.imported").exists(), "looking for the module imported it"
+    return json.loads(ran.stdout.strip().splitlines()[-1])
+
+
+@pytest.mark.parametrize("kind", ON_DEMAND_KINDS)
+def test_with_the_adapters_module_there_the_refusal_lifts_and_nothing_is_imported(tmp_path: Path, kind: str) -> None:
+    assert lifted(tmp_path, kind, ADAPTERS[kind]) == ["taken", []]
+
+
+@pytest.mark.parametrize("kind, other", [("langgraph", "adapters/crewai.py"), ("openai-agents", "mcp.py"), ("mcp", "adapters/langgraph.py")])
+def test_another_kinds_module_does_not_lift_it(tmp_path: Path, kind: str, other: str) -> None:
+    assert lifted(tmp_path, kind, other) == ["refused", "target.kind"]
+
+
+@pytest.mark.parametrize("kind", ["langgraph", "crewai", "openai-agents"])
+def test_the_framework_alone_does_not_lift_it(tmp_path: Path, kind: str) -> None:
+    """The extra is the adapter, not the framework: `plant` puts a module named like each framework in the folder."""
+    assert lifted(tmp_path, kind, None) == ["refused", "target.kind"]
 
 
 def test_the_kind_the_core_ships_is_not_refused_at_load(tmp_path: Path) -> None:

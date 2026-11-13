@@ -159,12 +159,12 @@ def test_the_check_finds_each_way_a_private_name_is_reached(source: str, found: 
     assert any(found in what for what in _violations(source)), _violations(source)
 
 
-def test_the_check_takes_the_public_names_the_rulings_add() -> None:
-    """BK8 points 37 and 39 (2026-11-07): `hunt.run_once` and `Replayed.error` are what the command reaches instead,
-    each a public name of its module. Point 40's `settings.install_command` went with hands-on issue 17 (2026-11-13),
-    since this version has no extra to install."""
-    clean = ("from poisson_break.hunt import run_once\n"
-             "from poisson_break.confirm import Replayed\nimport poisson_break.hunt as h\nh.run_once\n")
+def test_the_check_takes_the_three_public_names_the_rulings_add() -> None:
+    """BK8 points 37, 39 and 40 (2026-11-07): `hunt.run_once`, `settings.install_command` and `Replayed.error` are what
+    the command reaches instead, each a public name of its module."""
+    clean = ("from poisson_break.hunt import run_once\nfrom poisson_break.settings import install_command\n"
+             "from poisson_break.confirm import Replayed\nimport poisson_break.hunt as h\nh.run_once\n"
+             "from poisson_break import settings\nsettings.install_command\n")
     assert _violations(clean) == []
 
 

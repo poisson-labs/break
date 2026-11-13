@@ -314,3 +314,22 @@ def test_a_kind_this_version_has_no_way_in_for_is_refused_with_the_command_for_r
     assert shlex.split(command) == [PROG, "init", "--yes", *rollout, *rest], command
     again = cli(proj, *shlex.split(command)[1:])
     assert again.exit == CODES["done"], again
+
+
+@pytest.mark.parametrize(("kind", "module"), [("langgraph", "adapters/langgraph.py"), ("mcp", "mcp.py")])
+def test_a_kind_whose_way_in_s_module_is_there_is_taken(tmp_path: Path, kind: str, module: str) -> None:
+    """The refusal lifts the day the way in's module is installed, as an installed extra adds it to the package: `init`
+    writes the file with no `pip install` line, since this release publishes no extra."""
+    from tests.commands_spies import spying
+
+    planted = tmp_path / "planted_package"
+    (planted / "adapters").mkdir(parents=True)
+    (planted / "adapters" / "__init__.py").write_text("", encoding="utf-8")
+    (planted / module).write_text("", encoding="utf-8")
+    proj = empty(tmp_path)
+    env = spying(proj, tmp_path / "spy", f"import poisson_break\npoisson_break.__path__.append({str(planted)!r})\n")
+    words = ["--kind", kind, "--entry", "tests.commands_targets:desk", "--tool", 'lookup_order = "read"']
+    ran = cli(proj, "init", "--yes", *words, **env)
+    assert ran.exit == CODES["done"], ran
+    assert proj.settings.read_text(encoding="utf-8") == expected(words)
+    assert "pip" not in ran.out + ran.err, ran

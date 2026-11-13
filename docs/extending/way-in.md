@@ -122,7 +122,7 @@ desk-1 6 0
 
 ## What is not here yet
 
-This version has one way in the command can load, `rollout`, and `break.toml` takes no other
-kind. A way in of your own is made by its own code and handed to `open_hunt`, as the example
+This version has one way in the command can load, `rollout`, and `break.toml` takes another
+kind only once that way in's module is installed, which no release has published yet. A way in of your own is made by its own code and handed to `open_hunt`, as the example
 does, and the command cannot load one yet. A way in that can fault the model's own calls needs a method the session does not
 have yet; it will arrive with the first way in that uses it.

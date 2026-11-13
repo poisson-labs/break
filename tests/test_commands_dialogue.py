@@ -21,8 +21,9 @@ Earlier rulings still held here (BK8's open points, 2026-11-07 and 2026-11-08):
   wrapped while the target's module was imported (BK8.5); with none found, one text prompt for the names,
   comma-separated, empty by default meaning none (point 33);
 - point 3: `init` writes `break.toml`, and `cases.jsonl` only when the starter file was asked for; nothing else;
-- points 4 and 40 are withdrawn by Taylor's yes on hands-on issue 17 (2026-11-13): a kind other than rollout is
-  refused before anything is written, with no install command (held in `tests/test_commands_init.py`);
+- point 4 is withdrawn by Taylor's yes on hands-on issue 17 (2026-11-13): a kind whose way in is not there is refused
+  before anything is written (held in `tests/test_commands_init.py`); point 40: the install command `init` prints is
+  the one `poisson_break.settings.install_command` hands back, which is none for every kind in this release;
 - point 31: under `init --yes` each question takes its own default, the `[y/N]` ones as no, and the look is asked
   nothing;
 - point 34: a stdin that ends before the agent's place is given is the look's refusal;
@@ -48,6 +49,7 @@ from typing import Any
 import pytest
 
 from tests.commands_dialogue import Asked, converse, scripted
+from tests.commands_spies import INSTALL_COMMAND, NOTHING_TO_INSTALL, spied, spying
 from tests.commands_support import (
     CODES,
     PROG,
@@ -437,6 +439,35 @@ def test_init_s_document_is_named_init_result(tmp_path: Path) -> None:
     ran = cli(proj, "init", "--yes", "--json", "--kind", "rollout", "--entry", ENTRY, "--tool", 'lookup_order = "read"')
     assert ran.exit == CODES["done"], ran
     assert json_document(ran)["schema"] == "poisson_break.init-result/1"
+
+
+# ---------------------------------------------------------------------------
+# point 40: the install command is settings.install_command's
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("kind", ["rollout"])
+def test_the_install_command_is_the_one_settings_install_command_hands_back(tmp_path: Path, kind: str) -> None:
+    """With `install_command` stood in for, handing back a line for every kind, the core's own too: that line is the
+    first `next:`, and `init` asked it of the kind written. A kind whose way in is not there is refused before it is
+    asked (hands-on issue 17), so the kind here is the core's own."""
+    proj = empty(tmp_path / "proj")
+    env = spying(proj, tmp_path / "spy", INSTALL_COMMAND)
+    ran = cli(proj, "init", "--yes", "--kind", kind, "--entry", ENTRY, "--tool", 'lookup_order = "read"', **env)
+    assert ran.exit == CODES["done"], ran
+    assert nexts(ran)[0] == f"pip install spied-extra-for-{kind}", nexts(ran)
+    assert {"name": "install_command", "kind": kind} in spied(env)
+
+
+def test_with_nothing_to_install_init_names_no_install_command(tmp_path: Path) -> None:
+    """With `install_command` handing back `None` for every kind, as it does for each in this release, `init` names no
+    `pip install`."""
+    proj = empty(tmp_path / "proj")
+    env = spying(proj, tmp_path / "spy", NOTHING_TO_INSTALL)
+    ran = cli(proj, "init", "--yes", "--kind", "rollout", "--entry", ENTRY, "--tool", 'lookup_order = "read"', **env)
+    assert ran.exit == CODES["done"], ran
+    assert nexts(ran) and not any(shlex.split(n)[0] == "pip" for n in nexts(ran)), nexts(ran)
+    assert {"name": "install_command", "kind": "rollout"} in spied(env)
 
 
 # ---------------------------------------------------------------------------

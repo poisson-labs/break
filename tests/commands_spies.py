@@ -1,8 +1,8 @@
 """A library name stood in for in the command's child process, so a test can see the command use it.
 
-Taylor's yes to BK8 points 37 and 39 (2026-11-07) gave the command public names to take what it needs from:
-`Replayed.error` for a replay that was not counted, and `hunt.run_once` for `doctor --run` (point 40's
-`settings.install_command` went with hands-on issue 17, 2026-11-13). A test holds the command to each by standing in for it with an answer no other source
+Taylor's yes to BK8 points 37, 39 and 40 (2026-11-07) gave the command three public names to take what it needs from:
+`Replayed.error` for a replay that was not counted, `hunt.run_once` for `doctor --run`, and `settings.install_command`
+for `init`'s install command. A test holds the command to each by standing in for it with an answer no other source
 could give, and reading that answer in what the command printed.
 
 `spying(folder, body)` writes a `sitecustomize` module into `folder` and hands back the environment that puts it first
@@ -77,6 +77,32 @@ def check_capabilities(condition, capabilities):
 _changes.check_capabilities = check_capabilities
 '''
 
+#: `settings.install_command` stood in for: every kind, the core's own too, gets a line no table holds.
+INSTALL_COMMAND = '''
+import poisson_break.settings as _settings
+
+
+def install_command(kind):
+    _log(name="install_command", kind=kind)
+    return f"pip install spied-extra-for-{kind}"
+
+
+_settings.install_command = install_command
+'''
+
+#: `settings.install_command` stood in for: no kind needs anything installed.
+NOTHING_TO_INSTALL = '''
+import poisson_break.settings as _settings
+
+
+def install_command(kind):
+    _log(name="install_command", kind=kind)
+    return None
+
+
+_settings.install_command = install_command
+'''
+
 #: `confirm.replay` wrapped: a run that was not counted carries an error line no run wrote.
 REPLAY_ERROR = '''
 import dataclasses as _dataclasses
@@ -115,4 +141,4 @@ def spied(env: dict[str, str]) -> list[dict[str, Any]]:
     return [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines() if line]
 
 
-__all__ = ["CAPABILITIES_TAKEN", "REPLAY_ERROR", "RUN_ONCE", "RUN_ONCE_REFUSED", "SPIED_ERROR", "spied", "spying"]
+__all__ = ["CAPABILITIES_TAKEN", "INSTALL_COMMAND", "NOTHING_TO_INSTALL", "REPLAY_ERROR", "RUN_ONCE", "RUN_ONCE_REFUSED", "SPIED_ERROR", "spied", "spying"]

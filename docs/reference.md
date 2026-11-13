@@ -308,10 +308,13 @@ none of your modules: not the target, the strategy, a stand-in or your own check
 is checked for its form, `module:name`, and whether the module is there is asked by what loads
 it, before any run.
 
-**One way in.** This version has only the `rollout` way in. `init --kind` with any other kind
-is refused before anything is written, with the same command and `--kind rollout` to run
-instead, and so is a `break.toml` whose `kind` is another, wherever it is read. The `adaptive`
-strategy is refused the same way.
+**One way in.** This version has only the `rollout` way in. The other five kinds are ways in
+that will come as optional extras, and this release publishes none of them. `init --kind` with
+one of them is refused before anything is written, with the same command and `--kind rollout`
+to run instead, and so is a `break.toml` whose `kind` is one, wherever it is read; the refusal
+lifts once that way in's module is installed. `install_command(kind)` hands back `None` for
+every kind in this release, and a later version that ships an extra hands back its
+`pip install` line. The `adaptive` strategy is refused the same way.
 
 **Prices and the cap.** Without prices Break caps runs and time and shows no dollars. With both
 prices and no `dollars`, the cap is $5.00. A cap needs both prices, since it is counted from
