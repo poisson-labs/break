@@ -591,11 +591,15 @@ def _stopped(call: _Call, settings: Settings, hunt: Any, stop: Any, verb: str,
     if tools:
         nexts.append(_classing_line(call, settings, hunt.cases, tools))
     nexts.append(resume)
-    data = {"hunt": hunt.name, "reason": str(getattr(stop, "reason", "")),
-            "arm": str(getattr(stop, "arm", "")), "kept": int(getattr(stop, "kept", 0)),
-            "unclassed": tools}
-    return look.Stopped(look.Result("stopped", _one_line(stop), nexts=tuple(nexts),
-                                    schema=_schema(verb), data=data), code=EXIT_STOPPED)
+    data: dict[str, Any] = {"hunt": hunt.name, "reason": str(getattr(stop, "reason", "")),
+                            "arm": str(getattr(stop, "arm", "")),
+                            "kept": int(getattr(stop, "kept", 0)), "unclassed": tools}
+    detail: tuple[look.Row, ...] = ()
+    if verb == "hunt":
+        detail, data["wrote"] = _hunt_wrote(hunt)
+    return look.Stopped(look.Result("stopped", _one_line(stop), detail=detail,
+                                    nexts=tuple(nexts), schema=_schema(verb), data=data),
+                        code=EXIT_STOPPED)
 
 
 def _interrupted(call: _Call, hunt: Any, verb: str, resume: str, *, kept: int,
@@ -603,11 +607,34 @@ def _interrupted(call: _Call, hunt: Any, verb: str, resume: str, *, kept: int,
     """Ctrl-C after work started: the runs kept, and how to go on; exit 130. The document
     carries a stop's keys: the reason ``interrupted``, the Prove run whose run was interrupted
     (``None`` between two), and ``kept``, the runs the stage's own arms hold."""
-    data = {"hunt": hunt.name, "reason": "interrupted",
-            "arm": None if arm is None else f"{hunt.name}-{arm}", "kept": kept, "unclassed": []}
+    data: dict[str, Any] = {"hunt": hunt.name, "reason": "interrupted",
+                            "arm": None if arm is None else f"{hunt.name}-{arm}", "kept": kept,
+                            "unclassed": []}
+    detail: tuple[look.Row, ...] = ()
+    if verb == "hunt":
+        detail, data["wrote"] = _hunt_wrote(hunt)
     return look.Stopped(look.Result("stopped", f"interrupted: kept {_n(kept, 'run')}",
-                                    nexts=(resume,), schema=_schema(verb), data=data),
+                                    detail=detail, nexts=(resume,), schema=_schema(verb),
+                                    data=data),
                         code=EXIT_INTERRUPTED)
+
+
+def _hunt_wrote(hunt: Any) -> tuple[tuple[look.Row, ...], list[str]]:
+    """What a hunt has written, as confirm names its findings: the hunt's files that are there,
+    in the order the hunt makes them, the first from the folder the command runs in and each
+    after it from the hunt's folder, then its store, which holds every run. The detail row, and
+    each path in full for the document."""
+    folder = (Path(hunt.settings.output.folder) / hunt.name).as_posix()
+    files = [one for one in ("hunt.json", "proposals.jsonl", "candidates.json")
+             if (Path(hunt.folder) / one).is_file()]
+    store = Path(hunt.store).is_dir()
+    paths = [f"{folder}/{one}" for one in files] + ([f"{folder}/store"] if store else [])
+    if not files:
+        return ((look.Row("wrote", f"every run in {folder}/store/"),) if store else (), paths)
+    text = ", ".join([f"{folder}/{files[0]}", *files[1:]])
+    if store:
+        text += " and every run in store/"
+    return (look.Row("wrote", text),), paths
 
 
 def _arm_running(order: Sequence[tuple[str, int]], held: Mapping[str, int]) -> str | None:
@@ -1062,6 +1089,8 @@ def _hunt_result(call: _Call, settings: Settings, hunt: Any, summary: Any, stage
         detail.append(cover_line)
         detail.append(look.Line("these are candidates, not findings: a few runs each, chosen "
                                 "for having failed"))
+    wrote_row, wrote = _hunt_wrote(hunt)
+    detail += wrote_row
     data: dict[str, Any] = {
         "hunt": hunt.name, "runs": spent.runs_spent,
         "dollars": spent.dollars_spent if _priced(settings) else None,
@@ -1075,6 +1104,7 @@ def _hunt_result(call: _Call, settings: Settings, hunt: Any, summary: Any, stage
                           "set_aside": list(cover.set_aside),
                           "singles_untried": cover.singles_untried,
                           "pairs_untried": cover.pairs_untried},
+        "wrote": wrote,
     }
     if found:
         return look.Result("found", f"{_n(len(found), 'candidate')} in "

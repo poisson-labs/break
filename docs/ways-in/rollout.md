@@ -109,6 +109,7 @@ found  1 candidate in 27 runs
   1  tool:issue_refund#1=lost_reply  3 of 3 failed  duplicate_write
   not looked at: faults turned off: slow, rate_limited, empty, cut_off, malformed, stale, planted_instruction; 0 single changes and 6 pairs of them untried
   these are candidates, not findings: a few runs each, chosen for having failed
+  wrote    break-runs/refund-desk-1/hunt.json, proposals.jsonl, candidates.json and every run in store/
 next: poisson-break confirm
 ```
 

@@ -38,7 +38,7 @@ DOCUMENTS: dict[str, set[str]] = {
                                      "asked_again"},
     "poisson_break.recheck-plan/1": {"dollars", "hunt", "findings", "runs", "old", "recheck"},
     "poisson_break.hunt-result/1": {"hunt", "runs", "dollars", "control", "search", "candidates",
-                                    "not_looked_at"} | STOP,
+                                    "not_looked_at", "wrote"} | STOP,
     "poisson_break.confirm-result/1": {"hunt", "stage", "candidates", "findings", "wrote",
                                        "reference_runs"} | STOP,
     "poisson_break.findings-result/1": {"hunt", "findings", "control", "finding"},

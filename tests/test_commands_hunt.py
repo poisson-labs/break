@@ -763,3 +763,67 @@ def test_a_candidate_s_line_carries_the_kind_most_of_its_failed_rows_have(
         assert kind in words, (kind, words)
         others = {"crashed", "wrong"} - {kind}
         assert not others & set(words), (kind, words)
+
+
+# ---------------------------------------------------------------------------
+# what a hunt wrote
+# ---------------------------------------------------------------------------
+
+
+def wrote_paths(proj: Project, value: str) -> list[Path]:
+    """The paths a `wrote` line names, as confirm's does: the first in full, each after it from the same folder, and
+    the store named by "every run in"."""
+    text = value.strip().removeprefix("wrote").strip()
+    head, _, store = text.partition(" and every run in ")
+    first, *rest = head.split(", ")
+    folder = Path(first).parent
+    named = [Path(first), *(folder / one for one in rest)]
+    if store:
+        named.append(folder / store.rstrip("/"))
+    return [proj.folder / path for path in named]
+
+
+def test_a_hunt_that_found_something_says_what_it_wrote(found: tuple[Project, Any]) -> None:
+    """Rule 12 of the look: a verb that writes files says what it wrote. The hunt's files, its candidates among them,
+    and its store, which holds every run, each named from the folder the command ran in, as confirm names its
+    findings."""
+    proj, ran = found
+    (name,) = hunt_names(proj)
+    line = row(result_of(ran, "found"), "wrote")
+    assert line.split()[1] == f"break-runs/{name}/hunt.json,", line
+    assert "candidates.json" in line and line.endswith(" and every run in store/"), line
+    named = wrote_paths(proj, line)
+    assert proj.hunt(name) / "candidates.json" in named and proj.hunt(name) / "store" in named, line
+    assert all(path.exists() for path in named), line
+
+
+def test_a_hunt_that_found_nothing_says_what_it_wrote_and_names_no_candidates(nothing: tuple[Project, Any]) -> None:
+    proj, ran = nothing
+    (name,) = hunt_names(proj)
+    line = row(result_of(ran, "nothing found"), "wrote")
+    assert "candidates.json" not in line and line.endswith(" and every run in store/"), line
+    named = wrote_paths(proj, line)
+    assert proj.hunt(name) / "hunt.json" in named and all(path.exists() for path in named), line
+
+
+def test_a_stopped_hunt_says_what_it_wrote(tmp_path: Path) -> None:
+    """The dollar cap's stop keeps one run: the hunt's file and the store that holds the run are named."""
+    proj = project(tmp_path, cases(3, weak_to=["error"], tokens=[1000, 0]),
+                   limits={"dollars": 0.0015, "input_per_million": 1.0, "output_per_million": 1.0})
+    ran = cli(proj, "hunt", "--yes")
+    assert ran.exit == CODES["stopped"], ran
+    (name,) = hunt_names(proj)
+    line = row(result_of(ran, "stopped"), "wrote")
+    named = wrote_paths(proj, line)
+    assert proj.hunt(name) / "hunt.json" in named and proj.hunt(name) / "store" in named, line
+    assert all(path.exists() for path in named), line
+
+
+def test_under_json_a_hunt_lists_what_it_wrote(tmp_path: Path) -> None:
+    proj = project(tmp_path)
+    ran = cli(proj, "hunt", "--yes", "--json")
+    assert ran.exit == CODES["done"], ran
+    (name,) = hunt_names(proj)
+    wrote = json_document(ran)["wrote"]
+    assert f"break-runs/{name}/candidates.json" in wrote and f"break-runs/{name}/store" in wrote, wrote
+    assert all((proj.folder / path).exists() for path in wrote), wrote

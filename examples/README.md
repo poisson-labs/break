@@ -43,6 +43,7 @@ found  3 candidates in 42 runs
   3  tool:lookup_order#1=error         3 of 3 failed  failed
   not looked at: faults turned off: slow, cut_off, malformed, stale, lost_reply, planted_instruction; 0 single changes and 33 pairs of them untried
   these are candidates, not findings: a few runs each, chosen for having failed
+  wrote    break-runs/desk-1/hunt.json, proposals.jsonl, candidates.json and every run in store/
 next: poisson-break confirm
 ```
 
@@ -115,6 +116,7 @@ found  1 candidate in 27 runs
   1  tool:issue_refund#1=lost_reply  3 of 3 failed  duplicate_write
   not looked at: faults turned off: slow, rate_limited, empty, cut_off, malformed, stale, planted_instruction; 0 single changes and 6 pairs of them untried
   these are candidates, not findings: a few runs each, chosen for having failed
+  wrote    break-runs/refund-desk-1/hunt.json, proposals.jsonl, candidates.json and every run in store/
 next: poisson-break confirm
 ```
 
@@ -167,6 +169,7 @@ found  3 candidates in 24 runs
   3  tool:lookup_order#1=rate_limited  3 of 3 failed  own:made_up
   not looked at: faults turned off: slow, cut_off, malformed, stale, lost_reply, planted_instruction; 0 single changes and 0 pairs of them untried
   these are candidates, not findings: a few runs each, chosen for having failed
+  wrote    break-runs/order-desk-1/hunt.json, proposals.jsonl, candidates.json and every run in store/
 next: poisson-break confirm
 ```
 
@@ -213,6 +216,7 @@ found  1 candidate in 24 runs
   1  tool:lookup_order#1=error_page  3 of 3 failed  crashed
   not looked at: faults turned off: slow, empty, cut_off, malformed, stale, lost_reply, planted_instruction; 0 single changes and 0 pairs of them untried
   these are candidates, not findings: a few runs each, chosen for having failed
+  wrote    break-runs/order-desk-1/hunt.json, proposals.jsonl, candidates.json and every run in store/
 next: poisson-break confirm
 ```
 

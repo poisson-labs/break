@@ -154,6 +154,7 @@ found  1 candidate in 9 runs
   1  tool:lookup_order#1=error  3 of 3 failed  failed
   not looked at: faults turned off: timeout, slow, rate_limited, empty, cut_off, malformed, stale, lost_reply, planted_instruction; 0 single changes and 1 pair of them untried
   these are candidates, not findings: a few runs each, chosen for having failed
+  wrote    break-runs/agent-1/hunt.json, proposals.jsonl, candidates.json and every run in store/
 next: poisson-break confirm
 ```
 

@@ -47,6 +47,7 @@ found  3 candidates in 42 runs
   3  tool:lookup_order#1=error         3 of 3 failed  failed
   not looked at: faults turned off: slow, cut_off, malformed, stale, lost_reply, planted_instruction; 0 single changes and 33 pairs of them untried
   these are candidates, not findings: a few runs each, chosen for having failed
+  wrote    break-runs/desk-1/hunt.json, proposals.jsonl, candidates.json and every run in store/
 next: poisson-break confirm
 ```
 

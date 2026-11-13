@@ -338,7 +338,8 @@ def test_hunt_result(road: Any) -> None:
     proj, docs = road
     document = docs["hunt"]
     assert document["verdict"] == "found"
-    assert data_keys(document) == {"hunt", "runs", "dollars", "control", "search", "candidates", "not_looked_at"}
+    assert data_keys(document) == {"hunt", "runs", "dollars", "control", "search", "candidates", "not_looked_at",
+                                   "wrote"}
     counts = hunts.stored_counts(proj)
     assert document["hunt"] == "desk-1"
     assert document["runs"] == sum(counts.get(arm, 0) for arm in ("control", "search", "shrink"))
@@ -369,7 +370,7 @@ def test_hunt_stopped(capped: Any) -> None:
     proj, docs = capped
     document = docs["hunt stopped"]
     assert document["verdict"] == "stopped"
-    assert data_keys(document) == {"hunt", "reason", "arm", "kept", "unclassed"}
+    assert data_keys(document) == {"hunt", "reason", "arm", "kept", "unclassed", "wrote"}
     assert (document["hunt"], document["reason"], document["arm"]) == ("desk-1", "dollars", "desk-1-control")
     assert document["kept"] == len(stored_rows(proj, "control")) == 1
     assert document["unclassed"] == []
@@ -380,7 +381,7 @@ def test_hunt_ctrl_c_carries_the_stop_s_keys(tmp_path: Path) -> None:
     proj = project(tmp_path, cases(3, weak_to=["error"], nap=0.4))
     document = interrupted_json(proj, ["hunt", "--yes", "--json"], after_runs=2)
     assert document["schema"] == "poisson_break.hunt-result/1" and document["verdict"] == "stopped"
-    assert data_keys(document) == {"hunt", "reason", "arm", "kept", "unclassed"}
+    assert data_keys(document) == {"hunt", "reason", "arm", "kept", "unclassed", "wrote"}
     assert (document["hunt"], document["reason"], document["unclassed"]) == ("desk-1", "interrupted", [])
     assert document["kept"] == sum(hunts.stored_counts(proj).values())
     assert document["arm"] is None or document["arm"] == "desk-1-control"
