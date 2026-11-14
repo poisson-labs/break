@@ -23,9 +23,11 @@ run. Nothing here asks what a way in can do either: a conversation move for a ki
 play one reads, and is refused before any run by what holds the target.
 
 **What is not installed yet.** A ``kind`` whose way in is an optional extra parses, so a file
-written for it reads today; ``load`` refuses it in one line naming the install command, by
-looking for the way in's module without importing it, so the refusal lifts the day the module
-is there. The ``adaptive`` strategy is treated the same way.
+written for it reads today. ``load``, which every command reads ``break.toml`` with, refuses it
+while the way in's module is not there, found without importing it, in one line saying this
+version has only the rollout way in; the refusal lifts the day the module is there
+(``way_in_installed``). ``install_command`` names the extra to install once a release publishes
+it, and this release publishes none. The ``adaptive`` strategy is refused the same way.
 
 **Cases.** ``read_cases`` reads a file of JSON Lines into a tuple of cases, each the mapping of
 its line with an ``id`` filled in. A case needs only ``input``, non-empty text. It may carry an
@@ -91,6 +93,7 @@ __all__ = [
     "settings_from_init_args",
     "equivalent_init_command",
     "install_command",
+    "way_in_installed",
     "HuntPlan",
     "ConfirmPlan",
     "plan_hunt",
@@ -100,8 +103,9 @@ __all__ = [
 SCHEMA_VERSION = 1
 """The number ``init`` writes as ``version``. A file with a larger one is from a newer Break."""
 
-# The six kinds of target. The core ships the first; each of the rest is an optional extra,
-# found by the module its way in is built as and installed under the extra beside it.
+# The six kinds of target. The core ships the first; each of the rest is a way in that comes as
+# an optional extra, found by the module it is built as and installed under the extra beside it.
+# `loads` parses them, and `load` takes one only when its module is there.
 _KINDS = ("rollout", "openai-agents", "langgraph", "crewai", "mcp", "command")
 _WAYS_IN: Mapping[str, tuple[str, str]] = MappingProxyType({
     "openai-agents": ("poisson_break.adapters.openai_agents", "openai-agents"),
@@ -111,9 +115,21 @@ _WAYS_IN: Mapping[str, tuple[str, str]] = MappingProxyType({
     "command": ("poisson_break.mcp", "mcp"),
 })
 
+# The extras this release publishes. None yet: `install_command` names an extra only once a
+# release ships it, so no line points at a package that is not there.
+_PUBLISHED_EXTRAS: frozenset[str] = frozenset()
+
 # The strategies named by a word. `adaptive` is offered by the settings file and not built yet.
 _STRATEGIES = ("screen", "random", "adaptive")
 _NOT_BUILT = ("adaptive",)
+
+# What the comments of the file this version writes offer: the kinds it has a way in for, and the
+# strategies it has built.
+_RUN_HERE = tuple(kind for kind in _KINDS if kind not in _WAYS_IN)
+_BUILT = tuple(strategy for strategy in _STRATEGIES if strategy not in _NOT_BUILT)
+
+# Beside the two [vary] lines that need a way in that can reach the model or play a conversation.
+_NO_WAY_IN = "needs a way in this version does not have"
 
 _CLASSES = ("read", "write", "off")
 _LINE_KEYS = ("class", "repeatable", "stand_in")
@@ -347,7 +363,7 @@ class _Key:
 # Forms: "text" (a string), "words" (a list of strings), "whole" (a whole number), "time" (a
 # number of seconds or hours), "decimal" (a share, a price or a cap).
 _KEYS: tuple[_Key, ...] = (
-    _Key("target", "kind", "--kind", "text", comment=" | ".join(_KINDS)),
+    _Key("target", "kind", "--kind", "text", comment=" | ".join(_RUN_HERE)),
     _Key("target", "entry", "--entry", "text"),
     _Key("target", "cases", "--cases", "text"),
     _Key("fails", "checks", "--checks", "words"),
@@ -368,14 +384,14 @@ _KEYS: tuple[_Key, ...] = (
     _Key("fails", "run_seconds", "--run-seconds", "time"),
     _Key("vary", "tools", "--vary-tools", "words"),
     _Key("vary", "inputs", "--vary-inputs", "words"),
-    _Key("vary", "conversation", "--vary-conversation", "words",
+    _Key("vary", "conversation", "--vary-conversation", "words", comment=_NO_WAY_IN,
          example='["repeats", "interrupts", "goes_quiet", "presses"]'),
-    _Key("vary", "model", "--vary-model", "words",
+    _Key("vary", "model", "--vary-model", "words", comment=_NO_WAY_IN,
          example='["error", "timeout", "rate_limited", "empty", "cut_off"]'),
     _Key("vary", "max_call", "--max-call", "whole",
          comment="the latest call to a tool that a fault may land on"),
     _Key("search", "strategy", "--strategy", "text",
-         comment="screen | random | adaptive | module:Name (a strategy of your own)"),
+         comment=" | ".join(_BUILT) + " | module:Name (a strategy of your own)"),
     _Key("search", "runs", "--runs", "whole"),
     _Key("search", "control_repeats", "--control-repeats", "whole"),
     _Key("search", "cases_per_condition", "--cases-per-condition", "whole"),
@@ -1347,35 +1363,45 @@ def _module_is_there(name: str) -> bool:
         return False
 
 
-def install_command(kind: str) -> str | None:
-    """The ``pip install`` line that puts the way in for ``kind`` on this machine, when it is an
-    optional extra that is not installed; ``None`` for the core's own kind, and for a kind whose
-    way in is there. Looking for the way in imports nothing. The line is the one ``load``'s
-    refusal names, and the one ``init`` ends with for such a kind."""
+def way_in_installed(kind: str) -> bool:
+    """Whether the way in for ``kind`` is on this machine: the core's own kind always, and a kind
+    whose way in is an optional extra once its module can be found. Looking imports nothing."""
     if not isinstance(kind, str):
         raise TypeError(f"a kind is a word, not {type(kind).__name__}")
     if kind not in _WAYS_IN:
+        return kind in _KINDS
+    return _module_is_there(_WAYS_IN[kind][0])
+
+
+def install_command(kind: str) -> str | None:
+    """The ``pip install`` line that puts the way in for ``kind`` on this machine, when it is an
+    optional extra this release publishes and it is not installed; otherwise ``None``. This
+    release publishes no extra, so it hands back ``None`` for every kind; a later version that
+    ships an extra hands back its line. Looking for the way in imports nothing."""
+    if not isinstance(kind, str):
+        raise TypeError(f"a kind is a word, not {type(kind).__name__}")
+    if kind not in _WAYS_IN or way_in_installed(kind):
         return None
-    module, extra = _WAYS_IN[kind]
-    if _module_is_there(module):
+    extra = _WAYS_IN[kind][1]
+    if extra not in _PUBLISHED_EXTRAS:
         return None
     return f"pip install 'poisson-break[{extra}]'"
 
 
 def load(path: str | os.PathLike[str]) -> Settings:
     """The settings in a file, checked as ``loads`` checks them, and then for what is not
-    installed: a ``kind`` whose way in is an optional extra that is not there is refused in one
-    line naming the install command (``install_command``), and so is a strategy that is not
-    built yet. Looking for a way in imports nothing."""
+    installed: a ``kind`` whose way in's module is not there is refused in one line saying this
+    version has only the rollout way in, and so is a strategy that is not built yet. Looking for
+    a way in imports nothing."""
     text, _ = _file_text(path, "settings file")
     settings, source = _read(text)
     kind = settings.target.kind
-    install = install_command(kind)
-    if install is not None:
+    if not way_in_installed(kind):
         at = ("target", "kind")
+        have = " and ".join(_RUN_HERE)
         raise SettingsError(
-            f'{source.named(at)} is "{kind}", and that way in is not installed: {install}',
-            key=_dotted(at), line=source.line(at))
+            f'{source.named(at)} is "{kind}", and this version of Break has only the {have} way '
+            f'in: set kind = "{_RUN_HERE[0]}"', key=_dotted(at), line=source.line(at))
     if settings.search.strategy in _NOT_BUILT:
         at = ("search", "strategy")
         raise SettingsError(
@@ -1487,6 +1513,11 @@ def read_cases(path: str | os.PathLike[str]) -> tuple[dict[str, Any], ...]:
 # ---------------------------------------------------------------------------
 
 
+#: The word that, given to one of these flags, sets nothing: no outcomes, no check of your own.
+_NONE = "none"
+_NONE_FLAGS = ("--outcomes", "--own-check")
+
+
 def _is_bare(text: str) -> bool:
     """Whether a flag can carry text as it stands, with nothing that reads as a flag, as TOML
     or as more than one line."""
@@ -1528,9 +1559,12 @@ def settings_from_init_args(words: Sequence[str]) -> Settings:
     """The settings ``init``'s flags ask for: ``words`` are the words after ``init``.
 
     A flag is written whole, and its value is the next word or follows an ``=``. A flag left
-    out reads as its default. Refused with ``SettingsError``: a word that is no flag, an
-    abbreviated flag, a flag with no value or given twice, and any value the settings file
-    would refuse, which carries the same ``key`` and no ``line``."""
+    out reads as its default. ``none``, in any case, given to ``--outcomes`` or ``--own-check``
+    means no outcome counts as a failure and there is no check of your own, as when the flag is
+    left out; an outcome that is the word itself is written as TOML, ``--outcomes '["none"]'``.
+    Refused with ``SettingsError``: a word that is no flag, an abbreviated flag, a flag with no
+    value or given twice, and any value the settings file would refuse, which carries the same
+    ``key`` and no ``line``."""
     if isinstance(words, str):
         raise TypeError("the words after init are a sequence of words, not one string")
     words = list(words)
@@ -1540,6 +1574,7 @@ def settings_from_init_args(words: Sequence[str]) -> Settings:
         if _has_surrogate(word):
             raise SettingsError("a flag or its value holds a character that is not text")
     document: dict[str, Any] = {"version": SCHEMA_VERSION}
+    said_none: set[str] = set()
     at = 0
     while at < len(words):
         flag, attached, value = words[at].partition("=")
@@ -1576,8 +1611,11 @@ def settings_from_init_args(words: Sequence[str]) -> Settings:
             continue
         key = _BY_FLAG[flag]
         table = document.setdefault(key.table, {})
-        if key.name in table:
+        if key.name in table or flag in said_none:
             raise SettingsError(f"{flag} is given twice", key=path)
+        if flag in _NONE_FLAGS and value.strip().lower() == _NONE:
+            said_none.add(flag)
+            continue
         try:
             table[key.name] = _flag_value(key, value)
         except ValueError:
@@ -1588,15 +1626,19 @@ def settings_from_init_args(words: Sequence[str]) -> Settings:
 
 def _flag_text(key: _Key, value: object) -> str:
     """A key's value as its flag carries it: plainly where that is safe, as TOML where it is
-    not."""
+    not. A value that would read back as ``none`` is written as TOML."""
+    said_none = key.flag in _NONE_FLAGS
     if key.form == "text":
         assert isinstance(value, str)
-        return value if _is_bare(value) else _quoted(value)
+        plain = _is_bare(value) and not (said_none and value.strip().lower() == _NONE)
+        return value if plain else _quoted(value)
     if key.form == "words":
         assert isinstance(value, tuple)
         if value and _is_bare(value[0]) and all(word and word.isprintable() and "," not in word
                                                 for word in value):
-            return ",".join(value)
+            joined = ",".join(value)
+            if not (said_none and joined.strip().lower() == _NONE):
+                return joined
         return _array(_quoted(word) for word in value)
     return _value_text(key, value)
 

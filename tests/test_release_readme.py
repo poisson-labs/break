@@ -18,9 +18,14 @@ Taylor's rulings (2026-11-09, `evidence/bk11/open-points.md`):
 
 from __future__ import annotations
 
+import json
+import re
 import shlex
+from pathlib import Path
 
-from tests.conftest import REPO
+import pytest
+
+from tests.conftest import REPO, run_command
 from tests.release_docs import Command, blocks, break_verb, is_break_install, marked
 
 SCREEN = 40
@@ -92,3 +97,164 @@ def test_only_the_title_prose_and_a_virtual_environment_come_before_the_install(
                      if line.strip() and not line.strip().startswith("#")]
             assert block.info == "sh", f"a {block.info or 'bare'} block before the install"
         assert all(line.strip() in BEFORE_THE_INSTALL for line in shown), shown
+
+
+# ---------------------------------------------------------------------------
+# the sections after the first screen
+# ---------------------------------------------------------------------------
+
+
+def _sections() -> dict[str, str]:
+    """Each `## ` section of the README by its heading, its text up to the next `## `."""
+    found: dict[str, str] = {}
+    heading = None
+    for line in (REPO / "README.md").read_text(encoding="utf-8").split("\n"):
+        if line.startswith("## "):
+            heading = line[3:].strip()
+            found[heading] = ""
+        elif heading is not None:
+            found[heading] += line + "\n"
+    return found
+
+
+HOW = "How Break changes a tool"
+
+
+def test_how_break_changes_a_tool_comes_straight_after_the_first_screen() -> None:
+    """A reader who has run the first screen with no key reads next how it ran: the first `##`
+    section says how Break reaches the agent and its tools."""
+    assert list(_sections())[0] == HOW, list(_sections())
+
+
+def test_how_break_changes_a_tool_names_the_example_s_model_as_the_example_has_it() -> None:
+    """The section says the example's model is a plain function, by its name, and the desk's
+    module defines a function of that name; it names `wrap` and `break.toml`."""
+    section = _sections()[HOW]
+    assert "`scripted_model`" in section and "`wrap`" in section and "`break.toml`" in section
+    agent = (REPO / "examples" / "desk" / "desk_agent.py").read_text(encoding="utf-8")
+    assert "\ndef scripted_model(" in agent
+
+
+def test_each_fault_the_section_names_is_a_tool_fault_that_runs_the_tool_as_it_says() -> None:
+    """The section names a timeout, which arrives without the tool running, as a `TimeoutError`;
+    and `empty`, `malformed`, `stale` and `lost_reply`, which each run the real tool. Each is a
+    tool fault of the catalogue, and its catalogue line agrees on whether the real tool runs."""
+    from poisson_break.apply import ToolFailure
+    from poisson_break.changes import CATALOG
+
+    section = _sections()[HOW]
+    lines = {line.name: line for line in CATALOG if line.surface == "tool"}
+    named = {word for word in re.findall(r"`([a-z_]+)`", section) if word in lines}
+    assert {"empty", "malformed", "stale", "lost_reply"} <= named, named
+    assert all(lines[word].real_runs for word in named), named
+    assert "`TimeoutError`" in section
+    assert lines["timeout"].real_runs is False
+    assert isinstance(ToolFailure("timeout", "the request timed out"), TimeoutError)
+
+
+SEE = "What you see"
+
+
+def _desk_runs(tmp_path: Path) -> dict[str, int]:
+    """The first screen's three commands, run in an empty folder: how many runs the hunt's store
+    held after `hunt`, and after `confirm`."""
+    from poisson_prove.store import Store
+
+    stored = {}
+    for words in (["init", "--example", "desk"], ["hunt", "--yes"], ["confirm", "--yes"]):
+        ran = run_command(words, cwd=tmp_path)
+        assert ran.exit == 0, ran.stderr
+        store = tmp_path / "break-runs" / "desk-1" / "store"
+        if store.is_dir():
+            stored[words[0]] = sum(Store(store).count(run) for run in Store(store).runs())
+    return stored
+
+
+def test_what_you_see_says_what_ran_and_what_the_hunt_s_folder_holds(tmp_path: Path) -> None:
+    """The section says how many times the first screen called the desk's function, each count
+    the store holds; it names what `break-runs/desk-1/` holds, and the folder holds each; and it
+    names `replay` as what shows what the agent did."""
+    stored = _desk_runs(tmp_path)
+    section = _sections()[SEE]
+    hunted, confirmed = stored["hunt"], stored["confirm"] - stored["hunt"]
+    assert f"{hunted} times" in section, hunted
+    assert f"{confirmed} more" in section, confirmed
+    folder = tmp_path / "break-runs" / "desk-1"
+    assert "`break-runs/desk-1/`" in section
+    for name in ("hunt.json", "candidates.json", "findings/1.toml", "store/"):
+        assert f"`{name}`" in section, name
+        assert (folder / name).exists(), name
+    assert "`replay`" in section
+
+
+def test_a_stored_run_holds_no_prompt_and_no_reply(tmp_path: Path) -> None:
+    """What the section says a stored run is: Break's record, which holds the case by its id and
+    none of the agent's request, reply or tool results. Every row of every arm of the desk's
+    store is read, and no request of the cases, no reply the desk gives and no result its order
+    look-up returns is in it."""
+    from poisson_prove.store import Store
+
+    _desk_runs(tmp_path)
+    store = Store(tmp_path / "break-runs" / "desk-1" / "store")
+    rows = repr([store.read(run).to_dict("records") for run in store.runs()])
+    assert "status-4821" in rows
+    cases = [json.loads(line) for line in
+             (REPO / "examples" / "desk" / "cases.jsonl").read_text(encoding="utf-8").splitlines()
+             if line.strip()]
+    said = [case["input"] for case in cases] + [
+        "Order 48", "could not look that order up", "shipped on Tuesday, due Thursday"]
+    assert [text for text in said if text in rows] == []
+    section = _sections()[SEE]
+    assert "prompt" in section and "reply" in section
+
+
+OWN = "On your own agent"
+
+
+def test_on_your_own_agent_says_what_the_wrap_costs(tmp_path: Path,
+                                                    monkeypatch: pytest.MonkeyPatch) -> None:
+    """The section says what the one `wrap` line a tool costs, and each thing it says is so: the
+    line goes where the tool is defined, at the module's top level, and is found by importing the
+    module, while a tool wrapped inside a function is not; outside a run the wrapped tool is the
+    tool itself; an `async def` tool is refused. It names `init`, `poisson_break` and `async
+    def`, and points to Status for the adapters rather than saying it again."""
+    from poisson_break.apply import ToolRefused, wrap, wrapped_while
+
+    section = _sections()[OWN]
+    for words in ("`init`", "`poisson_break`", "`async def`", "where the tool is defined",
+                  "Status"):
+        assert words in section, words
+
+    (tmp_path / "readme_wrapped_agent.py").write_text(
+        "from poisson_break.apply import wrap\n\n"
+        "def _lookup(order):\n    return order\n\n"
+        "lookup = wrap('lookup', _lookup)\n\n"
+        "def later():\n    return wrap('inside', _lookup)\n", encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    assert wrapped_while("readme_wrapped_agent") == ("lookup",)
+
+    def plain(order: str) -> str:
+        return f"order {order}"
+
+    assert wrap("plain", plain)("4821") == plain("4821")
+
+    async def later(order: str) -> str:
+        return order
+
+    with pytest.raises(ToolRefused):
+        wrap("later", later)
+
+
+ANCHOR = "https://github.com/poisson-labs/break#on-your-own-agent"
+
+
+def test_the_first_screen_s_walk_through_ends_by_pointing_to_your_own_agent() -> None:
+    """The paragraph after the first screen that says what the three commands did ends with one
+    sentence linking the section on running Break on your own agent, by an absolute link, as
+    every README link is, to the heading's anchor."""
+    text = (REPO / "README.md").read_text(encoding="utf-8")
+    walk = next(p for p in text.split("\n\n") if p.startswith("`init --example desk`"))
+    last = re.split(r"(?<=\.)\s+(?=[A-Z\[`])", " ".join(walk.split()))[-1]
+    assert f"]({ANCHOR})" in last, last
+    assert OWN in _sections()
+    assert ANCHOR.rsplit("#", 1)[1] == OWN.lower().replace(" ", "-")

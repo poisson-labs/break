@@ -18,10 +18,32 @@ poisson-break confirm --yes
 
 `init --example desk` writes a small help desk into the folder: an agent with two tools and a
 scripted model, six requests to try it on, and `break.toml`, the settings. `hunt` looks for
-conditions that make it fail. `confirm` tests what the hunt found on fresh runs.
+conditions that make it fail. `confirm` tests what the hunt found on fresh runs. To run Break on
+an agent of your own, go on to [On your own agent](https://github.com/poisson-labs/break#on-your-own-agent).
 
 **Break calls your tools for real.** Run it against a test environment. It refuses a tool that
 changes something outside until you say how that tool is made safe to repeat.
+
+## How Break changes a tool
+
+The desk's model is a plain Python function, `scripted_model`, that picks the next step from the
+request and from what the tools have returned so far. That is why the example needs no key and
+no network. Break makes no model call of its own; on your own agent, the model calls are the
+ones your agent makes.
+
+Break starts no app and no server. It imports the function `break.toml` names, `desk_agent:desk`
+here, and calls it once for each run, in Break's own process. One run is one call of that
+function, on one case, with one seed, under one condition. The control runs the same cases with no
+change, and every condition is compared with it; each condition the desk's hunt tries is one
+change.
+
+Each tool is wrapped once with `wrap`, which puts Break between the agent and the tool. On the
+call a condition names, such as the first call to `lookup_order`, Break applies the condition's
+fault. A timeout, an error or a rate limit is raised where the tool's own failure would arrive,
+and the tool does not run, so a timeout reaches the agent as a `TimeoutError`. Other faults run
+the tool and change what comes back: `empty` hands back an empty result, `malformed` breaks its
+structure, and `stale` hands back the previous call's result. `lost_reply` lets the tool act and
+then reports an error. Every other call runs the real tool, as every call does in the control.
 
 ## What you see
 
@@ -47,6 +69,7 @@ found  3 candidates in 42 runs
   3  tool:lookup_order#1=error         3 of 3 failed  failed
   not looked at: faults turned off: slow, cut_off, malformed, stale, lost_reply, planted_instruction; 0 single changes and 33 pairs of them untried
   these are candidates, not findings: a few runs each, chosen for having failed
+  wrote    break-runs/desk-1/hunt.json, proposals.jsonl, candidates.json and every run in store/
 next: poisson-break confirm
 ```
 
@@ -97,6 +120,22 @@ failed  finding 1 on case status-4821, seed 56661626: failed
 The desk has no second try: one failed look-up ends the request.
 [Reading a finding](https://github.com/poisson-labs/break/blob/main/docs/findings.md) goes through every line a finding prints.
 
+The hunt called the desk's function 42 times, once for each run: 12 control runs, two on each of
+the six cases, and 30 runs for the ten conditions it tried. `confirm` called it 126 more times:
+72 runs with no change and under the three candidates, and 54 for the reference, the runs
+`recheck` later compares a fix with.
+
+Everything is kept in `break-runs/desk-1/`, one folder for each hunt. `hunt.json` holds the
+settings as resolved and the stages run, `candidates.json` the candidates `hunt` handed to
+`confirm`, `findings/1.toml` and the two beside it one finding each, and `store/` every run, as
+a Prove store. Prove is the Poisson Labs tool that tells you whether a difference is real, and
+its own commands read the store.
+
+A stored run is Break's record of the run: the case by its id, the change, the outcome and the
+kind of failure, and each tool call with whether the real tool ran. It holds none of the agent's
+prompt, reply or tool results. `replay` is how you see what the agent did: it runs a finding
+once more, stores nothing, and shows each tool call with the change on it.
+
 ## On your own agent
 
 A way in is how Break runs your agent and reaches its tools. This version has one, `rollout`:
@@ -105,8 +144,7 @@ once.
 
 The function takes `cfg` and `seed` and returns an `Episode`. `cfg` is one case from your case
 file, as a mapping that holds the request under `input`. `seed` is the run's seed. `Episode` is
-Prove's record of one run, and Break reads the agent's own `outcome` from it. Prove is the
-Poisson Labs tool that tells you whether a difference is real.
+Prove's record of one run, and Break reads the agent's own `outcome` from it.
 
 ```python
 from poisson_prove import Episode
@@ -121,9 +159,16 @@ def refund_agent(cfg, seed):
     return Episode(outcome="resolved", t=1.0, horizon=1.0, meta={"reply": reply})
 ```
 
+The `wrap` line is what this way in asks of your code. You write it yourself, once for each
+tool, where the tool is defined, at the top of its module, and not at each call. `init` does not
+add it: it finds the tools already wrapped by importing your module. The line makes your module
+import `poisson_break`. Outside a run the wrapped tool is the tool itself, so the line can stay
+in. A tool that is `async def` is refused. Adapters for agent frameworks and MCP servers are not
+in this version (see Status, below).
+
 Then, in the folder that holds it, `poisson-break init` asks where the agent is, where your
-test cases are, what each tool does when called, and what counts as a failure, and writes
-`break.toml`. `poisson-break doctor` checks that everything loads. `hunt` and `confirm` work as
+test cases are, and, for each tool it finds, whether calling it changes anything. It chooses
+everything else, says what it chose, and writes `break.toml`, where you can change any of it. `poisson-break doctor` checks that everything loads. `hunt` and `confirm` work as
 above. [The rollout way in](https://github.com/poisson-labs/break/blob/main/docs/ways-in/rollout.md) has the details, and the
 [catalogue](https://github.com/poisson-labs/break/blob/main/docs/catalog.md) lists every change a hunt can make.
 

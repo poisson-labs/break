@@ -4,6 +4,9 @@ A way in is how Break runs your agent and reaches its tools. This version has on
 your agent as a Python function that Break calls once for each run. If you can call your agent
 from Python, you can hunt it this way, whatever it is built with.
 
+[A whole agent to start from](#a-whole-agent-to-start-from), at the end of this page, is two
+files you can copy and edit, and the commands that take them to a hunt.
+
 ## The function
 
 ```python
@@ -51,9 +54,11 @@ An `async def` tool is refused; wrap a function that is not async.
 
 ## The settings
 
-`init` asks where the agent is and writes `break.toml`. A flag answers its own question, and
-`--yes` takes the default for every question left, so `init --entry
-my_app.agents:refund_agent --yes` asks nothing. These are the lines that describe the target:
+`init` asks where the agent is, where the cases are and, for each tool it finds, whether
+calling it changes anything, and writes `break.toml`; every other setting takes its default,
+and `init` lists what it chose. A flag answers its own question, and `--yes` takes the default
+for every question left, so `init --entry my_app.agents:refund_agent --yes` asks nothing. These
+are the lines that describe the target:
 
 ```toml
 [target]
@@ -109,6 +114,7 @@ found  1 candidate in 27 runs
   1  tool:issue_refund#1=lost_reply  3 of 3 failed  duplicate_write
   not looked at: faults turned off: slow, rate_limited, empty, cut_off, malformed, stale, planted_instruction; 0 single changes and 6 pairs of them untried
   these are candidates, not findings: a few runs each, chosen for having failed
+  wrote    break-runs/refund-desk-1/hunt.json, proposals.jsonl, candidates.json and every run in store/
 next: poisson-break confirm
 ```
 
@@ -169,6 +175,82 @@ next: poisson-break hunt
 Break reaches a rollout target's tools and its request. It does not sit between the agent and
 its model, and it does not play a conversation's turns. So two kinds of change in the catalogue
 are refused for a rollout target before any run: the conversation moves and the model faults.
-They wait for adapters that are not in this version. An agent that is not reachable as a Python
+They wait for adapters that are not in this version. `init` never turns them on, and when
+`[vary] conversation` or `[vary] model` in `break.toml` names one, `doctor`, `hunt`, `confirm`
+and `recheck` each say which line to empty and print the `init` command that writes the file
+with it emptied. An agent that is not reachable as a Python
 function, such as one behind an HTTP service, also needs a way in this version does not have.
 [Adding a way in](../extending/way-in.md) gives the interface one is written against.
+
+## A whole agent to start from
+
+This is a whole agent you can copy and edit: a bookshop desk with one tool that reads the stock
+and one that holds a copy, each wrapped once. It has no model, so it needs no key. Make a folder
+for it:
+
+```sh
+mkdir shop
+cd shop
+```
+
+Save this as `shop.py`:
+
+```python file=shop.py
+"""A bookshop desk: one tool reads the stock, one holds a copy. No model, no key."""
+
+import re
+
+from poisson_prove import Episode
+
+from poisson_break.apply import wrap
+
+STOCK = {"dune": 3, "emma": 0, "ulysses": 1}
+
+
+def _check_stock(title):
+    return STOCK.get(title)
+
+
+def _hold_copy(title):
+    return f"hold-{title}"
+
+
+check_stock = wrap("check_stock", _check_stock)
+hold_copy = wrap("hold_copy", _hold_copy)
+
+
+def shop(cfg, seed):
+    title = re.search(r"hold (\w+) for me", cfg["input"]).group(1)
+    if not check_stock(title):
+        reply = f"Sorry, {title} is out of stock."
+        return Episode(outcome="out_of_stock", t=1.0, horizon=1.0, meta={"reply": reply})
+    ticket = hold_copy(title)
+    reply = f"I have held {title} for you: {ticket}."
+    return Episode(outcome="held", t=1.0, horizon=1.0, meta={"reply": reply})
+```
+
+Save these three cases as `cases.jsonl`. Each says what its reply must hold, so a run whose
+reply lacks it fails as `wrong`:
+
+```json file=cases.jsonl
+{"id": "dune", "input": "Can you hold dune for me?", "expect": {"reply_contains": "hold-dune"}}
+{"id": "emma", "input": "Can you hold emma for me?", "expect": {"reply_contains": "out of stock"}}
+{"id": "ulysses", "input": "Can you hold ulysses for me?", "expect": {"reply_contains": "hold-ulysses"}}
+```
+
+Then write `break.toml` with `init`, given everything by its flags, check that the agent loads,
+and hunt:
+
+```sh
+poisson-break init --entry shop:shop --cases cases.jsonl \
+    --tool 'check_stock = "read"' \
+    --tool 'hold_copy = { class = "write", repeatable = true }' --yes
+poisson-break doctor
+poisson-break hunt --yes
+```
+
+`check_stock` is classed `read`, since looking at the stock changes nothing. `hold_copy` changes
+something, and `repeatable = true` says your test environment absorbs a hold made twice; the
+other lines a tool can have are under [Tool classes](#tool-classes). To make it your own agent,
+put your tools in place of the two here, keep one `wrap` line for each, and have `shop` call your
+agent and hand back its reply in the `Episode`.

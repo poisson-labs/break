@@ -368,12 +368,14 @@ def _asked(env: dict[str, str]) -> None:
         ("desk-1", 1)], spied(env)
 
 
-def test_the_control_without_a_stand_in_plans_a_finished_stage_afresh_and_asking_again(finished: Project) -> None:
-    """What the stand-ins below change: on the finished stage `confirm --dry-run` plans the first stage's 176 runs, not
-    a resume, and `--repeats 6` plans asking again over the eleven cases, 132 runs."""
+def test_the_control_without_a_stand_in_plans_no_finished_stage_and_plans_asking_again(finished: Project) -> None:
+    """What the stand-ins below change: on the finished stage `confirm --dry-run` plans nothing and says the stage is
+    already finished (hands-on issue 5, as Taylor ruled it), not a resume, and `--repeats 6` plans asking again over
+    the eleven cases, 132 runs."""
     first = cli(finished, "confirm", "--dry-run")
     assert first.exit == CODES["done"], first
-    assert holds_number(plan_text(first), "176") and not holds_number(plan_text(first), "76")
+    assert not [block for block in results(first.out) if block[0].startswith("plan  ")], first
+    assert verdict(first)[0] == "confirmed" and "already finished" in verdict(first)[1], first
     again = cli(finished, "confirm", "--repeats", "6", "--dry-run")
     assert again.exit == CODES["done"], again
     assert holds_number(plan_text(again), "132") and not holds_number(plan_text(again), "60")

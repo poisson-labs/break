@@ -6,7 +6,7 @@ The commands, the settings file, how runs are stored, and the library under the 
 
 | Verb | What it does | Spends | Verdict words |
 |---|---|---|---|
-| `init` | asks at most nine questions, each with a flag and all but the agent's place with a default, and writes `break.toml`; ends with the one command that writes the same file. `init --example NAME` asks nothing and writes an example's agent, cases and settings | nothing | `wrote` |
+| `init` | asks where the agent is, where the cases are and, for each tool, whether calling it changes anything; chooses every other setting, says what it chose, and writes `break.toml`; ends with the one command that writes the same file. `init --example NAME` asks nothing and writes an example's agent, cases and settings | nothing | `wrote` |
 | `doctor` | reads the settings and the cases, loads the target and lists its tools, finds the first problem; `--run` runs the first case once, asked first, and stores nothing | one run, if asked | `ready`, `not ready` |
 | `hunt` | the control stage, the search and the shrink stage; writes the candidates, best first | yes | `found`, `nothing found`, `stopped` |
 | `confirm` | the confirm stage against one shared control on fresh runs, Trace's test for each candidate, the findings written and their reference runs; `--repeats N` asks again about what was too small to tell | yes | `confirmed`, `nothing confirmed`, `stopped` |
@@ -37,7 +37,9 @@ environment. A stage that stops short, at a cap or on Ctrl-C, says how many runs
 Ctrl-C, the runs the stage's own arms hold, a confirm stage's among them the reference runs of
 the findings it confirmed; under `--json`, with the reason and the run it stopped in) and prints the command that goes on with the same hunt (`hunt --hunt NAME`, `confirm --hunt NAME`,
 `recheck --hunt NAME`, with `--old`, `--check` and `--strict` as they were given), and that
-command, run at a terminal, asks before it spends again. A tool the agent called that the
+command, run at a terminal, asks before it spends again. `confirm` without `--repeats` on a hunt
+whose latest confirm stage is finished runs nothing and asks nothing: it says the stage is
+already finished, shows its result again and leaves the finding files as they are. A tool the agent called that the
 settings do not class stops the stage naming it, and prints first the `init` command that
 writes the settings back as they are with that tool classed `off`, so the hunt can go on, and
 then the command that goes on with it.
@@ -47,21 +49,24 @@ then the command that goes on with it.
 `--hunt NAME` another. A finding is a number within its hunt. Nothing any verb prints asks you
 to paste a hash.
 
-`init`'s questions, in order: what the agent is
-built with (a menu of the six kinds; the core ships `rollout`, a function Break can call, and
-a kind whose adapter is not installed is still written, with the `pip install` line printed
-first); where it is (`module:name`, imported to find its tools, never run); where the cases are
-(and whether to write a starter file of three); for each tool found, whether it changes things
-outside your test environment (`read`, `write`, `off`; a `write` tool is asked whether it is
-safe to repeat or has a stand-in); what counts as a failure; what Break may change (tool
-behaviour and inputs yes, the conversation when a case has turns, model calls and settings of
-your own no); how many runs a hunt may use; what your model's tokens cost; and, with prices,
-the most a hunt may spend. `--yes` takes every question's default and asks nothing: tool
-behaviour and inputs yes, the conversation yes when a case has turns, and model calls, settings
-of your own and the starter file no. Where the agent is has no default, so `--yes` needs
-`--entry`. Every answer has a flag, listed under `init`'s flags below, and `init` ends with the
-one command that writes the same file. It runs as printed with no terminal in a folder that has
-no `break.toml`; where one is already there, add `--force`.
+`init` asks only what Break cannot find out for itself, in this order: where the agent is
+(`module:name`, imported to find its tools, never run, and asked again until it imports); where
+the cases are (and, when there is no such file, whether to write a starter file of three); and,
+for each tool it finds, whether calling it changes anything, even in a test environment. A tool
+that changes nothing is `read`. For one that does, it asks whether it is safe to repeat in your
+test environment, and if not, where its stand-in is: a function with the same arguments that
+changes nothing. Given none, `init` writes nothing and refuses, printing the `init` command with
+the answers so far and that tool's stand-in left to fill in, since Break never calls such a tool
+for real. Every other setting takes its default without a question: the kind `rollout`,
+Break's own checks for what fails a run, tool behaviour and inputs varied (the conversation too
+when a case has turns and the way in can play one; the model's calls and settings of your own
+not), 400 runs and 2 hours a hunt, and no prices. `init` then lists what it chose and says that
+`break.toml` is where to change it. `--yes` takes every default and asks nothing: each tool is
+`read` and no starter file is written. Where the agent is has no default, so `--yes` needs
+`--entry`. Every setting has a flag, listed under `init`'s flags below, which skips its question
+or sets what would otherwise be chosen, and `init` ends with the one command that writes the
+same file. It runs as printed with no terminal in a folder that has no `break.toml`; where one
+is already there, add `--force`.
 
 `--version` prints one line with the versions of Break, Prove, Trace and Python. A failure
 inside the command is one line that names the log its details went to, and exit 3; `--debug`
@@ -221,7 +226,7 @@ the whole file, and every line that is commented out is a setting that is off.
 version = 1
 
 [target]
-kind = "rollout"                    # rollout | openai-agents | langgraph | crewai | mcp | command
+kind = "rollout"                    # rollout
 entry = "my_app.agents:refund_agent"
 cases = "cases.jsonl"
 
@@ -247,15 +252,15 @@ run_seconds = 120
 tools = ["error", "timeout", "slow", "rate_limited", "empty", "cut_off", "malformed", "stale",
          "lost_reply", "planted_instruction"]
 inputs = ["typos", "reordered", "padded", "cut_short", "variant"]
-# conversation = ["repeats", "interrupts", "goes_quiet", "presses"]
-# model = ["error", "timeout", "rate_limited", "empty", "cut_off"]
+# conversation = ["repeats", "interrupts", "goes_quiet", "presses"]   # needs a way in this version does not have
+# model = ["error", "timeout", "rate_limited", "empty", "cut_off"]   # needs a way in this version does not have
 max_call = 3                        # the latest call to a tool that a fault may land on
 
 # [vary.env]
 # inventory = ["full", "empty"]
 
 [search]
-strategy = "screen"                 # screen | random | adaptive | module:Name (a strategy of your own)
+strategy = "screen"                 # screen | random | module:Name (a strategy of your own)
 runs = 400
 control_repeats = 5
 cases_per_condition = 4
@@ -305,10 +310,13 @@ none of your modules: not the target, the strategy, a stand-in or your own check
 is checked for its form, `module:name`, and whether the module is there is asked by what loads
 it, before any run.
 
-**A way in that is not installed.** Five of the six kinds are optional extras, and none is in
-this version. A file that names one reads with `loads`, so it can be written today, and `load` refuses
-it in one line naming the install command, such as `pip install 'poisson-break[openai-agents]'`.
-The `adaptive` strategy is treated the same way.
+**One way in.** This version has only the `rollout` way in. The other five kinds are ways in
+that will come as optional extras, and this release publishes none of them. `init --kind` with
+one of them is refused before anything is written, with the same command and `--kind rollout`
+to run instead, and so is a `break.toml` whose `kind` is one, wherever it is read; the refusal
+lifts once that way in's module is installed. `install_command(kind)` hands back `None` for
+every kind in this release, and a later version that ships an extra hands back its
+`pip install` line. The `adaptive` strategy is refused the same way.
 
 **Prices and the cap.** Without prices Break caps runs and time and shows no dollars. With both
 prices and no `dollars`, the cap is $5.00. A cap needs both prices, since it is counted from
@@ -350,7 +358,10 @@ The command states the target and whatever differs from the defaults, since a fl
 reads as its default, and running it gives the same file byte for byte. A value is written
 plainly where a shell reads it back as written (`--checks crashed,hung`, `--folder break-runs`)
 and as TOML where it does not (`--folder '"--odd name"'`, `--outcomes '["a, b"]'`); a tool's line and a setting of your
-own are written as the file writes them. Flags are written whole.
+own are written as the file writes them. Flags are written whole. `--outcomes none` and
+`--own-check none` mean no outcome counts as a failure and there is no check of your own, as when
+the flag is left out; an outcome your agent reports as the word itself is written
+`--outcomes '["none"]'`.
 
 ### The plan a hunt shows before it spends
 
@@ -651,7 +662,8 @@ of only the candidates the latest stage called *too small to tell*, with its own
 (`confirm-2-control`, `confirm-2-<candidate>`), on new seeds. It is read on its own: its runs
 are never pooled with the earlier stage's, because adding runs until a test passes makes the
 test mean less than it says. `confirm(hunt)` on a stage that is finished runs nothing and gives
-the same answer.
+the same answer. `finished_stage(hunt)` gives that answer without running or writing anything,
+and `None` while the latest stage has runs, findings or reference runs left to make.
 
 **A finding** is a confirmed candidate, numbered within the hunt from 1 in the order confirmed
 and written to `findings/<n>.toml`: the condition by name, the failure share under it and under
