@@ -1,11 +1,15 @@
 # Poisson Break
 
-Break finds where an AI agent fails. It runs the agent you already have, many times,
-while changing how its tools behave and what the user asks, and keeps the conditions under
-which the agent fails more often than it does with no change. Each one is a finding: a named
-condition you can replay, with the numbers behind it, that a fix can later be checked against.
+[![PyPI version](https://img.shields.io/pypi/v/poisson-break?style=flat-square&color=F76707)](https://pypi.org/project/poisson-break/) [![Python versions](https://img.shields.io/pypi/pyversions/poisson-break?style=flat-square&color=F76707)](https://pypi.org/project/poisson-break/) [![Licence: MIT](https://img.shields.io/pypi/l/poisson-break?style=flat-square&color=F76707)](https://github.com/poisson-labs/break/blob/main/LICENSE)
 
-Try it on an example agent. This needs no key and no network once it is installed.
+Find where your agent fails, before a user does.
+
+Break runs the agent you already have, many times, while it makes the agent's tool calls fail the
+way they fail in production and changes what the user asks. It keeps the conditions under which
+the agent fails more often than it does with no change, and tests each again on fresh runs
+against a control. What holds is a finding: a named condition you can replay, with the numbers
+behind it, that a fix can later be checked against. Poisson Break is one of the open-source tools
+from [Poisson Labs](https://poissonlabs.ai).
 
 ```sh
 python -m venv .venv
@@ -15,6 +19,11 @@ poisson-break init --example desk
 poisson-break hunt --yes
 poisson-break confirm --yes
 ```
+
+- No key and no network for the example, once it is installed: its model is scripted.
+- Break opens no connection of its own and sends nothing anywhere.
+- Break's own checks use no model: a failure is something the agent did that code can see.
+- Python 3.11 or later, on macOS and Linux. MIT licensed. Version 0.1.0 is an alpha.
 
 `init --example desk` writes a small help desk into the folder: an agent with two tools and a
 scripted model, six requests to try it on, and `break.toml`, the settings. `hunt` looks for
@@ -81,8 +90,9 @@ changes to the request, did not. The line `not looked at` says what this hunt le
 Those three are candidates: a few runs each, and chosen because they failed. `confirm` runs
 each of them again on every case, three times, beside a control arm. The control arm is the
 set of runs on the same cases with no change, and each candidate's runs are compared with it.
-`confirm` then asks Trace whether the difference holds. Trace is the Poisson Labs tool that
-checks whether a fix held:
+`confirm` then asks Trace whether the difference holds.
+[Trace](https://pypi.org/project/poisson-trace/) is the Poisson Labs tool that checks whether a
+fix held:
 
 ```text
 plan  confirm 3 candidates against a control
@@ -128,8 +138,8 @@ the six cases, and 30 runs for the ten conditions it tried. `confirm` called it 
 Everything is kept in `break-runs/desk-1/`, one folder for each hunt. `hunt.json` holds the
 settings as resolved and the stages run, `candidates.json` the candidates `hunt` handed to
 `confirm`, `findings/1.toml` and the two beside it one finding each, and `store/` every run, as
-a Prove store. Prove is the Poisson Labs tool that tells you whether a difference is real, and
-its own commands read the store.
+a Prove store. [Prove](https://github.com/poisson-labs/prove) is the Poisson Labs tool that tells
+you whether a difference is real, and its own commands read the store.
 
 A stored run is Break's record of the run: the case by its id, the change, the outcome and the
 kind of failure, and each tool call with whether the real tool ran. It holds none of the agent's
@@ -164,16 +174,29 @@ tool, where the tool is defined, at the top of its module, and not at each call.
 add it: it finds the tools already wrapped by importing your module. The line makes your module
 import `poisson_break`. Outside a run the wrapped tool is the tool itself, so the line can stay
 in. A tool that is `async def` is refused. Adapters for agent frameworks and MCP servers are not
-in this version (see Status, below).
+in this version (see [Status](https://github.com/poisson-labs/break#status)).
 
 Then, in the folder that holds it, `poisson-break init` asks where the agent is, where your
 test cases are, and, for each tool it finds, whether calling it changes anything. It chooses
-everything else, says what it chose, and writes `break.toml`, where you can change any of it. `poisson-break doctor` checks that everything loads. `hunt` and `confirm` work as
-above. [The rollout way in](https://github.com/poisson-labs/break/blob/main/docs/ways-in/rollout.md) has the details, and the
+everything else, says what it chose, and writes `break.toml`, where you can change any of it.
+`poisson-break doctor` checks that everything loads. `hunt` and `confirm` work as above.
+[The rollout way in](https://github.com/poisson-labs/break/blob/main/docs/ways-in/rollout.md) has the details, and ends with
+[a whole agent to start from](https://github.com/poisson-labs/break/blob/main/docs/ways-in/rollout.md#a-whole-agent-to-start-from):
+two files to copy and the commands that take them to a hunt. The
 [catalogue](https://github.com/poisson-labs/break/blob/main/docs/catalog.md) lists every change a hunt can make.
 
 When you have changed the agent, `poisson-break recheck` runs every finding again and says
 whether each now fails less: [Checking a fix](https://github.com/poisson-labs/break/blob/main/docs/recheck.md).
+
+## Checking a fix
+
+A finding is a plain TOML file you can commit. When you have changed the agent,
+`poisson-break recheck` runs every finding again on the agent as it is now, over the cases and
+repeats of the finding's reference runs, and prints Trace's answer for each: `fails less`,
+`fails more`, `no significant difference` or `too small to tell`. In CI,
+`poisson-break recheck --yes --check` exits 4 when a finding fails more than it did, and
+`--strict` adds a finding that is too small to tell. The `full-loop` example goes round the
+whole loop, and [Checking a fix](https://github.com/poisson-labs/break/blob/main/docs/recheck.md) explains each part.
 
 ## The examples
 
@@ -190,7 +213,29 @@ key and no network against a scripted model.
 
 [The examples page](https://github.com/poisson-labs/break/blob/main/examples/README.md) walks through each.
 
+## The commands
+
+- `init`: asks where the agent is, where the cases are and, for each tool, whether calling it
+  changes anything, and writes `break.toml`. `init --example NAME` writes an example.
+- `doctor`: reads the settings and the cases, loads the agent, lists its tools and names the
+  first problem it finds.
+- `hunt`: runs the control, searches for conditions that fail, shrinks each, and writes the
+  candidates, best first.
+- `confirm`: tests every candidate on fresh runs against one shared control, with Trace's test,
+  and writes the findings.
+- `findings`: lists the findings; `findings 1` shows one whole.
+- `replay`: runs one finding once and shows each tool call with the change on it.
+- `recheck`: runs every finding on the agent as it is now and reads Trace's answer.
+- `catalog`: lists every change Break knows; `--labels` adds the labels a change carries from
+  two published lists.
+
+`hunt`, `confirm` and `recheck` show a plan and ask `start?` before they run anything; `--yes`
+answers, and `--dry-run` shows the plan and runs nothing. Every command takes `--json`.
+[The reference](https://github.com/poisson-labs/break/blob/main/docs/reference.md) has each command's options and exit codes.
+
 ## The docs
+
+These pages are also on the site, at [poissonlabs.ai/docs/break](https://poissonlabs.ai/docs/break/).
 
 - [The catalogue](https://github.com/poisson-labs/break/blob/main/docs/catalog.md): every change Break can make, and how each is named.
 - [Reading a finding](https://github.com/poisson-labs/break/blob/main/docs/findings.md): what each line and number means.
@@ -203,6 +248,7 @@ key and no network against a scripted model.
 - [The reference](https://github.com/poisson-labs/break/blob/main/docs/reference.md): the commands, the settings file, the stored runs, the library.
 - Extending Break: [a fault](https://github.com/poisson-labs/break/blob/main/docs/extending/fault.md), [a way in](https://github.com/poisson-labs/break/blob/main/docs/extending/way-in.md),
   [a strategy](https://github.com/poisson-labs/break/blob/main/docs/extending/strategy.md), [a check of your own](https://github.com/poisson-labs/break/blob/main/docs/extending/check.md).
+- [The changelog](https://github.com/poisson-labs/break/blob/main/CHANGELOG.md): what each version changed.
 
 ## What Break does not claim
 
@@ -211,6 +257,13 @@ not fail more than the control in the runs it had. It has not shown more than th
 does not say it has. A finding says the agent fails more under one named condition; it does not
 say how often that condition happens to you. Every test, interval and p-value Break prints
 beside a finding is computed by Trace or Prove; Break itself only counts runs and divides. Each finding prints the command that gives the full report. [What Break does not claim](https://github.com/poisson-labs/break/blob/main/docs/claims.md) sets the limits out.
+
+## Where Break sits beside Tasks, Prove and Trace
+
+Tasks generates controlled test tasks. Break finds the conditions under which an agent fails.
+Trace checks whether a fix held: `confirm` and `recheck` ask it. Prove tells you whether a
+difference is real, and stores every run: a hunt's `store/` is a Prove store. Installing Break
+installs Prove and Trace with it. Break does not need Tasks.
 
 ## Status
 
@@ -221,12 +274,32 @@ changes to the conversation and to the model's own calls, and a search that lear
 this version; the catalogue names what waits for them. It runs on macOS and Linux, on Python
 3.11 or later.
 
-Break depends on Prove and Trace, each at one exact version, and `pip` installs both from
-PyPI with it. Trace is a pre-release there, 0.1.0a1.
+Break is on [PyPI](https://pypi.org/project/poisson-break/) as `poisson-break`, and its page on
+the site is [poissonlabs.ai/tools/break](https://poissonlabs.ai/tools/break/). It depends on Prove
+and Trace, each at one exact version, and `pip` installs both from PyPI with it. Trace is a
+pre-release there, 0.1.0a1.
 
 [The reference](https://github.com/poisson-labs/break/blob/main/docs/reference.md) has the
 commands, the settings file, how runs are stored, and the library under the command.
 
+## Development
+
+In a checkout, with a virtual environment in `.venv`, `.venv/bin/python -m pip install -e ".[dev]"`
+installs Break with what its tests need, `.venv/bin/python -m pytest -q` runs the suite,
+`.venv/bin/ruff check .` lints and `.venv/bin/mypy` checks the types. The suite runs under a guard
+that fails any connection. [The reference](https://github.com/poisson-labs/break/blob/main/docs/reference.md) says more under Developing.
+
 ## Licence
 
-MIT. Third-party notices are in [NOTICE](https://github.com/poisson-labs/break/blob/main/NOTICE).
+MIT. See [LICENSE](https://github.com/poisson-labs/break/blob/main/LICENSE) and [NOTICE](https://github.com/poisson-labs/break/blob/main/NOTICE) for what Break includes from others.
+
+## Citation
+
+```bibtex
+@software{poisson_break,
+  title  = {Poisson Break},
+  author = {{Poisson Labs}},
+  year   = {2026},
+  url    = {https://github.com/poisson-labs/break}
+}
+```
