@@ -4,6 +4,8 @@
 
 Find where your agent fails, before a user does.
 
+![What poisson-break confirm prints on the desk example, drawn in a terminal: confirmed, 3 of 3 candidates fail more than the control, then one row for each finding (a timeout, a rate limit and an error on the first call to lookup_order), the three finding files it wrote, and the next command](https://raw.githubusercontent.com/poisson-labs/break/main/docs/images/first-screen.png)
+
 Break runs the agent you already have, many times, while it makes the agent's tool calls fail the
 way they fail in production and changes what the user asks. It keeps the conditions under which
 the agent fails more often than it does with no change, and tests each again on fresh runs
