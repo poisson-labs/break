@@ -5,18 +5,19 @@ Invariant held here (Break — Plan, the release pass):
 - BK11.1  Every command the README and docs show runs in CI from the installed wheel, outside
           the checkout.
 
-How a command is marked, and how the clean-install job takes the marked commands, is written
-in `tests/release_docs.py` (rules 1 to 7). Here: every page a user reads marks its commands by
-those rules; the clean-install script lists exactly the commands the pages mark, with the wheel
-put in place of the requirement in an install; and a shell block that is not marked, in each
-form it can take, is refused by the script, naming the file and the line of its fence. That the
-listed commands then run, and pass, is the clean-install job's own run in CI, whose results name
-each command by its file and line.
+How a command is marked, and how the clean-install job takes the marked commands, is written in
+`tests/release_docs.py` (rules 1 to 7, and 9 for a file a page writes). Here: every page a user
+reads marks its commands by those rules; the clean-install script lists exactly the commands
+the pages mark, with the wheel put in place of the requirement in an install; and a shell block
+that is not marked, in each form it can take, is refused by the script, naming the file and the
+line of its fence. That the listed commands then run, and pass, is the clean-install job's own
+run in CI, whose results name each command by its file and line.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -29,6 +30,7 @@ from tests.release_docs import (
     blocks,
     commands_of,
     exit_of,
+    file_of,
     marked,
     problems,
     runs,
@@ -263,3 +265,151 @@ def test_a_page_under_examples_is_read_too(wheel: Path, tmp_path: Path) -> None:
     done = list_commands(root2, wheel, tmp_path)
     assert done.returncode == 1
     assert done.stderr.startswith("examples/desk/README.md:3: ")
+
+
+# ---------------------------------------------------------------------------
+# a file the page writes (rule 9)
+# ---------------------------------------------------------------------------
+
+FILES = '''# A page that writes its files
+
+```sh
+mkdir shop
+cd shop
+```
+
+```python file=shop.py
+STOCK = {"dune": 3}
+
+
+def shop(cfg, seed):
+    return STOCK
+```
+
+```json file=cases.jsonl
+{"id": "dune", "input": "Can you hold dune for me?"}
+```
+
+```sh
+cat shop.py cases.jsonl
+```
+'''
+
+
+def test_a_file_block_is_listed_where_it_stands_and_what_runs_writes_it(wheel: Path,
+                                                                      tmp_path: Path) -> None:
+    """Rule 9: a block tagged `LANGUAGE file=NAME` is a file the page writes. It is listed among
+    the page's commands at the first line of its content, with `kind` `file`, its lines as
+    `command`, and as `runs` the shell text that writes them to NAME; run in the page's one
+    shell, that text writes the block's lines, each ended by a line break, into the folder the
+    shell is in, before the next command. The listing and the rules in `release_docs` agree."""
+    root = planted_tree(tmp_path, GOOD_README, {"docs/files.md": FILES})
+    done = list_commands(root, wheel, tmp_path)
+    assert done.returncode == 0, done.stderr
+    listed = [e for e in json.loads(done.stdout) if e["file"] == "docs/files.md"]
+    assert [(e["line"], e["kind"]) for e in listed] == [
+        (4, "sh"), (5, "sh"), (9, "file"), (17, "file"), (21, "sh")]
+    shown = blocks(FILES, "docs/files.md")
+    assert [b for b in shown if problems(b)] == []
+    files = [b for b in shown if b.language != "sh"]
+    assert [e["command"] for e in listed if e["kind"] == "file"] == ["\n".join(b.lines) for b in files]
+    expected = [c for b in shown for c in (commands_of(b) if b.info == "sh" else [file_of(b)])]
+    assert [(e["line"], e["kind"], e["command"]) for e in listed] == \
+        [(c.line, c.kind, c.command) for c in expected]
+    assert [e["runs"] for e in listed] == [runs(c, str(wheel)) for c in expected]
+    assert [e["exit"] for e in listed] == [0] * 5
+
+    here = tmp_path / "page"
+    here.mkdir()
+    ran = subprocess.run(["bash", "-e", "-c", "\n".join(e["runs"] for e in listed)], cwd=here,
+                         capture_output=True, text=True, timeout=60)
+    assert ran.returncode == 0, ran.stderr
+    for block, name in zip(files, ("shop.py", "cases.jsonl"), strict=True):
+        assert (here / "shop" / name).read_text(encoding="utf-8") == "\n".join(block.lines) + "\n"
+    assert ran.stdout == "".join("\n".join(b.lines) + "\n" for b in files)
+
+
+@pytest.mark.parametrize("info", ["python file=", "python file=../shop.py", "python file=a/b.py",
+                                  "json file=.hidden", "python file=shop.py file=two.py"])
+def test_a_file_block_with_a_name_that_is_no_plain_file_name_is_refused(
+        info: str, wheel: Path, tmp_path: Path) -> None:
+    """A file block names one plain file in the page's folder: no folder, no `..`, no hidden
+    file, one name. Any other is refused by the listing and by the rules, at the block's fence."""
+    page = f"# A page\n\n```{info}\nSTOCK = 1\n```\n"
+    assert problems(blocks(page, "docs/planted.md")[0]) != []
+    root = planted_tree(tmp_path, GOOD_README, {"docs/planted.md": page})
+    done = list_commands(root, wheel, tmp_path)
+    assert done.returncode == 1, (done.stdout, done.stderr)
+    assert done.stdout == ""
+    assert done.stderr.splitlines() and all(
+        line.startswith("docs/planted.md:3: ") for line in done.stderr.splitlines()), done.stderr
+
+
+# ---------------------------------------------------------------------------
+# the rollout page's whole agent
+# ---------------------------------------------------------------------------
+
+ROLLOUT = REPO / "docs" / "ways-in" / "rollout.md"
+WHOLE = "A whole agent to start from"
+
+
+def _whole() -> list:
+    """The blocks of the rollout page's section that shows a whole agent, in order."""
+    text = ROLLOUT.read_text(encoding="utf-8")
+    lines = text.split("\n")
+    start = lines.index(f"## {WHOLE}") + 1
+    end = next((n for n in range(start, len(lines)) if lines[n].startswith("## ")), len(lines))
+    return [b for b in blocks(text, "docs/ways-in/rollout.md") if start < b.fence_line <= end]
+
+
+def test_the_rollout_page_shows_a_whole_agent_its_cases_and_the_commands_to_a_hunt() -> None:
+    """The section shows two files, `shop.py` and `cases.jsonl`, and then the commands, with no
+    output: the agent imports nothing but `re`, Prove's `Episode` and `wrap`, so it needs no
+    model and no key, and is a function `shop(cfg, seed)`; the case file is three cases, each
+    with `id`, `input` and `expect.reply_contains`; `init` is shown by its flags alone, and the
+    last command is the hunt. The page links the section from its top."""
+    import ast
+
+    found = _whole()
+    assert [b.info for b in found] == ["sh", "python file=shop.py", "json file=cases.jsonl", "sh"]
+    agent = ast.parse("\n".join(found[1].lines))
+    imported = {node.module if isinstance(node, ast.ImportFrom) else alias.name
+                for node in ast.walk(agent) if isinstance(node, ast.Import | ast.ImportFrom)
+                for alias in node.names}
+    assert imported == {"re", "poisson_prove", "poisson_break.apply"}, imported
+    (shop,) = [n for n in agent.body if isinstance(n, ast.FunctionDef) and n.name == "shop"]
+    assert [a.arg for a in shop.args.args] == ["cfg", "seed"]
+    cases = [json.loads(line) for line in found[2].lines]
+    assert len(cases) == 3
+    assert all(set(case) == {"id", "input", "expect"} and set(case["expect"]) == {"reply_contains"}
+               for case in cases), cases
+    shown = [c.command.replace("\\\n", " ") for c in commands_of(found[3])]
+    assert [" ".join(c.split()[:2]) for c in shown] == \
+        ["poisson-break init", "poisson-break doctor", "poisson-break hunt"]
+    assert "--entry shop:shop" in shown[0] and "--cases cases.jsonl" in shown[0]
+    assert shown[0].endswith("--yes") and shown[2] == "poisson-break hunt --yes"
+    assert f"](#{WHOLE.lower().replace(' ', '-')})" in ROLLOUT.read_text(encoding="utf-8")
+
+
+def test_the_rollout_page_s_whole_agent_runs_as_printed_to_a_hunt(tmp_path: Path) -> None:
+    """What the section shows, run as the clean install runs it, in an empty folder under the
+    network guard with no key: every command exits 0, `init` classes the two tools the agent
+    wraps, one `read` and one `write`, and the hunt stores its runs."""
+    import tomllib
+
+    from tests.conftest import console_script
+
+    found = _whole()
+    shown = [c for b in found for c in (commands_of(b) if b.info == "sh" else [file_of(b)])]
+    env = guarded_env()
+    env["PATH"] = f"{console_script().parent}{os.pathsep}{env.get('PATH', '')}"
+    ran = subprocess.run(["bash", "-e", "-c", "\n".join(runs(c, "poisson-break") for c in shown)],
+                         cwd=tmp_path, env=env, stdin=subprocess.DEVNULL, capture_output=True,
+                         text=True, timeout=600)
+    assert ran.returncode == 0, ran.stdout + ran.stderr
+    folder = tmp_path / "shop"
+    with (folder / "break.toml").open("rb") as f:
+        tools = tomllib.load(f)["tools"]
+    assert tools == {"check_stock": "read", "hold_copy": {"class": "write", "repeatable": True}}
+    stored = list((folder / "break-runs").glob("*/store/*/episodes/*"))
+    assert stored, sorted(p.relative_to(folder).as_posix() for p in folder.rglob("*"))

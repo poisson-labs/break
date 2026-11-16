@@ -6,6 +6,11 @@ settings module's private `_WAYS_IN` and `_module_is_there`, and `load` says it 
 `install_command(kind) -> str | None`: the `pip install` line when the kind's way in is not installed, else `None`.
 BK8 Session B adds it; this file holds what it hands back.
 
+Taylor's yes on hands-on issue 17 (2026-11-13), as the coordinator's review of it settled: this release publishes no
+extra, so `install_command` hands back `None` for every kind, and `load`'s refusal of a kind whose way in is not there
+says this version has only the rollout way in, naming no command. The table of modules and extras stays for the
+version that ships one, and the refusal still lifts when the way in's module is there.
+
 None of the five extras is installed where the tests run; each test that rests on that says so first, through `load`.
 Where a way in is installed, a child process stands in for it: an import finder put first that finds every module of
 the package that is not there, as an installed extra would be found.
@@ -52,21 +57,28 @@ def test_the_core_s_own_kind_needs_nothing_installed() -> None:
 
 
 @pytest.mark.parametrize("kind", sorted(EXTRAS))
-def test_a_kind_whose_way_in_is_not_installed_gets_pip_install_of_its_extra(tmp_path: Path, kind: str) -> None:
+def test_this_release_publishes_no_extra_so_no_kind_gets_a_command(tmp_path: Path, kind: str) -> None:
     said = refusal_of(tmp_path, kind)
-    assert said is not None and "not installed" in said, f"the extra for {kind} is installed here: {said}"
-    line = settings_module().install_command(kind)
-    assert isinstance(line, str) and "\n" not in line
-    assert shlex.split(line) == ["pip", "install", f"poisson-break[{EXTRAS[kind]}]"]
+    assert said is not None and "only the rollout way in" in said, f"the way in for {kind} is installed here: {said}"
+    assert settings_module().install_command(kind) is None
 
 
 @pytest.mark.parametrize("kind", sorted(EXTRAS))
-def test_it_is_the_command_load_s_refusal_names(tmp_path: Path, kind: str) -> None:
-    """One answer in two places: the command `load` names for a file of this kind is this one."""
+def test_load_s_refusal_names_no_command(tmp_path: Path, kind: str) -> None:
+    """One answer in two places: `install_command` hands back none, and `load` names none."""
     said = refusal_of(tmp_path, kind)
     assert said is not None
-    named = said.rsplit(": ", 1)[-1]
-    assert shlex.split(named) == shlex.split(settings_module().install_command(kind))
+    assert "pip" not in said and "poisson-break[" not in said, said
+
+
+@pytest.mark.parametrize("kind", sorted(EXTRAS))
+def test_a_version_that_publishes_the_extra_gets_pip_install_of_it(kind: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The table stays for the version that ships the extra: once it is published, the line is `pip install` of it."""
+    module = settings_module()
+    monkeypatch.setattr(module, "_PUBLISHED_EXTRAS", frozenset(EXTRAS.values()))
+    line = module.install_command(kind)
+    assert isinstance(line, str) and "\n" not in line
+    assert shlex.split(line) == ["pip", "install", f"poisson-break[{EXTRAS[kind]}]"]
 
 
 def test_asking_imports_nothing() -> None:

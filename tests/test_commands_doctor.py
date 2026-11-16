@@ -22,6 +22,7 @@ empty, so that `--yes`, whose conversation default is yes (point 43), changes no
 
 from __future__ import annotations
 
+import dataclasses
 import shlex
 from pathlib import Path
 from typing import Any
@@ -40,8 +41,12 @@ from tests.commands_support import (
     paths_under,
     json_document,
     nexts,
+    on,
+    prepared,
     project,
+    refused_once,
     result_of,
+    settings_text,
     verdict,
 )
 from tests.commands_lines import classing_nexts, states_the_conversation, the_next_writes_the_tool_in_as_off
@@ -156,12 +161,23 @@ def test_the_adaptive_strategy_is_not_ready(tmp_path: Path) -> None:
     not_ready(cli(project(tmp_path, search={"strategy": "adaptive"}), "doctor"))
 
 
-@pytest.mark.parametrize("kind", ["langgraph", "openai-agents", "mcp"])
-def test_a_kind_whose_way_in_is_not_installed_is_not_ready_naming_the_extra(tmp_path: Path, kind: str) -> None:
-    """BK4.7: the refusal names the extra to install."""
-    extra = {"langgraph": "langgraph", "openai-agents": "openai-agents", "mcp": "mcp"}[kind]
-    text = not_ready(cli(_kind(tmp_path, kind), "doctor"))
-    assert extra in text, text
+@pytest.mark.parametrize("verb", ["doctor", "hunt", "confirm", "recheck"])
+@pytest.mark.parametrize("kind", ["openai-agents", "langgraph", "crewai", "mcp", "command"])
+def test_a_kind_this_version_has_no_way_in_for_is_refused_saying_only_rollout(tmp_path: Path, kind: str,
+                                                                              verb: str) -> None:
+    """Taylor's yes on hands-on issue 17 (2026-11-13): `kind` in `break.toml` naming any kind but rollout is refused
+    before anything runs, in one line saying this version has only the rollout way in, and with no `pip install` line
+    for an extra that does not exist."""
+    proj = _kind(tmp_path, kind)
+    ran = cli(proj, verb, "--yes") if verb != "doctor" else cli(proj, verb)
+    if verb == "doctor":
+        not_ready(ran)
+        problem = verdict(ran)[1]
+    else:
+        problem = refused_once(ran, CODES["refused"])
+    assert "only the rollout way in" in problem and kind in problem and 'kind = "rollout"' in problem, problem
+    assert "pip" not in ran.out + ran.err, ran
+    assert proj.runs() == []
 
 
 def _kind(tmp_path: Path, kind: str) -> Any:
@@ -359,3 +375,48 @@ def test_with_turns_and_moves_set_the_next_keeps_those_moves(tmp_path: Path) -> 
     (command,) = classing_nexts(ran, "spied_tool")
     assert states_the_conversation(command), command
     the_next_writes_the_tool_in_as_off(proj, command, "spied_tool")
+
+
+# ---------------------------------------------------------------------------
+# a [vary] line the way in cannot do: named, with what to do, wherever it is met
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("verb", ["doctor", "hunt", "confirm", "recheck"])
+@pytest.mark.parametrize(("key", "value", "change"), [
+    ("model", ["error", "timeout"], "model:error#1"),
+    ("conversation", ["repeats"], "user:repeats@1"),
+])
+def test_a_vary_line_the_way_in_cannot_do_is_named_with_what_to_do(tmp_path: Path, verb: str, key: str,
+                                                                    value: list[str], change: str) -> None:
+    """docs/cli-look.md rule 4: the problem names the line of `break.toml` to change, `[vary] model` or
+    `[vary] conversation`, and says what to write there; its `next:` is a command that mends it, not `doctor` again.
+    That command, run as printed, writes a `break.toml` that reads as the settings that were there with that line
+    emptied, and `doctor` is then ready. `hunt`, `confirm` and `recheck` meet it as they open the hunt."""
+    from poisson_break.settings import loads
+
+    proj = project(tmp_path)
+    if verb in ("confirm", "recheck"):
+        prepared(proj, [on("error")])
+    proj.write(settings_text(vary={key: value}))
+    ran = cli(proj, verb, "--yes") if verb != "doctor" else cli(proj, verb)
+    if verb == "doctor":
+        text = not_ready(ran)
+        problem = verdict(ran)[1]
+    else:
+        problem = refused_once(ran, CODES["refused"])
+        text = strip(ran.out + ran.err)
+    assert f"[vary] {key}" in problem and "break.toml" in problem, text
+    assert f"{key} = []" in problem, text
+    assert change in problem, text
+    assert "rollout" in problem, text
+    mends = [command for command in nexts(ran) if shlex.split(command)[:2] == [PROG, "init"]]
+    assert len(mends) == 1 and nexts(ran) == mends, text
+    wanted = loads(proj.settings.read_text(encoding="utf-8"))
+    again = cli(proj, *shlex.split(mends[0])[1:])
+    assert again.exit == CODES["done"], again
+    written = loads(proj.settings.read_text(encoding="utf-8"))
+    assert getattr(written.vary, key) == ()
+    assert written == dataclasses.replace(wanted, vary=dataclasses.replace(wanted.vary, **{key: ()}))
+    ready = cli(proj, "doctor")
+    assert ready.exit == CODES["done"] and verdict(ready)[0] == "ready", ready

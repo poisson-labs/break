@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 (2026-11-09)
+## 0.1.0 (2026-11-13)
 
 The first release, an alpha. Break runs an agent many times while changing how its tools behave
 and what the user asks, keeps the conditions that fail more than a control, confirms them on
@@ -38,6 +38,45 @@ Changed since the last development build:
   repeats"), as the verdict sentences already did.
 - A hunt taken up with no prices set estimates over the runs it has left, and once its control
   has run, from the control's seconds a run.
+- `none`, given to `--outcomes` or `--own-check` or answered to their questions, means no
+  outcome counts as a failure and there is no check of your own. It was written as an outcome
+  named "none", and refused as a check's import path.
+- `init` asks only about what the way in can reach, read from the way in itself: a `rollout`
+  target is not asked whether Break may change the model's calls or the conversation, and
+  `--yes` varies neither for it. `break.toml`'s comments list only the kind and the strategies
+  this version runs, and its `conversation` and `model` lines say they need a way in this
+  version does not have. A `[vary]` line the way in cannot make is named, in `doctor`, `hunt`,
+  `confirm` and `recheck` alike, with what to write there, and the command printed under it is
+  the `init` command that writes the file with that line emptied.
+- `init` asks three things where it asked up to nine: where the agent is, where the cases are,
+  and for each tool one yes or no on whether calling it changes anything, even in a test
+  environment, in place of a `read`, `write` or `off` menu about changes outside it. The kind,
+  what fails a run, what Break may change, the runs, the prices and the cap take their defaults
+  without a question; `init` lists them after `wrote` and says `break.toml` is where to change
+  them. A tool that changes things, is not safe to repeat and has no stand-in is refused with
+  the `init` command that leaves its stand-in to fill in, and never written `off`. Every flag
+  still sets its value.
+- `init` takes only the kind `rollout`, and `break.toml` too, wherever it is read: any other
+  kind is refused before anything is written or run, in one line saying this version has only
+  the rollout way in, with the same `init` command and `--kind rollout` to run instead. No
+  `pip install` line is printed for an extra, since this release publishes none:
+  `settings.install_command` hands back `None` for every kind until a release ships one.
+- `hunt` ends with a `wrote` row naming `hunt.json`, `proposals.jsonl`, `candidates.json` and
+  every run in `store/`, and its `--json` names them under `wrote`. A hunt that found more
+  failing conditions than it keeps says how many it left out and that `candidates` under
+  `[confirm]` raises the limit, and its `--json` lists them under `left_out`. The search line
+  counts the cases each condition ran on, not the setting.
+- `confirm` asked again about a stage already finished runs nothing and writes nothing: it says
+  the stage is already finished and shows the stored result with a `findings` row. Every
+  `confirm --json` carries `already_finished`, and `confirm.finished_stage(hunt)` is the
+  finished stage, or `None`.
+- `recheck` shows its findings as a table under the headers `condition`, `verdict` and
+  `numbers`, as `confirm` does.
+- A mistake in a verb's own options prints that verb's help as the command to run next, such as
+  `poisson-break confirm --help`; a mistake before any verb still prints `poisson-break --help`.
+- The README says how Break changes a tool, what a hunt ran and what `break-runs/` holds, and
+  what the `wrap` line costs, and its first screen points to running Break on an agent of your
+  own. The rollout page has a whole agent and its cases to copy.
 - The package's version is 0.1.0, its status Alpha. An sdist is built beside the wheel and
   holds only the source, the tests, the docs, the examples, the scripts and the project's own
   files.
@@ -53,18 +92,16 @@ Everything in the release, module by module:
   shows its plan and asks `start?` first; `--yes` answers, `--dry-run` runs nothing and writes
   nothing, and no terminal without `--yes` is the plan and a refusal in one line. After every
   plan, and in `init`'s and `doctor`'s output, the note that Break calls your tools for real.
-- `init` asks at most nine questions, each with a flag and all but the agent's place with a
-  default, skipped when its flag is given; `--yes` takes every question's own default (tool
-  behaviour and inputs yes, the conversation yes when a case has turns, the rest no) and needs
-  `--entry`. The kind is a menu of the six, the
-  tools of a `rollout` target are the ones its module wraps while it is imported (never run),
-  a `write` tool is asked whether it is safe to repeat or has a stand-in, the conversation is
-  asked only when a case has turns and a yes writes every conversation move, a yes to model
-  calls every model fault. It writes `break.toml`, refuses to write over one without `--force`,
-  writes `cases.jsonl` only when the starter file was asked for, and ends with the one command
-  that writes the same file, which runs as printed with no terminal; a kind whose adapter is
-  not installed is still written, with the `pip install` line first. A line it prints back
-  (`--force`, `--entry MODULE:NAME`) is the user's own words.
+- `init` asks only what Break cannot find out for itself: where the agent is, where the cases
+  are, and for each tool whether calling it changes anything, with a yes followed by whether it
+  is safe to repeat and, if not, where its stand-in is; given none, it writes nothing and
+  refuses, with the command to fill the stand-in in. The tools of a `rollout` target are the
+  ones its module wraps while it is imported (never run). Every other setting takes its default,
+  and `init` lists what it chose and says `break.toml` is where to change it. Every setting has a
+  flag; `--yes` takes every default and needs `--entry`. It writes `break.toml`, refuses to
+  write over one without `--force`, writes `cases.jsonl` only when the starter file was asked
+  for, and ends with the one command that writes the same file, which runs as printed with no
+  terminal. A line it prints back (`--force`, `--entry MODULE:NAME`) is the user's own words.
 - `doctor` finds the first problem of the settings, the cases, the target, the strategy, the
   changes the way in cannot make, each tool line and stand-in and your own check, and says
   `not ready`, exit 4, in one line with the command to run next: `init` when there is no
@@ -95,8 +132,9 @@ Everything in the release, module by module:
   imported, in order, each once. `poisson_break.hunt`: `run_once(settings, target=, case=)`
   runs one case once with no change, stored nowhere; a tool nobody classed raises
   `ToolRefused`. `poisson_break.settings`: `install_command(kind)` is the `pip install` line
-  for a kind whose way in is not installed, or `None`; `load`'s refusal names the same line.
-  `poisson_break.hunt`: `Hunt.stored()` is every arm the hunt's store holds, by its word, with
+  for a kind whose way in comes as an extra a release publishes and is not installed, or
+  `None`, which is every kind in this release; `way_in_installed(kind)` says whether a kind's
+  way in is on the machine. `poisson_break.hunt`: `Hunt.stored()` is every arm the hunt's store holds, by its word, with
   the rows Prove counts in it. `poisson_break.confirm`: `read_stages(hunt)` is each confirm
   stage written, a `Stage` with its arms' rows; `Replayed.error` carries a run not counted's
   one line of error; `read_findings(hunt)` reads every finding file in number order and
@@ -174,9 +212,8 @@ Everything in the release, module by module:
   `trace missing`, `trace version`, `trace schema`, `trace answer`, `no candidates`,
   `no control`, `nothing to ask again`, `unfinished` or `unknown finding`. `trace answer` is an
   answer Break could not read after the arms ran, and the arms are kept.
-- Break now depends on Trace, pinned at one commit of its repository until Trace is on PyPI,
-  and its Prove pin moves to 0.1.3, the version that Trace pins. CI installs Trace with a
-  read-only token used by the install step alone.
+- Break now depends on Trace, pinned at 0.1.0a1, a pre-release on PyPI, and its Prove pin
+  moves to 0.1.3, the version that Trace pins.
 - `poisson_break.search`: the search without learning, and the door every strategy comes
   through. A strategy is anything with `propose(seen, budget, *, rng)` that returns a list of
   `Proposal`: a condition, the reason in one line, and the probability the strategy gave that
@@ -357,10 +394,11 @@ Everything in the release, module by module:
 - Reading, checking and writing settings run nobody's code: no framework is imported, and
   neither is the target, the strategy, a stand-in or your own check. Nothing here asks what a
   way in can do; that is refused before any run by what holds the target.
-- A `kind` whose way in is an optional extra (`openai-agents`, `langgraph`, `crewai`, `mcp`,
-  `command`) parses with `loads`, and `load` refuses it in one line naming the install command
-  until its module is there, found without importing it. The `adaptive` strategy parses and is
-  refused by `load` the same way.
+- This version has one way in, `rollout`. A `kind` whose way in will come as an optional extra
+  (`openai-agents`, `langgraph`, `crewai`, `mcp`, `command`) parses with `loads`, and `load`
+  refuses it in one line saying this version has only the rollout way in, until its module is
+  there, found without importing it. The `adaptive` strategy parses and is refused by `load`
+  the same way.
 - `read_cases`: the case file, JSON Lines. A case needs only `input`, non-empty text; it may
   carry an `id`, an `expect` table (`reply_contains`, `calls`, `never_calls`), `variants` and
   `turns`, and any key of your target's own, which is kept. A case with no `id` takes its place
@@ -451,8 +489,7 @@ Everything in the release, module by module:
   through JSON and refuse a field the shape does not name or a value outside its closed set.
 - `poisson_break.interfaces`: the four extension points, each at version 1: a fault, a way in,
   a strategy and your own failure check.
-- Prove pinned to the exact version Trace pins. Trace is not yet on PyPI, so it is pinned at
-  a commit of its repository until it is.
+- Prove pinned to the exact version Trace pins, and Trace pinned exactly, both from PyPI.
 - CI: lint, type check and the tests on Python 3.11 to 3.13, under a guard that fails any
   connection and a check that no statistic is computed locally; a clean install of the built
   wheel into a fresh environment outside the checkout that runs the command.

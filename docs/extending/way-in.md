@@ -122,8 +122,7 @@ desk-1 6 0
 
 ## What is not here yet
 
-`break.toml` names six kinds of target: `rollout`, `openai-agents`, `langgraph`, `crewai`,
-`mcp` and `command`. This version loads `rollout` from the settings. A way in of another kind
-is made by its own code and handed to `open_hunt`, as the example does, and the command cannot
-load one yet. A way in that can fault the model's own calls needs a method the session does not
+This version has one way in the command can load, `rollout`, and `break.toml` takes another
+kind only once that way in's module is installed, which no release has published yet. A way in of your own is made by its own code and handed to `open_hunt`, as the example
+does, and the command cannot load one yet. A way in that can fault the model's own calls needs a method the session does not
 have yet; it will arrive with the first way in that uses it.

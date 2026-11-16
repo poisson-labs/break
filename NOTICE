@@ -14,10 +14,10 @@ none of Prove's code.
 
 --------------------------------------------------------------------------------
 Trace (the `poisson-trace` package)
-https://github.com/poisson-labs/trace
+https://pypi.org/project/poisson-trace/
 First party: Poisson Labs. Break calls Trace's command and reads its JSON; it copies none of
-Trace's code. Trace is not yet on PyPI, so it is not yet declared in pyproject.toml; it is
-declared, pinned to one exact version, the day it is published.
+Trace's code. Distributed on PyPI as the poisson-trace distribution and a declared dependency
+of this package, pinned to one exact version in pyproject.toml.
 
 --------------------------------------------------------------------------------
 Rich

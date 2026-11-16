@@ -8,8 +8,8 @@ Invariants held here (Break — Plan, the commands module; spec §9.3, §9.4):
 - BK8.2   `--json` is one strict document.
 - §9.3    Every key has a flag, and a flag is written whole: an abbreviated one is a mistake on the command line.
 
-The dialogue itself (BK8.3's scripted answers, the nine questions, BK8.5's tool question and BK8.12's menus) is held
-in `tests/test_commands_dialogue.py`, on Taylor's rulings of BK8 points 1 to 5. Every test here answers no question:
+The dialogue itself (BK8.3's scripted answers, the questions Break cannot answer for itself and BK8.5's tool
+questions) is held in `tests/test_commands_dialogue.py`, on Taylor's yes on issue 13 and his rulings of BK8's points. Every test here answers no question:
 `--yes` takes each default, and the flags say the rest.
 """
 
@@ -238,3 +238,98 @@ def test_every_flag_init_flags_names_is_taken(tmp_path: Path) -> None:
     ran = cli(proj, "init", "--yes", *words)
     assert ran.exit == CODES["done"], ran
     assert proj.settings.read_text(encoding="utf-8") == expected(words)
+
+
+# ---------------------------------------------------------------------------
+# none: no outcomes and no own check
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("word", ["none", "None"])
+def test_none_given_to_outcomes_and_own_check_is_no_outcomes_and_no_own_check(tmp_path: Path, word: str) -> None:
+    """`--outcomes none` and `--own-check none` write what leaving both out writes: no outcome counts as a failure and
+    there is no check of your own. The word is not an outcome named "none", and the printed command does not carry
+    it."""
+    proj = empty(tmp_path)
+    ran = cli(proj, "init", "--yes", *TARGET, "--outcomes", word, "--own-check", word)
+    assert ran.exit == CODES["done"], ran
+    assert proj.settings.read_text(encoding="utf-8") == expected(TARGET)
+    command = printed_command(ran)
+    assert "--outcomes" not in command and "--own-check" not in command, command
+
+
+def test_the_file_names_only_the_ways_in_and_the_strategies_this_version_runs(tmp_path: Path) -> None:
+    """The comments beside `kind` and `strategy` list what this version can run: the kinds it has a way in for, and the
+    strategies it has built, beside a strategy of your own."""
+    import re
+
+    proj = empty(tmp_path)
+    assert cli(proj, "init", "--yes", *TARGET).exit == CODES["done"]
+    text = proj.settings.read_text(encoding="utf-8")
+    kind = re.search(r"^kind = .*#\s*(.*)$", text, re.MULTILINE)
+    strategy = re.search(r"^strategy = .*#\s*(.*)$", text, re.MULTILINE)
+    assert kind is not None and strategy is not None, text
+    assert kind.group(1) == "rollout", kind.group(0)
+    assert strategy.group(1) == "screen | random | module:Name (a strategy of your own)", strategy.group(0)
+
+
+def test_the_commented_conversation_and_model_lines_say_they_need_a_way_in_this_version_does_not_have(
+        tmp_path: Path) -> None:
+    """The example lines for `[vary] conversation` and `[vary] model` stay in the file, commented out, and each says in
+    a short comment that it needs a way in this version does not have."""
+    proj = empty(tmp_path)
+    assert cli(proj, "init", "--yes", *TARGET).exit == CODES["done"]
+    lines = proj.settings.read_text(encoding="utf-8").splitlines()
+    for key in ("conversation", "model"):
+        (line,) = [one for one in lines if one.startswith(f"# {key} = [")]
+        assert line.rstrip().endswith("# needs a way in this version does not have"), line
+
+
+# ---------------------------------------------------------------------------
+# Taylor's yes on hands-on issue 17 (2026-11-13): this version takes only the kind rollout
+# ---------------------------------------------------------------------------
+
+OTHER_KINDS = ("openai-agents", "langgraph", "crewai", "mcp", "command")
+
+
+@pytest.mark.parametrize("given", ["apart", "joined"])
+@pytest.mark.parametrize("kind", OTHER_KINDS)
+def test_a_kind_this_version_has_no_way_in_for_is_refused_with_the_command_for_rollout(
+        tmp_path: Path, kind: str, given: str) -> None:
+    """`init --kind KIND` for any kind but rollout writes nothing and is refused in one line saying this version has
+    only the rollout way in; its `next:` is the same command with `--kind rollout`, and no `pip install` line is
+    printed for an extra that does not exist."""
+    proj = empty(tmp_path)
+    before = files_under(proj.folder)
+    kind_words = ["--kind", kind] if given == "apart" else [f"--kind={kind}"]
+    rest = ["--entry", "tests.commands_targets:desk", "--tool", 'lookup_order = "read"', "--tool",
+            'check_policy = "read"']
+    ran = cli(proj, "init", "--yes", *kind_words, *rest)
+    line = refused_once(ran, CODES["refused"])
+    assert "only the rollout way in" in line and kind in line, line
+    assert files_under(proj.folder) == before
+    assert "pip" not in ran.out + ran.err, ran
+    (command,) = nexts(ran)
+    rollout = ["--kind", "rollout"] if given == "apart" else ["--kind=rollout"]
+    assert shlex.split(command) == [PROG, "init", "--yes", *rollout, *rest], command
+    again = cli(proj, *shlex.split(command)[1:])
+    assert again.exit == CODES["done"], again
+
+
+@pytest.mark.parametrize(("kind", "module"), [("langgraph", "adapters/langgraph.py"), ("mcp", "mcp.py")])
+def test_a_kind_whose_way_in_s_module_is_there_is_taken(tmp_path: Path, kind: str, module: str) -> None:
+    """The refusal lifts the day the way in's module is installed, as an installed extra adds it to the package: `init`
+    writes the file with no `pip install` line, since this release publishes no extra."""
+    from tests.commands_spies import spying
+
+    planted = tmp_path / "planted_package"
+    (planted / "adapters").mkdir(parents=True)
+    (planted / "adapters" / "__init__.py").write_text("", encoding="utf-8")
+    (planted / module).write_text("", encoding="utf-8")
+    proj = empty(tmp_path)
+    env = spying(proj, tmp_path / "spy", f"import poisson_break\npoisson_break.__path__.append({str(planted)!r})\n")
+    words = ["--kind", kind, "--entry", "tests.commands_targets:desk", "--tool", 'lookup_order = "read"']
+    ran = cli(proj, "init", "--yes", *words, **env)
+    assert ran.exit == CODES["done"], ran
+    assert proj.settings.read_text(encoding="utf-8") == expected(words)
+    assert "pip" not in ran.out + ran.err, ran

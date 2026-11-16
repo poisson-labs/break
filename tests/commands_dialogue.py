@@ -10,8 +10,8 @@ In plain (`NO_COLOR` set) every answer is a line of text: a menu takes a choice 
 question takes the same line, and a menu is answered with the arrow keys from the choice it opens on: the script names
 the choice, and the driver moves to it in the order the plain rendering listed (`order`).
 
-The forms held here are the ones Taylor ruled for `init` (BK8 point 1, 2026-11-07): one prompt per question in §9.3's
-order, each skipped when its flag was given; questions 1 and 4 menus; the rest text or `[y/N]`.
+`init` asks text and `[y/N]` questions only (Taylor's yes on issue 13, 2026-11-13); the menus are still read, for
+any other verb's question that is one.
 """
 
 from __future__ import annotations

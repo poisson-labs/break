@@ -142,11 +142,16 @@ class ChangeError(ValueError):
 
 
 class NeedsAdapter(ChangeError):
-    """A condition asks of a way in something it cannot do; ``change`` names the change."""
+    """A condition asks of a way in something it cannot do; ``change`` names the change,
+    ``doing`` what the way in would have to do, in a few words, and ``key`` the line of the
+    settings the change came from (``vary.model``), where one did."""
 
-    def __init__(self, message: str, *, change: str) -> None:
+    def __init__(self, message: str, *, change: str, doing: str | None = None,
+                 key: str | None = None) -> None:
         super().__init__(message)
         self.change = change
+        self.doing = doing
+        self.key = key
 
 
 class UnknownFault(ChangeError):
@@ -828,7 +833,8 @@ def check_capabilities(condition: Condition, capabilities: Capabilities) -> None
         if not getattr(capabilities, capability):
             text = name(change)
             raise NeedsAdapter(
-                f'"{text}" needs a way in that can {doing}, and this one cannot', change=text)
+                f'"{text}" needs a way in that can {doing}, and this one cannot', change=text,
+                doing=doing)
     return None
 
 

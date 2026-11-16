@@ -1,0 +1,342 @@
+# Release: a signed tag vX.Y.Z publishes that version to TestPyPI; starting this workflow by hand
+# on that tag then publishes the same files to PyPI. Built as Trace's release workflow is.
+#
+# This file is .github/workflows/release.yml, and PyPI's and TestPyPI's trusted publishers for
+# poisson-break name it by exactly that file name, release.yml, with the environment `pypi`.
+#
+# Nothing reaches PyPI on a push: only a run started with "Run workflow" on the tag, the version
+# typed in, publishes there, and only the files a passed run on that tag's push built, checked to
+# be the ones TestPyPI serves, byte for byte.
+#
+# On the tag (push):
+# - check: the ref is a tag GitHub verified as signed; the tag, __version__ and the CHANGELOG's
+#   first section agree; no commit names an assistant.
+# - build: the sdist and the wheel from the tagged tree (`git archive`, never the checkout);
+#   twine's metadata check; every requirement one an index can serve, Prove and Trace pinned
+#   exactly; the wheel holds the package alone, and neither file an absolute path or a key. Kept
+#   as `dist`.
+# - tests: the suite on Python 3.11, 3.12 and 3.13, in the two parts CI runs it in, with ruff and
+#   mypy (.github/workflows/ci.yml).
+# - clean-install: the built wheel installed into a fresh environment outside the checkout, the
+#   command run there and every command the README, the docs and the examples' page show
+#   (scripts/clean_install.py).
+# - testpypi: uploads `dist` to TestPyPI by trusted publishing; testpypi-check then checks
+#   TestPyPI serves those files byte for byte, and that Break installed from there, with PyPI
+#   for what it requires, runs the README's first screen.
+# By hand on the tag (workflow_dispatch, version typed in):
+# - check, as above, and the version typed is the tag's.
+# - pypi-ready: a run on this tag's push passed every job; its `dist` is the one TestPyPI
+#   serves, byte for byte.
+# - pypi: uploads that `dist` to PyPI by trusted publishing; pypi-check then checks PyPI serves
+#   those files and that they install and run the first screen.
+#
+# Only testpypi and pypi may ask for an OIDC token, and only in the environment `pypi`. No
+# password or API token is stored anywhere. Every action is pinned to a full commit SHA, and the
+# runner image is pinned too.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Publish to PyPI: the version, as the tag names it without its v (0.1.0). Run on the tag, not on a branch."
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  BUILD_VERSION: "1.6.1"
+  TWINE_VERSION: "7.0.0"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Run on a tag GitHub verified as signed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" != tag ]; then
+            echo "::error::run this workflow on a tag v*, not on $GITHUB_REF_TYPE $GITHUB_REF_NAME"; exit 1
+          fi
+          ref=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$GITHUB_REF_NAME" --jq '.object.type + " " + .object.sha')
+          if [ "${ref%% *}" != tag ]; then
+            echo "::error::$GITHUB_REF_NAME is a lightweight tag; a release tag is made with git tag -s"; exit 1
+          fi
+          verified=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/${ref#* }" --jq '.verification.verified, .verification.reason' | paste -sd' ' -)
+          echo "tag $GITHUB_REF_NAME: verified, reason: $verified"
+          if [ "${verified%% *}" != true ]; then
+            echo "::error::GitHub does not verify the signature on $GITHUB_REF_NAME ($verified)"; exit 1
+          fi
+      - name: By hand, the version typed is the tag's
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          TYPED: ${{ inputs.version }}
+        run: |
+          if [ "v$TYPED" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::typed $TYPED; this run is on $GITHUB_REF_NAME"; exit 1
+          fi
+      - name: The tag, the version and the CHANGELOG agree
+        run: python .github/release/release_check.py tag "$GITHUB_REF_NAME"
+      - name: No commit names an assistant
+        run: python .github/release/history.py
+
+  build:
+    if: github.event_name == 'push'
+    needs: check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Build the sdist and the wheel from the tagged tree
+        run: |
+          python -m pip install --quiet "build==$BUILD_VERSION" "twine==$TWINE_VERSION"
+          mkdir "$RUNNER_TEMP/tree"
+          git archive --format=tar HEAD | tar -x -C "$RUNNER_TEMP/tree"
+          python -m build --outdir dist "$RUNNER_TEMP/tree"
+          twine check --strict dist/*
+          ls -l dist
+          sha256sum dist/* | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Requirements an index can serve; nothing in the files that should not be
+        run: python .github/release/release_check.py dist dist | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: dist
+          path: dist/
+          retention-days: 90
+          if-no-files-found: error
+
+  # The suite as CI runs it (.github/workflows/ci.yml), on the tagged tree.
+  tests:
+    name: the ${{ matrix.part }} tests on ${{ matrix.python }}
+    if: github.event_name == 'push'
+    needs: check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+        part: ["library", "commands"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --quiet -e ".[dev]"
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+      - name: Prove and Trace are installed at their pins
+        run: python -c "import importlib.metadata as m; print('poisson-prove', m.version('poisson-prove')); print('poisson-trace', m.version('poisson-trace'))"
+      - name: Ruff
+        if: matrix.part == 'library'
+        run: ruff check .
+      - name: Mypy
+        if: matrix.part == 'library'
+        run: mypy
+      - name: Tests
+        env:
+          PART: ${{ matrix.part }}
+        run: |
+          if [ "$PART" = commands ]; then
+            python -m pytest -q tests/test_commands_*.py tests/test_look_conformance.py
+          else
+            python -m pytest -q --ignore-glob='tests/test_commands_*.py' \
+              --ignore=tests/test_look_conformance.py
+          fi
+
+  clean-install:
+    name: clean install of the built wheel
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: dist
+          path: dist/
+      - name: Install the built wheel in a fresh environment, run the command and every command the pages show
+        run: python scripts/clean_install.py --wheel "$(ls dist/*.whl)" --work "$RUNNER_TEMP/clean-install"
+
+  testpypi:
+    if: github.event_name == 'push'
+    needs: [build, tests, clean-install]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment:
+      name: pypi
+      url: https://test.pypi.org/project/poisson-break/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: dist
+          path: dist/
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          # a re-run after a later job failed finds the files there; testpypi-check still
+          # holds TestPyPI's files to these, byte for byte
+          skip-existing: true
+
+  testpypi-check:
+    if: github.event_name == 'push'
+    needs: testpypi
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: dist
+          path: dist/
+      - name: TestPyPI serves these files, and they install and run the first screen
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          python .github/release/release_check.py index testpypi dist "$version" | tee -a "$GITHUB_STEP_SUMMARY"
+          # Break from TestPyPI alone; what it requires from PyPI
+          python -m pip download --quiet --no-deps --only-binary :all: --dest "$RUNNER_TEMP/from-test" \
+            --index-url https://test.pypi.org/simple/ "poisson-break==$version"
+          python -m venv "$RUNNER_TEMP/clean"
+          "$RUNNER_TEMP/clean/bin/python" -m pip install --quiet "$RUNNER_TEMP"/from-test/*.whl
+          "$RUNNER_TEMP/clean/bin/python" -m pip check
+          mkdir "$RUNNER_TEMP/desk" && cd "$RUNNER_TEMP/desk"
+          export PATH="$RUNNER_TEMP/clean/bin:$PATH"
+          poisson-break --version | tee -a "$GITHUB_STEP_SUMMARY"
+          poisson-break init --example desk
+          poisson-break hunt --yes
+          poisson-break confirm --yes
+
+  pypi-ready:
+    if: github.event_name == 'workflow_dispatch'
+    needs: check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      run-id: ${{ steps.run.outputs.id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+      - id: run
+        name: A run on this tag's push passed every job
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          id=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release.yml/runs?event=push&head_sha=$GITHUB_SHA&status=success&per_page=1" --jq '.workflow_runs[0].id // empty')
+          if [ -z "$id" ]; then
+            echo "::error::no successful release run on the push of $GITHUB_REF_NAME ($GITHUB_SHA); PyPI waits for one"; exit 1
+          fi
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+          echo "the tag's run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$id" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: dist
+          path: dist/
+          run-id: ${{ steps.run.outputs.id }}
+          github-token: ${{ github.token }}
+      - name: That run's files are the ones TestPyPI serves
+        run: python .github/release/release_check.py index testpypi dist "${GITHUB_REF_NAME#v}" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  pypi:
+    if: github.event_name == 'workflow_dispatch'
+    needs: pypi-ready
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment:
+      name: pypi
+      url: https://pypi.org/project/poisson-break/
+    permissions:
+      id-token: write
+      actions: read
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: dist
+          path: dist/
+          run-id: ${{ needs.pypi-ready.outputs.run-id }}
+          github-token: ${{ github.token }}
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2
+
+  pypi-check:
+    if: github.event_name == 'workflow_dispatch'
+    needs: [pypi-ready, pypi]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: dist
+          path: dist/
+          run-id: ${{ needs.pypi-ready.outputs.run-id }}
+          github-token: ${{ github.token }}
+      - name: PyPI serves these files, and they install and run the first screen
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          python .github/release/release_check.py index pypi dist "$version" | tee -a "$GITHUB_STEP_SUMMARY"
+          python -m venv "$RUNNER_TEMP/clean"
+          "$RUNNER_TEMP/clean/bin/python" -m pip install --quiet "poisson-break==$version"
+          "$RUNNER_TEMP/clean/bin/python" -m pip check
+          mkdir "$RUNNER_TEMP/desk" && cd "$RUNNER_TEMP/desk"
+          export PATH="$RUNNER_TEMP/clean/bin:$PATH"
+          poisson-break --version | tee -a "$GITHUB_STEP_SUMMARY"
+          poisson-break init --example desk
+          poisson-break hunt --yes
+          poisson-break confirm --yes
