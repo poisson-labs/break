@@ -31,6 +31,6 @@ back equal, each with its reference run, replaying a finding once, and recheckin
 agent as it is now (``poisson_break.confirm``).
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 __all__ = ["__version__"]

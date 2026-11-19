@@ -83,18 +83,18 @@ def test_the_wheel_installs_one_package_and_its_metadata(wheel: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_release_is_version_0_1_0_in_the_package_and_the_wheel(wheel: Path) -> None:
+def test_the_release_is_version_0_1_1_in_the_package_and_the_wheel(wheel: Path) -> None:
     import poisson_break
 
-    assert poisson_break.__version__ == "0.1.0"
-    assert metadata(wheel)["Version"] == "0.1.0"
+    assert poisson_break.__version__ == "0.1.1"
+    assert metadata(wheel)["Version"] == "0.1.1"
 
 
-def test_the_changelog_opens_with_the_dated_0_1_0_section() -> None:
+def test_the_changelog_opens_with_the_dated_0_1_1_section() -> None:
     lines = (REPO / "CHANGELOG.md").read_text(encoding="utf-8").split("\n")
     sections = [line for line in lines if line.startswith("## ")]
     assert sections, "the changelog has no section"
-    first = re.fullmatch(r"## 0\.1\.0\b\D*(\d{4}-\d{2}-\d{2})\D*", sections[0])
+    first = re.fullmatch(r"## 0\.1\.1\b\D*(\d{4}-\d{2}-\d{2})\D*", sections[0])
     assert first, sections[0]
     datetime.date.fromisoformat(first.group(1))
     assert not any("unreleased" in line.lower() for line in sections), sections

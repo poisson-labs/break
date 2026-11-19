@@ -1,6 +1,24 @@
 # Changelog
 
-## 0.1.0 (2026-11-13)
+## 0.1.1 (2026-11-19)
+
+A patch to the README, the install notes and this changelog. Break's code is the same as in
+0.1.0; only the version moves.
+
+- With uv, `uv pip install poisson-break` did not install Break. Break pins a pre-release of
+  Poisson Trace exactly (`poisson-trace==0.1.0a1`), and uv leaves a pre-release out unless told
+  to. The README and the reference now give the uv line beside pip's:
+  `uv pip install --prerelease=allow poisson-break`. pip installs Break as written. The flag
+  stops being needed once Break's Trace pin becomes a range, after Poisson Trace 0.1.0
+  ([#21](https://github.com/poisson-labs/break/issues/21)).
+- The README opens with what `poisson-break confirm --yes` prints on the desk example, drawn as
+  a terminal card, `docs/images/first-screen.png`
+  ([#24](https://github.com/poisson-labs/break/issues/24)).
+- 0.1.0 is dated 2026-11-16 below, the day it was published on PyPI; this changelog had dated it
+  2026-11-13. The files published as 0.1.0 still carry the earlier date, and stay as they are
+  ([#25](https://github.com/poisson-labs/break/issues/25)).
+
+## 0.1.0 (2026-11-16)
 
 The first release, an alpha. Break runs an agent many times while changing how its tools behave
 and what the user asks, keeps the conditions that fail more than a control, confirms them on
