@@ -22,10 +22,13 @@ poisson-break hunt --yes
 poisson-break confirm --yes
 ```
 
+With uv, the install line is `uv pip install --prerelease=allow poisson-break`. Break pins a
+pre-release of Poisson Trace for now, and uv installs a pre-release only when told to.
+
 - No key and no network for the example, once it is installed: its model is scripted.
 - Break opens no connection of its own and sends nothing anywhere.
 - Break's own checks use no model: a failure is something the agent did that code can see.
-- Python 3.11 or later, on macOS and Linux. MIT licensed. Version 0.1.0 is an alpha.
+- Python 3.11 or later, on macOS and Linux. MIT licensed. Version 0.1.1 is an alpha.
 
 `init --example desk` writes a small help desk into the folder: an agent with two tools and a
 scripted model, six requests to try it on, and `break.toml`, the settings. `hunt` looks for
@@ -269,7 +272,7 @@ installs Prove and Trace with it. Break does not need Tasks.
 
 ## Status
 
-This is version 0.1.0, an alpha. It has one way in, `rollout`: an agent Break can call as a
+This is version 0.1.1, an alpha. It has one way in, `rollout`: an agent Break can call as a
 Python function. It changes tool behaviour (ten faults) and the request (five operators), and
 searches with two strategies that do not learn. Adapters for agent frameworks and MCP servers,
 changes to the conversation and to the model's own calls, and a search that learns are not in
@@ -279,7 +282,8 @@ this version; the catalogue names what waits for them. It runs on macOS and Linu
 Break is on [PyPI](https://pypi.org/project/poisson-break/) as `poisson-break`, and its page on
 the site is [poissonlabs.ai/tools/break](https://poissonlabs.ai/tools/break/). It depends on Prove
 and Trace, each at one exact version, and `pip` installs both from PyPI with it. Trace is a
-pre-release there, 0.1.0a1.
+pre-release there, 0.1.0a1, so uv needs `--prerelease=allow`:
+`uv pip install --prerelease=allow poisson-break`.
 
 [The reference](https://github.com/poisson-labs/break/blob/main/docs/reference.md) has the
 commands, the settings file, how runs are stored, and the library under the command.

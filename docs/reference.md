@@ -826,7 +826,8 @@ text and never acted on.
 
 Prove (`poisson-prove`) and Trace (`poisson-trace`), each pinned exactly. Break's Prove is the
 version Trace pins, 0.1.3, so the three tools agree on one Prove. Trace is pinned at 0.1.0a1, a
-pre-release on PyPI, which `pip` installs for an exact pin without `--pre`. Break takes Prove's store, its planner and its adjustment
+pre-release on PyPI, which `pip` installs for an exact pin without `--pre`. uv installs a
+pre-release only when told to, so with uv the line is `uv pip install --prerelease=allow poisson-break`. Break takes Prove's store, its planner and its adjustment
 across tests from Prove's own modules and nothing from its private ones: the planner gives each
 run its seed, the store takes each row, and `bh` adjusts the p-values. Trace is never imported:
 Break runs its command and reads the JSON it prints.
