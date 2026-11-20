@@ -394,6 +394,39 @@ def test_confirm_replay_and_recheck_refuse_a_way_with_doctor_next(tmp_path: Path
         assert [PROG, "doctor"] in [shlex.split(n) for n in nexts(ran)], nexts(ran)
 
 
+OLD_AGENTS = '''\
+from poisson_prove import Episode
+
+from my_app.tools import lookup_order
+
+
+def refund_agent(cfg, seed):
+    try:
+        lookup_order(cfg["input"])
+    except Exception:
+        return Episode(outcome="unresolved", t=0.0, horizon=1.0, meta={"reply": "I could not look it up."})
+    return Episode(outcome="done", t=0.0, horizon=1.0, meta={"reply": "Found it."})
+'''
+
+
+def test_doctor_run_and_recheck_old_reach_a_tool_wrapped_at_load(tmp_path: Path) -> None:
+    """Spec §12.5: `doctor --run` is as today, on an agent whose tools are wrapped at load. Spec §12.4 and §12.11,
+    question 13: `recheck --old ENTRY` loads the old agent under the same `[tools]` lines, and reaches it where it
+    calls the same functions: the old agent fails under each finding as the agent did, so no finding fails less."""
+    proj = spec_proj(tmp_path, {"lookup_order": {"class": "read", "at": "my_app.tools:lookup_order"},
+                                "check_policy": "read"}, agents=FAILING_AGENTS, old=OLD_AGENTS)
+    run = cli(proj, "doctor", "--run", "--yes", "--json", PYTHONDONTWRITEBYTECODE="1")
+    assert run.exit == CODES["done"], run
+    assert json_document(run)["run"]["outcome"] == "ok", run
+    for words in (["hunt", "--yes"], ["confirm", "--yes"]):
+        ran = cli(proj, *words, PYTHONDONTWRITEBYTECODE="1")
+        assert ran.exit == CODES["done"], ran
+    old = cli(proj, "recheck", "--old", "my_app.old:refund_agent", "--yes", "--json", PYTHONDONTWRITEBYTECODE="1")
+    assert old.exit == CODES["done"], old
+    findings = json_document(old)["findings"]
+    assert findings and all(f["phrase"] != "fails less" for f in findings), findings
+
+
 # ---------------------------------------------------------------------------
 # BK15.21: init
 # ---------------------------------------------------------------------------

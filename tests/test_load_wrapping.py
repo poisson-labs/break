@@ -42,6 +42,7 @@ from typing import Any
 import pytest
 
 from tests.load_support import (
+    AGENTS_PY,
     CHECK_PLACES,
     HOLDERS,
     HOLDERS_ENTRY,
@@ -292,6 +293,32 @@ def test_the_tool_is_the_function_by_identity_not_by_its_name(tmp_path: Path) ->
     ''', paths=[tmp_path])
     assert said["now"] == said["kept"]
     assert said["replaced"] is True
+
+
+NESTING_AGENTS = AGENTS_PY + '''
+NESTED = {"inner": {"lookup_order": lookup_order}}
+INSIDE = [[lookup_order]]
+KEYED = {lookup_order: "a tool used as a key"}
+'''
+
+
+def test_one_level_only_and_never_a_key(tmp_path: Path) -> None:
+    """Spec §12.4: a dict or list a module holds is gone into one level; a dict inside it is not, nor a list inside a
+    list; and a key is never replaced. Each still holds the function, and none is a place."""
+    spec_project(tmp_path, agents=NESTING_AGENTS)
+    said = child(f'''
+        import my_app.agents
+        agents = sys.modules["my_app.agents"]
+        first = id(agents.lookup_order)
+        target = load({spec_settings()!r})
+        out({{"first": first, "nested": id(agents.NESTED["inner"]["lookup_order"]), "inside": id(agents.INSIDE[0][0]),
+              "keys": [id(k) for k in agents.KEYED], "now": id(agents.lookup_order),
+              "places": {{r.tool: list(r.places) for r in target.reached}}["lookup_order"]}})
+    ''', paths=[tmp_path])
+    assert said["now"] != said["first"]
+    assert said["nested"] == said["inside"] == said["first"]
+    assert said["keys"] == [said["first"]]
+    assert said["places"] == ["my_app.agents:lookup_order", "my_app.tools:lookup_order"]
 
 
 def test_a_module_imported_later_takes_the_wrapper(tmp_path: Path) -> None:
