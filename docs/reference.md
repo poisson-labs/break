@@ -135,6 +135,53 @@ numbered per tool, from 1. When two changes fall on one call, the first in the c
 lands and the other does nothing to that call. Under the control the agent gets the tool's own
 object and the tool's own exception.
 
+**Wrapping at load.** A tool whose line in `[tools]` has an `at` needs no `wrap` line:
+`load_target` puts the same wrapper in when it loads the agent.
+
+```python
+from poisson_break.apply import wrap_at_load
+
+reached = wrap_at_load({"lookup_order": "my_app.tools:lookup_order"})   # tool name -> its at
+reached[0].how              # "at load"
+reached[0].places           # ("my_app.agents:TOOLS[lookup_order]", "my_app.agents:lookup_order",
+                            #  "my_app.tools:lookup_order")
+reached[0].held_elsewhere   # (Held(kind="closure", where="my_app.agents:make_agent"),)
+```
+
+`wrap_at_load(places)` imports each module, finds each function and checks every line before it
+replaces anything. Then it puts one wrapper for each tool in every loaded module but Break's own,
+under every name that holds the function, and at every value of a dict and item of a list that a
+module holds under a name. What is the function is told by identity, not by its name. One level
+is gone into: a dict inside a dict is left, and a key is never replaced. Loading twice replaces
+nothing more, and the original is not put back while the process lives.
+
+- `Reached` is frozen: `tool`; `how`, one of `at load`, `wrap` and `not seen`; `at`, the line's
+  `at` or `None`; `places`, each holder replaced, as text in text order; and `held_elsewhere`.
+- `Held` is frozen: something that took hold of the function before Break loaded the agent and
+  that Break cannot replace. `kind` is `closure`, `partial`, `container` (a tuple, a set, or a
+  dict or list no module holds by name) or `object` (an attribute of an object or a class).
+  `where` is the function a closure belongs to or the name a module holds a partial or a
+  container under, as `module:name`, or `None`. `held_elsewhere` is `None` where Python cannot
+  list what refers to a function, and empty for a tool Break did not wrap at load.
+- `RolloutTarget.reached` is one `Reached` for each `[tools]` line that is not `off`, in the
+  file's order: `wrap` where a `wrap` line under that name has run by the time the agent is
+  loaded, `not seen` where the line has no `at` and no such line has run.
+- `wrap` refuses the wrapper Break made at load, since its calls would pass through a run twice.
+
+Each of these is a `ToolRefused` naming the tool, raised while the agent is loaded and before
+anything is replaced. `doctor` prints it as `not ready`, and `hunt`, `confirm`, `replay` and
+`recheck` as one `error:` line with `next: poisson-break doctor`:
+
+| What is wrong | What the line says |
+|---|---|
+| the module in `at` cannot be imported, or does not hold the name | the tool, its `at`, the import's own error or the nearest name the module does hold |
+| the name holds something that cannot be called | the tool, its `at` and what is there |
+| the name holds a class | the tool and its `at`; Break wraps a function |
+| two lines name one function | both tools and the function; one function is one tool |
+| the tool has an `at` and a `wrap` line has run under its name | the tool; one of the two reaches it |
+| the name holds what a `wrap` line made under another name | the tool, its `at` and the name your code wraps it as |
+| the tool is async | the tool and its `at` |
+
 **Tool classes.** Each tool has a line: `"read"` (calling it changes nothing), `"off"`
 (Break never touches it), or a `write` tool with how it is made safe to repeat,
 `{"class": "write", "repeatable": True}` or `{"class": "write", "stand_in": "my_app.fakes:refund"}`.
@@ -338,6 +385,41 @@ and unique. `expect` holds only `reply_contains` (one string), `calls` and `neve
 of tools' names); `variants` and `turns` are lists of text. Any other key is your target's own
 and is kept. A blank line is skipped. A line that is refused is named by its number.
 
+### Where a tool is: `at`
+
+A `read` or `write` line in `[tools]` may hold a fourth key beside `class`, `repeatable` and
+`stand_in`: `at`, where the tool's function is, as `module:name`. Break wraps a tool that has
+one when it loads the agent, and a tool with none is one your own code wraps.
+
+```toml
+[tools]
+lookup_order = { class = "read", at = "my_app.tools:lookup_order" }
+check_policy = { class = "read", at = "my_app.tools:check_policy" }
+issue_refund = { class = "write", stand_in = "my_app.fakes:refund", at = "my_app.tools:issue_refund" }
+send_email = "off"
+```
+
+The tool's name is the key and need not be the function's. The name after the colon is one word,
+a name the module itself holds. Reading the file checks the form of `at` and imports nothing;
+the file is written back with `at` last on its line. `ToolLine.at` holds it, as text or `None`,
+and a `Session` takes a line that holds `at` and reads nothing from it. Two lines are refused
+when the file is read, each on its own line of the file:
+
+```text
+error: tools.send_email.at on line 10 names a place to wrap a tool that is off, which Break never touches: class it read or write, or take the place out
+error: tools.lookup.at on line 10 is "my_app.tools:Orders.lookup", a name inside Orders; this version wraps a function a module holds by name: for a method, use a wrap line in your code
+```
+
+An `at` of any other form is refused as not an import path written `module:name`.
+
+`init` writes an `at` where it finds no wrapped tool: it asks which tools the agent calls, gives
+each name the agent's module holds its place there, and asks where any other is; an empty answer
+writes the line with no `at`. `doctor` says how each tool that is not `off` is reached, in a
+`reached` row and, under `--json`, in `reached`: one object a tool with `tool`, `how`, `at`,
+`places` and `held_elsewhere`, while `tools` stays the list of every tool's name. A tool that
+something Break cannot replace also holds, and a tool with no `at` and no `wrap` line that ran
+while the agent loaded, each get one `note:`, and `doctor` is still `ready`.
+
 ### `init`'s flags, and the command that writes the same file
 
 Every setting has one flag, `--tool` repeats for each line of `[tools]`, and `--env` for each
@@ -350,6 +432,8 @@ equivalent_init_command(settings, prog="poisson-break")
 # poisson-break init --kind rollout --entry my_app.agents:refund_agent --cases cases.jsonl
 #     --tool 'lookup_order = "read"' --tool 'check_policy = "read"'
 #     --tool 'issue_refund = { class = "write", stand_in = "my_app.fakes:refund" }'      (one line)
+# a line with an at is carried the same way, and no flag is added for it:
+#     --tool 'lookup_order = { class = "read", at = "my_app.tools:lookup_order" }'
 
 settings_from_init_args(["--kind", "rollout", "--entry", "my_app.agents:refund_agent", "--runs", "800"])
 ```
@@ -388,7 +472,7 @@ A hunt is a folder. Every run in it is a row of a Prove run, so Prove's `report`
 ```text
 break-runs/
   refund-agent-1/              the hunt, named by you or numbered from the target's name
-    hunt.json                  the settings as resolved, the stages run, which run is which arm
+    hunt.json                  the settings as resolved, how each tool was reached, the stages run, which run is which arm
     proposals.jsonl            what a search proposed (written by the search, not here)
     candidates.json            the candidates a hunt hands to confirm, best first
     confirm.json               each confirm stage's design, written before its first run
@@ -423,6 +507,14 @@ rows = hunt.run_arm(h, "confirm-1", ["1", "2"], parse("tool:lookup_order#1=timeo
 h.budget()                                           # what the hunt may spend, and what it has spent
 h.stored()                                           # each arm the store holds, by its word, with its rows
 ```
+
+**How each tool was reached.** For the rollout way in, `hunt.json` holds `reached`: for each tool
+that is not `off`, its `tool`, `how`, `at`, `places` and `held_elsewhere`, as the agent was
+loaded when the hunt was made, which is what `doctor` reports under the same key. A hunt opened
+again where any of that differs adds the new answer and the time to `later_reached` when it
+starts its first run under it, as `later_settings` holds settings that changed. The schema stays
+`poisson_break.hunt/1`, each line's `at` is in `settings` too, and a run's record says nothing of
+how a tool was reached: a tool wrapped at load writes the record a wrapped tool writes.
 
 **Opening a hunt runs nothing, and refuses what could not work.** `open_hunt` makes the folder
 and writes `hunt.json`. Before it makes anything it refuses, in one line each: a control stage
