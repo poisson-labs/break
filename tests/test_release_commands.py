@@ -364,8 +364,9 @@ def _whole() -> list:
 
 def test_the_rollout_page_shows_a_whole_agent_its_cases_and_the_commands_to_a_hunt() -> None:
     """The section shows two files, `shop.py` and `cases.jsonl`, and then the commands, with no
-    output: the agent imports nothing but `re`, Prove's `Episode` and `wrap`, so it needs no
-    model and no key, and is a function `shop(cfg, seed)`; the case file is three cases, each
+    output: the agent imports nothing but `re` and Prove's `Episode`, so it needs no model and no
+    key and holds no Break line (ruling 15 of the wrapping at load spec, and Taylor's yes of
+    2026-11-20 that this test changes by it), and is a function `shop(cfg, seed)`; the case file is three cases, each
     with `id`, `input` and `expect.reply_contains`; `init` is shown by its flags alone, and the
     last command is the hunt. The page links the section from its top."""
     import ast
@@ -376,7 +377,7 @@ def test_the_rollout_page_shows_a_whole_agent_its_cases_and_the_commands_to_a_hu
     imported = {node.module if isinstance(node, ast.ImportFrom) else alias.name
                 for node in ast.walk(agent) if isinstance(node, ast.Import | ast.ImportFrom)
                 for alias in node.names}
-    assert imported == {"re", "poisson_prove", "poisson_break.apply"}, imported
+    assert imported == {"re", "poisson_prove"}, imported
     (shop,) = [n for n in agent.body if isinstance(n, ast.FunctionDef) and n.name == "shop"]
     assert [a.arg for a in shop.args.args] == ["cfg", "seed"]
     cases = [json.loads(line) for line in found[2].lines]
@@ -393,8 +394,10 @@ def test_the_rollout_page_shows_a_whole_agent_its_cases_and_the_commands_to_a_hu
 
 def test_the_rollout_page_s_whole_agent_runs_as_printed_to_a_hunt(tmp_path: Path) -> None:
     """What the section shows, run as the clean install runs it, in an empty folder under the
-    network guard with no key: every command exits 0, `init` classes the two tools the agent
-    wraps, one `read` and one `write`, and the hunt stores its runs."""
+    network guard with no key: every command exits 0, `init` classes the two tools, one `read`
+    and one `write`, each with the place Break wraps it at when it loads the agent (ruling 15 of
+    the wrapping at load spec, and Taylor's yes of 2026-11-20 that this test changes by it), and
+    the hunt stores its runs."""
     import tomllib
 
     from tests.conftest import console_script
@@ -410,6 +413,7 @@ def test_the_rollout_page_s_whole_agent_runs_as_printed_to_a_hunt(tmp_path: Path
     folder = tmp_path / "shop"
     with (folder / "break.toml").open("rb") as f:
         tools = tomllib.load(f)["tools"]
-    assert tools == {"check_stock": "read", "hold_copy": {"class": "write", "repeatable": True}}
+    assert tools == {"check_stock": {"class": "read", "at": "shop:check_stock"},
+                     "hold_copy": {"class": "write", "repeatable": True, "at": "shop:hold_copy"}}
     stored = list((folder / "break-runs").glob("*/store/*/episodes/*"))
     assert stored, sorted(p.relative_to(folder).as_posix() for p in folder.rglob("*"))
