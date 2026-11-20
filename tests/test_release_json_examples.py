@@ -12,6 +12,10 @@ document, as ruled 2026-11-08 (F1 to F14; F6 taken back). Read here:
   keys are `schema`, `verdict`, `sentence` (a plan's then `estimate`, `source`); `next`, when it is
   there, is last; every other key is one the table gives that document, under one verdict or
   another; and every item of the lists the tables spell out holds exactly the table's fields.
+
+`doctor`'s document gains `reached`, one object a tool with `tool`, `how`, `at`, `places` and
+`held_elsewhere`, by Taylor's yes to question 11 of the wrapping at load spec (spec §12.5 and
+§12.11, 2026-11-19).
 """
 
 from __future__ import annotations
@@ -31,7 +35,7 @@ STOP = {"reason", "arm", "kept", "unclassed"}
 DOCUMENTS: dict[str, set[str]] = {
     "poisson_break.init-result/1": {"file", "kind", "entry", "cases_file", "tools", "install"},
     "poisson_break.doctor-result/1": {"settings", "target", "kind", "tools", "cases", "run", "key",
-                                      "line", "unclassed"},
+                                      "line", "unclassed", "reached"},
     "poisson_break.hunt-plan/1": {"dollars", "target", "kind", "cases", "runs", "control_runs",
                                   "search_runs", "hunt"},
     "poisson_break.confirm-plan/1": {"dollars", "hunt", "candidates", "stage", "repeats", "runs",
@@ -63,6 +67,7 @@ ITEMS: dict[tuple[str, str], tuple[set[str], ...]] = {
         {"number", "condition", "phrase", "rate_before", "rate_now", "difference", "lo", "hi", "p",
          "adjusted_p", "repeats_needed", "gap_days", "before", "now", "trace", "no_outcome",
          "left_out"},),
+    ("poisson_break.doctor-result/1", "reached"): ({"tool", "how", "at", "places", "held_elsewhere"},),
     ("poisson_break.catalog-result/1", "changes"): (
         {"surface", "name", "description", "needs_adapter"},
         {"surface", "name", "description", "needs_adapter", "labels"}),

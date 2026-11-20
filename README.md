@@ -154,8 +154,7 @@ once more, stores nothing, and shows each tool call with the change on it.
 ## On your own agent
 
 A way in is how Break runs your agent and reaches its tools. This version has one, `rollout`:
-your agent as a Python function that Break calls once for each run, with each tool wrapped
-once.
+your agent as a Python function that Break calls once for each run.
 
 The function takes `cfg` and `seed` and returns an `Episode`. `cfg` is one case from your case
 file, as a mapping that holds the request under `input`. `seed` is the run's seed. `Episode` is
@@ -164,27 +163,49 @@ Prove's record of one run, and Break reads the agent's own `outcome` from it.
 ```python
 from poisson_prove import Episode
 
-from poisson_break.apply import wrap
-
-lookup_order = wrap("lookup_order", lookup_order)      # one line a tool, where it is defined
-
 
 def refund_agent(cfg, seed):
     reply = run_my_agent(cfg["input"])                 # your agent, as it is
     return Episode(outcome="resolved", t=1.0, horizon=1.0, meta={"reply": reply})
 ```
 
-The `wrap` line is what this way in asks of your code. You write it yourself, once for each
-tool, where the tool is defined, at the top of its module, and not at each call. `init` does not
-add it: it finds the tools already wrapped by importing your module. The line makes your module
-import `poisson_break`. Outside a run the wrapped tool is the tool itself, so the line can stay
-in. A tool that is `async def` is refused. Adapters for agent frameworks and MCP servers are not
-in this version (see [Status](https://github.com/poisson-labs/break#status)).
+Break needs to know which functions are your agent's tools. `init` asks for their names and
+writes where each one is into `break.toml`, as `at` on the tool's line. When Break loads your
+agent it puts itself between the agent and each of those functions, and your code needs no line
+from Break.
 
-Then, in the folder that holds it, `poisson-break init` asks where the agent is, where your
-test cases are, and, for each tool it finds, whether calling it changes anything. It chooses
-everything else, says what it chose, and writes `break.toml`, where you can change any of it.
-`poisson-break doctor` checks that everything loads. `hunt` and `confirm` work as above.
+```toml
+[tools]
+lookup_order = { class = "read", at = "my_app.tools:lookup_order" }
+```
+
+Break reaches a tool wherever a module holds it by name or in a dict or list at the top of a
+module. A tool that something else took hold of first (a closure, a partial, a framework's tool
+object) needs a `wrap` line where it is defined, and `doctor` names any it finds. A function you
+have not named as a tool is called as it is.
+
+The `wrap` line is the second way, for the tools loading cannot reach and for anyone who would
+rather have the line in the code:
+
+```python
+from poisson_break.apply import wrap
+
+lookup_order = wrap("lookup_order", lookup_order)      # one line a tool, where it is defined
+```
+
+You write it yourself, once for each tool, where the tool is defined, at the top of its module,
+and not at each call. `init` does not add it: it finds the tools already wrapped by importing
+your module, and then asks for no names. The line makes your module import `poisson_break`.
+Outside a run the wrapped tool is the tool itself, so the line can stay in. A tool reaches Break
+one way or the other, not both. Either way a tool that is `async def` is refused. Adapters for
+agent frameworks and MCP servers are not in this version (see
+[Status](https://github.com/poisson-labs/break#status)).
+
+In the folder that holds your agent, `poisson-break init` asks where the agent is, where your
+test cases are, which tools it calls when it finds none wrapped, and, for each tool, whether
+calling it changes anything. It chooses everything else, says what it chose, and writes
+`break.toml`, where you can change any of it. `poisson-break doctor` checks that everything
+loads and says how each tool is reached. `hunt` and `confirm` work as above.
 [The rollout way in](https://github.com/poisson-labs/break/blob/main/docs/ways-in/rollout.md) has the details, and ends with
 [a whole agent to start from](https://github.com/poisson-labs/break/blob/main/docs/ways-in/rollout.md#a-whole-agent-to-start-from):
 two files to copy and the commands that take them to a hunt. The

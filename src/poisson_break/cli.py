@@ -1768,9 +1768,65 @@ def _recheck(call: _Call) -> int:
 # ---------------------------------------------------------------------------
 
 
+def _and(words: Sequence[str]) -> str:
+    return words[0] if len(words) == 1 else ", ".join(words[:-1]) + " and " + words[-1]
+
+
+def _reached_rows(reached: Sequence[Mapping[str, Any]]) -> list[look.Row]:
+    """The ``reached`` row of a ``ready``: a line for each tool that is not ``off``, saying how
+    Break reaches it, and for a tool wrapped at load the modules it was wrapped in, the one its
+    line names first."""
+    width = max((len(one["tool"]) for one in reached), default=0)
+    rows: list[look.Row] = []
+    for one in reached:
+        if one["how"] == "at load":
+            modules = [one["at"].partition(":")[0]]
+            modules += [module for module in dict.fromkeys(place.partition(":")[0]
+                                                           for place in one["places"])
+                        if module not in modules]
+            how = f"wrapped at load, in {_and(modules)}"
+        elif one["how"] == "wrap":
+            how = "by a wrap line in your code"
+        else:
+            how = "not seen"
+        rows.append(look.Row("" if rows else "reached", f"{one['tool'].ljust(width)}  {how}"))
+    return rows
+
+
+_HELD = {"closure": "a closure", "partial": "a partial", "container": "a collection",
+         "object": "an attribute of an object or a class"}
+
+
+def _reached_notes(reached: Sequence[Mapping[str, Any]]) -> list[str]:
+    """What ``doctor`` says of the tools Break does not reach, or not wholly: one note for each
+    tool that something Break cannot replace also holds, one for each tool nothing was seen to
+    reach, and one where what else holds the tools could not be checked."""
+    notes = []
+    for one in reached:
+        held = [_HELD.get(part["kind"], "something") + (f" in {part['where']}" if part["where"]
+                                                         else "")
+                for part in one["held_elsewhere"] or ()]
+        if held:
+            it = "it" if len(held) == 1 else "them"
+            notes.append(f"{one['tool']} is also held by {_and(held)}, which Break cannot "
+                         f"replace. A call through {it} does not pass through Break. A wrap line "
+                         f"where {one['tool']} is defined reaches {it}.")
+    unchecked = [one["tool"] for one in reached
+                 if one["how"] == "at load" and one["held_elsewhere"] is None]
+    if unchecked:
+        notes.append(f"this Python cannot list what refers to a function, so Break did not "
+                     f"check what else holds {_and(unchecked)}: a call through a closure, a "
+                     "partial or an attribute of an object does not pass through Break")
+    for one in reached:
+        if one["how"] == "not seen":
+            notes.append(f"{one['tool']} has no wrap line that ran while loading and no  at  in "
+                         f"{SETTINGS_FILE}; Break reaches it only if your code wraps it later")
+    return notes
+
+
 def _doctor(call: _Call) -> int:
     from poisson_break.apply import Session
-    from poisson_break.hunt import check_vary, run_once
+    from poisson_break.hunt import _reached_data, check_vary, run_once
     from poisson_break.search import load_strategy
 
     args = call.args
@@ -1809,11 +1865,12 @@ def _doctor(call: _Call) -> int:
     except _refusals() as wrong:
         return problem(_one_line(wrong), again)
     tools = [tool.name for tool in target.tools()]
+    reached = _reached_data(target) or []
     detail: list[look.Row | look.Line | look.Table] = [
-        look.Row("tools", ", ".join(tools) or "none")]
+        look.Row("tools", ", ".join(tools) or "none"), *_reached_rows(reached)]
     data: dict[str, Any] = {"settings": SETTINGS_FILE, "target": settings.target.entry,
                             "kind": settings.target.kind, "tools": tools,
-                            "cases": len(cases), "run": None}
+                            "cases": len(cases), "run": None, "reached": reached}
     if args.run and look.ask("run the first case once, with no change?", False):
         first = cases[0]
         try:
@@ -1826,6 +1883,8 @@ def _doctor(call: _Call) -> int:
         detail.append(look.Row("run", said))
         data["run"] = {"case": row.case, "outcome": row.outcome, "kind": row.kind}
     look.note(REAL)
+    for sentence in _reached_notes(reached):
+        look.note(sentence)
     look.show(look.Result("ready", f"{settings.target.entry} loads, with "
                                    f"{_n(len(tools), 'tool')} and {_n(len(cases), 'case')}",
                           detail=tuple(detail), nexts=(_ours(call.prog, "hunt"),),
@@ -2033,31 +2092,69 @@ class _Dialogue:
                                    f"({_one_line(wrong)})",
                                    nexts=(_ours(self.call.prog, *self.call.own_words,
                                                    "--entry", _ENTRY_PLACEHOLDER),)) from None
+        places: dict[str, str] = {}
         if not found:
             typed = self.ask("No tool was found. Which tools does your agent call? Their names, "
                              "with a comma between two", "")
             found = [name.strip() for name in typed.split(",") if name.strip()]
+            if kind == _DEFAULT_KIND:
+                places = self.places(entry.partition(":")[0], found)
         for tool in found:
+            at = f', at = "{places[tool]}"' if tool in places else ""
             if not self.ask_yes_no(f"Does calling {tool} change anything, even in a test "
                                    "environment?", False):
-                self.put("--tool", f'{tool} = "read"')
+                self.put("--tool", f'{tool} = {{ class = "read"{at} }}' if at
+                         else f'{tool} = "read"')
                 continue
             if self.ask_yes_no(f"Is {tool} safe to repeat in your test environment, so that "
                                "Break may call it again and again?", False):
-                self.put("--tool", f'{tool} = {{ class = "write", repeatable = true }}')
+                self.put("--tool", f'{tool} = {{ class = "write", repeatable = true{at} }}')
                 continue
             where = self.import_path(f"Where is the stand-in Break calls in place of {tool}, "
                                      "a function with the same arguments that changes nothing? "
                                      "As module:name", "stand-in", empty_is_none=True)
             if not where:
                 # off would pass every call to the real tool, so nothing is written
-                filled = f'{tool} = {{ class = "write", stand_in = "{_ENTRY_PLACEHOLDER}" }}'
+                filled = (f'{tool} = {{ class = "write", stand_in = "{_ENTRY_PLACEHOLDER}"'
+                          f"{at} }}")
                 raise look.Refused(
                     f"{tool} changes things and is not safe to repeat, so Break needs a stand-in "
                     "to call in its place: a function with the same arguments that changes "
                     "nothing, given as module:name; nothing was written",
                     nexts=(_ours(self.call.prog, "init", *self.words, "--tool", filled),))
-            self.put("--tool", f'{tool} = {{ class = "write", stand_in = "{where}" }}')
+            self.put("--tool", f'{tool} = {{ class = "write", stand_in = "{where}"{at} }}')
+
+    def places(self, module: str, tools: Sequence[str]) -> dict[str, str]:
+        """Where each tool named is, for Break to wrap it when it loads the agent: in the
+        agent's own module where that holds a function of the name, and where the user says
+        otherwise. A tool with no place is one the user's own code wraps. Nothing is replaced
+        here, and no file of the user's is written."""
+        held = getattr(sys.modules.get(module), "__dict__", {})
+        width = max((len(tool) for tool in tools), default=0)
+        places: dict[str, str] = {}
+        for tool in tools:
+            if callable(held.get(tool)):
+                places[tool] = f"{module}:{tool}"
+                look.err(f"  {tool.ljust(width)}  is in {module}; Break will wrap it when it "
+                         "loads your agent\n")
+        for tool in tools:
+            if tool in places:
+                continue
+            while True:
+                where = self.import_path(f"Where is {tool}? As module:name, or nothing if your "
+                                         "code wraps it", "place", empty_is_none=True)
+                if "." not in where.partition(":")[2]:
+                    break
+                look.note(f'"{where}" is a name inside a class or an object, and Break wraps a '
+                          "function a module holds by name")
+            if where:
+                places[tool] = where
+                look.err(f"  {tool.ljust(width)}  is at {where}; Break will wrap it when it "
+                         "loads your agent\n")
+            else:
+                look.err(f"  {tool.ljust(width)}  has no place, so Break reaches it only "
+                         "through a wrap line in your code\n")
+        return places
 
     def has_turns(self, cases_file: str) -> bool:
         """Whether a case in the file is a conversation. The file is read line by line as JSON,

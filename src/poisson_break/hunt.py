@@ -67,7 +67,16 @@ from poisson_prove.sampler import SweepSpec
 from poisson_prove.store import EpisodeRecord, RunManifest, Store, StoreError, config_hash
 
 from poisson_break import __version__, records
-from poisson_break.apply import RunOutOfTime, RunResult, Session, ToolInfo, ToolRefused
+from poisson_break.apply import (
+    Reached,
+    RunOutOfTime,
+    RunResult,
+    Session,
+    ToolInfo,
+    ToolRefused,
+    _wrap_has_run,
+    wrap_at_load,
+)
 from poisson_break.changes import (
     Change,
     ChangeError,
@@ -292,7 +301,11 @@ class RolloutTarget:
     hands the target the case's own mapping as ``cfg``. The target's ``Episode`` says the rest:
     its ``outcome`` is the target's own outcome, and its ``meta`` may carry ``reply``,
     ``tokens_in``, ``tokens_out`` and ``ended``, which says ``limit`` for the agent's own step
-    limit. It routes tool calls and nothing more."""
+    limit. It routes tool calls and nothing more.
+
+    ``reached`` says how each tool is reached, one ``Reached`` a tool, as ``load_target`` found
+    it when it loaded the agent; a target made by hand has none. It is this way in's own, and no
+    part of what a way in must give."""
 
     kind = "rollout"
     framework_versions: Sequence[str] = ()
@@ -300,7 +313,7 @@ class RolloutTarget:
     CAN: Final = Capabilities(tool_calls=True, model_calls=False, conversation=False)
 
     def __init__(self, fn: Callable[[Mapping[str, Any], int], Any], *,
-                 tools: Iterable[str]) -> None:
+                 tools: Iterable[str], reached: Iterable[Reached] = ()) -> None:
         if not callable(fn):
             raise HuntError(f"a rollout target is a function of a case and a seed, not "
                             f"{_shown(fn)}")
@@ -313,6 +326,7 @@ class RolloutTarget:
                                 f"{_shown(tool)}")
         self._fn = fn
         self._tools = names
+        self.reached: tuple[Reached, ...] = tuple(reached)
 
     def tools(self) -> list[ToolInfo]:
         return [ToolInfo(name=tool) for tool in self._tools]
@@ -361,7 +375,13 @@ def load_target(settings: Settings) -> Target:
     """The settings' own way in, made and not run: for ``kind = "rollout"``, the function
     ``target.entry`` names by its import path, ``module:name``, listing every tool ``[tools]``
     names. An entry of another form, one that cannot be imported and one that cannot be called
-    are each a ``HuntError``."""
+    are each a ``HuntError``.
+
+    Each tool whose ``[tools]`` line has an ``at`` is then wrapped where that says it is, by
+    ``poisson_break.apply.wrap_at_load``: a line it refuses is a ``ToolRefused`` naming the
+    tool, with nothing replaced. The target's ``reached`` says how each tool that is not ``off``
+    is reached, in the file's order: at load, by a ``wrap`` line that has run in this process by
+    now, or not seen."""
     if not isinstance(settings, Settings):
         raise TypeError(f"a target is loaded from settings, not {type(settings).__name__}")
     kind, entry = settings.target.kind, settings.target.entry
@@ -385,7 +405,14 @@ def load_target(settings: Settings) -> Target:
     if not callable(found):
         raise HuntError(f'the target "{entry}" is {_shown(found)}, not something that can be '
                         "called")
-    return RolloutTarget(found, tools=[tool.name for tool in settings.tools])
+    lines = [tool for tool in settings.tools if tool.tool_class != "off"]
+    at_load = {one.tool: one for one in wrap_at_load(
+        {tool.name: tool.at for tool in lines if tool.at is not None})}
+    reached = [at_load.get(tool.name)
+               or Reached(tool=tool.name, how="wrap" if _wrap_has_run(tool.name) else "not seen",
+                          at=None, places=(), held_elsewhere=())
+               for tool in lines]
+    return RolloutTarget(found, tools=[tool.name for tool in settings.tools], reached=reached)
 
 
 # ---------------------------------------------------------------------------
@@ -574,6 +601,17 @@ def _settings_data(settings: Settings) -> dict[str, Any]:
     """The settings as resolved, in the file's own tables and keys, defaults included."""
     data: dict[str, Any] = _plain(tomllib.loads(dump(settings)))
     return data
+
+
+def _reached_data(target: object) -> list[dict[str, Any]] | None:
+    """How the rollout way in reached each tool, as ``hunt.json`` holds it; ``None`` for a way
+    in of another kind, which says in its own words what it writes."""
+    if not isinstance(target, RolloutTarget):
+        return None
+    return [{"tool": one.tool, "how": one.how, "at": one.at, "places": list(one.places),
+             "held_elsewhere": None if one.held_elsewhere is None else [
+                 {"kind": held.kind, "where": held.where} for held in one.held_elsewhere]}
+            for one in target.reached]
 
 
 def _write_file(folder: Path, data: Mapping[str, Any]) -> None:
@@ -776,7 +814,7 @@ def open_hunt(settings: Settings, *, target: Target, cases: Sequence[Mapping[str
         others = [when for when, other in _hunts(root) if other != name]
         if others and made <= max(others):
             made = max(others) + datetime.timedelta(microseconds=1)
-        _write_file(folder, {
+        about: dict[str, Any] = {
             "schema": HUNT_SCHEMA,
             "name": name,
             "created": made.isoformat(),
@@ -784,7 +822,11 @@ def open_hunt(settings: Settings, *, target: Target, cases: Sequence[Mapping[str
             "cases": list(ids),
             "stages": [],
             "arms": {},
-        })
+        }
+        reached = _reached_data(target)
+        if reached is not None:
+            about["reached"] = reached
+        _write_file(folder, about)
     assert name is not None
     return Hunt(name=name, folder=folder, settings=settings, cases=held, target=target,
                 plan=plan, listed=listed, capabilities=capabilities)
@@ -1271,6 +1313,16 @@ def _begin(hunt: Hunt, data: dict[str, Any], store: Store, run_id: str, salt: st
                                   {"from": datetime.datetime.now(datetime.UTC).isoformat(),
                                    "settings": now}]
         changed = True
+    reached = _reached_data(hunt.target)
+    if reached is not None:
+        # The same for how each tool is reached: an agent loaded since with another answer.
+        told = data.get("later_reached")
+        before = told[-1].get("reached") if isinstance(told, list) and told else data.get("reached")
+        if reached != before:
+            data["later_reached"] = [*(told if isinstance(told, list) else []),
+                                     {"from": datetime.datetime.now(datetime.UTC).isoformat(),
+                                      "reached": reached}]
+            changed = True
     if changed:
         _write_file(hunt.folder, data)
     if run_id in store.runs():

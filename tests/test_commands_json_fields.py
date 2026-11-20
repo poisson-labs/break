@@ -29,6 +29,9 @@ command's own, made by running it under `--json` on pipes.
 
 R5, R6 and R7 were found writing these and ruled yes as recommended (2026-11-08, `open-points.md`); their tests are
 here.
+
+`doctor`'s ready document gains `reached`, how each tool is reached, by Taylor's yes to question 11 of the wrapping at
+load spec (spec §12.11, 2026-11-19); what it holds is held in `tests/test_commands_load.py`.
 """
 
 from __future__ import annotations
@@ -238,7 +241,7 @@ def test_doctor_ready(road: Any) -> None:
     for name in ("doctor", "doctor --run"):
         document = docs[name]
         assert document["verdict"] == "ready"
-        assert data_keys(document) == {"settings", "target", "kind", "tools", "cases", "run"}
+        assert data_keys(document) == {"settings", "target", "kind", "tools", "cases", "run", "reached"}
         assert document["settings"] == "break.toml"
         assert (document["target"], document["kind"]) == (settings.target.entry, settings.target.kind)
         assert (document["tools"], document["cases"]) == (tools, count)

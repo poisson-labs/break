@@ -70,6 +70,13 @@ positional arguments for ``args``. A call from a thread the agent started reache
 run; when it cannot be told which of two open runs a call belongs to, that is an instrument
 error naming the tool. A tool that is ``async def`` is refused.
 
+**Wrapping at load.** ``wrap_at_load(places)`` puts that same wrapper in for the user: ``places``
+maps each tool's name to where its function is, ``module:name``, and the function is replaced
+wherever a loaded module holds it by name or in a dict or list at the top of a module. It hands
+back one ``Reached`` a tool: the places replaced, and each ``Held`` that took hold of the
+function some other way and still holds it. Every place is checked before any is replaced, so a
+``ToolRefused`` leaves every module as it was. ``wrap`` refuses a wrapper made this way.
+
 ``ToolInfo`` and ``RunResult`` are the two frozen objects a way in hands the core: a tool by
 name, and how one run ended.
 """
@@ -78,16 +85,19 @@ from __future__ import annotations
 
 import copy
 import functools
+import gc
 import hashlib
 import importlib
 import inspect
 import math
 import random
+import sys
 import threading
 import time
+import weakref
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from types import MappingProxyType, TracebackType
+from types import CellType, FrameType, FunctionType, MappingProxyType, ModuleType, TracebackType
 from typing import Any, TypeVar, cast
 
 from poisson_break import changes as _catalogue
@@ -121,6 +131,9 @@ __all__ = [
     "Applied",
     "InstrumentError",
     "wrapped_while",
+    "wrap_at_load",
+    "Reached",
+    "Held",
 ]
 
 ENDED = ("returned", "raised", "limit")
@@ -265,7 +278,8 @@ class Seen:
 # tool classes
 # ---------------------------------------------------------------------------
 
-_LINE_KEYS = ("class", "repeatable", "stand_in")
+# ``at`` is where the tool is, for wrapping at load. A session takes it and reads nothing from it.
+_LINE_KEYS = ("class", "repeatable", "stand_in", "at")
 
 
 @dataclass(frozen=True)
@@ -335,7 +349,7 @@ def _classed(tool: str, line: object) -> _ToolClass:
     extra = [key for key in fields if key not in _LINE_KEYS]
     if extra:
         raise ToolRefused(f'the line for "{tool}" has {_shown(extra[0])}, and a tool\'s line '
-                          "holds class, repeatable and stand_in", tool=tool)
+                          "holds class, repeatable, stand_in and at", tool=tool)
     kind = fields.get("class")
     if kind not in ("read", "write", "off"):
         raise ToolRefused(f'"{tool}" is classed {_shown(kind)}, not read, write or off',
@@ -942,23 +956,10 @@ def _named(signature: inspect.Signature | None, positional: tuple[Any, ...],
     return out
 
 
-def wrap(tool_name: str, fn: Callable[..., _T]) -> Callable[..., _T]:
-    """A target's own tool, wrapped so that Break can reach it: the one call a Prove target adds
-    per tool. With no run open the wrapped tool is the tool itself. Inside ``with session:`` each
-    call goes through ``session.call`` under ``tool_name``, with positional arguments named for
-    ``args`` and the tool called as the agent called it. The wrapped tool keeps the tool's name,
-    docstring and signature. A tool that is ``async def`` is refused."""
-    if not isinstance(tool_name, str) or not tool_name:
-        raise TypeError(f"a tool is wrapped under its name, not {_shown(tool_name)}")
-    if not callable(fn):
-        raise ToolRefused(f'"{tool_name}" is {_shown(fn)}, not something that can be called',
-                          tool=tool_name)
-    if _is_async(fn):
-        raise ToolRefused(f'"{tool_name}" is async, and Break calls a tool and reads what it '
-                          "returns: wrap a tool that is not", tool=tool_name)
+def _wrapper(tool_name: str, fn: Callable[..., _T]) -> Callable[..., _T]:
+    """The one wrapper there is, for a ``wrap`` line and for a tool wrapped at load: with no run
+    open it is the tool itself, and inside a run each call goes through the run's session."""
     signature = _signature(fn)
-    for listening in _WRAPPED_WHILE:
-        listening.append(tool_name)
 
     @functools.wraps(fn)
     def wrapped(*positional: Any, **named: Any) -> _T:
@@ -968,6 +969,49 @@ def wrap(tool_name: str, fn: Callable[..., _T]) -> Callable[..., _T]:
         return cast(_T, run.call(tool_name, _named(signature, positional, named),
                                  lambda: fn(*positional, **named)))
 
+    return wrapped
+
+
+# What `wrap` has made, by the name it was made under, and every name a `wrap` line has run
+# under in this process. Wrapping at load reads both: a tool is reached one way, not two.
+_BY_WRAP: weakref.WeakKeyDictionary[Callable[..., Any], str] = weakref.WeakKeyDictionary()
+_WRAP_NAMES: set[str] = set()
+# What wrapping at load has made, by its tool's name.
+_AT_LOAD: weakref.WeakKeyDictionary[Callable[..., Any], str] = weakref.WeakKeyDictionary()
+
+
+def _made(kept: weakref.WeakKeyDictionary[Callable[..., Any], str], fn: object) -> str | None:
+    """The tool's name ``fn`` was made under, where it is a wrapper ``kept`` holds."""
+    return kept.get(fn) if isinstance(fn, FunctionType) else None
+
+
+def wrap(tool_name: str, fn: Callable[..., _T]) -> Callable[..., _T]:
+    """A target's own tool, wrapped so that Break can reach it: the one call a Prove target adds
+    per tool. With no run open the wrapped tool is the tool itself. Inside ``with session:`` each
+    call goes through ``session.call`` under ``tool_name``, with positional arguments named for
+    ``args`` and the tool called as the agent called it. The wrapped tool keeps the tool's name,
+    docstring and signature. A tool that is ``async def`` is refused, and so is the wrapper
+    Break put in when it loaded the agent, whose calls would pass through a run twice."""
+    if not isinstance(tool_name, str) or not tool_name:
+        raise TypeError(f"a tool is wrapped under its name, not {_shown(tool_name)}")
+    if not callable(fn):
+        raise ToolRefused(f'"{tool_name}" is {_shown(fn)}, not something that can be called',
+                          tool=tool_name)
+    at_load = _made(_AT_LOAD, fn)
+    if at_load is not None:
+        named = "" if at_load == tool_name else f" that names it {tool_name}"
+        raise ToolRefused(f"the tool {at_load} has a wrap line in your code{named} and  at  in "
+                          "break.toml; one of the two reaches it: remove  at  from "
+                          f"{at_load}'s line in [tools] in break.toml, or remove the wrap line",
+                          tool=at_load)
+    if _is_async(fn):
+        raise ToolRefused(f'"{tool_name}" is async, and Break calls a tool and reads what it '
+                          "returns: wrap a tool that is not", tool=tool_name)
+    wrapped = _wrapper(tool_name, fn)
+    _WRAP_NAMES.add(tool_name)
+    _BY_WRAP[wrapped] = tool_name
+    for listening in _WRAPPED_WHILE:
+        listening.append(tool_name)
     return wrapped
 
 
@@ -992,3 +1036,318 @@ def wrapped_while(import_path: str) -> tuple[str, ...]:
     finally:
         _WRAPPED_WHILE.remove(heard)
     return tuple(dict.fromkeys(heard))
+
+
+# ---------------------------------------------------------------------------
+# wrapping at load
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, kw_only=True)
+class Held:
+    """Something that took hold of a tool's function before Break loaded the agent and that
+    Break cannot replace, so a call through it does not pass through a run. ``kind`` is
+    ``closure``, ``partial``, ``container`` (a tuple, a set, or a dict or list no module holds
+    by name) or ``object`` (an attribute of an object or a class). ``where`` is the function a
+    closure belongs to, as ``module:name``, the name a module holds a partial or a container
+    under, or ``None``."""
+
+    kind: str
+    where: str | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class Reached:
+    """How Break reaches one tool. ``how`` is ``at load`` for a tool Break wrapped where its
+    line's ``at`` says it is, ``wrap`` for one a ``wrap`` line in the user's code has run for,
+    and ``not seen`` for one neither has reached. ``at`` is the line's ``at`` or ``None``.
+    ``places`` is each holder replaced, as text and in text order: ``my_app.agents:lookup_order``
+    for a module's own name, ``my_app.agents:TOOLS[lookup_order]`` for a dict's value and
+    ``my_app.agents:TOOL_LIST[0]`` for a list's item. ``held_elsewhere`` is each holder Break
+    could not replace, or ``None`` where this Python cannot list what refers to a function."""
+
+    tool: str
+    how: str
+    at: str | None
+    places: tuple[str, ...]
+    held_elsewhere: tuple[Held, ...] | None
+
+
+def _edits(one: str, other: str) -> int:
+    """How many letters are added, dropped or swapped for another between two words."""
+    previous = list(range(len(other) + 1))
+    for i, a in enumerate(one, 1):
+        row = [i]
+        for j, b in enumerate(other, 1):
+            row.append(min(previous[j] + 1, row[j - 1] + 1, previous[j - 1] + (a != b)))
+        previous = row
+    return previous[-1]
+
+
+def _a(word: str) -> str:
+    return f"an {word}" if word[:1].lower() in "aeiou" else f"a {word}"
+
+
+#: One place wrapping at load may replace: its text, what holds it, and the key or index there.
+_Spot = tuple[str, dict[Any, Any] | list[Any], Any]
+
+
+def _is_ours(module_name: str) -> bool:
+    return module_name == "poisson_break" or module_name.startswith("poisson_break.")
+
+
+def _names_of(module: object) -> dict[Any, Any] | None:
+    """A module's own names, read without asking the module for anything, so that a module
+    that loads itself when first touched stays as it is."""
+    try:
+        names = object.__getattribute__(module, "__dict__")
+    except (AttributeError, TypeError):
+        return None
+    return names if isinstance(names, dict) else None
+
+
+def _loaded() -> list[tuple[str, dict[Any, Any]]]:
+    """Every loaded module but Break's own, by the name it is loaded under, with its names; a
+    module loaded under two names is listed once, under its own name where that is one."""
+    found: dict[int, tuple[str, dict[Any, Any]]] = {}
+    for name, module in sorted(sys.modules.items()):
+        if not isinstance(module, ModuleType) or _is_ours(name):
+            continue
+        names = _names_of(module)
+        if names is None:
+            continue
+        if id(names) not in found or names.get("__name__") == name:
+            found[id(names)] = (name, names)
+    return sorted(found.values(), key=lambda one: one[0])
+
+
+def _spots(loaded: list[tuple[str, dict[Any, Any]]]) -> list[_Spot]:
+    """Every place wrapping at load may replace, as its text, what holds it and the key or
+    index there: each name of a loaded module, and each value of a dict and item of a list that
+    a module holds under a name. One level, and never a key."""
+    modules = {id(names) for _, names in loaded}
+    spots: list[_Spot] = []
+    for module, names in loaded:
+        for name, value in list(names.items()):
+            if not isinstance(name, str):
+                continue
+            spots.append((f"{module}:{name}", names, name))
+            if isinstance(value, dict) and id(value) not in modules:
+                spots += [(f"{module}:{name}[{key}]", value, key) for key in list(dict.keys(value))]
+            elif isinstance(value, list):
+                spots += [(f"{module}:{name}[{index}]", value, index)
+                          for index in range(list.__len__(value))]
+    return spots
+
+
+def _at(spot: _Spot) -> Any:
+    _, holder, key = spot
+    try:
+        return dict.__getitem__(holder, key) if isinstance(holder, dict) \
+            else list.__getitem__(holder, key)
+    except (KeyError, IndexError):
+        return None
+
+
+def _put(spot: _Spot, value: Any) -> None:
+    _, holder, key = spot
+    if isinstance(holder, dict):
+        dict.__setitem__(holder, key, value)
+    else:
+        list.__setitem__(holder, key, value)
+
+
+def _named_by_a_module(thing: object, loaded: list[tuple[str, dict[Any, Any]]]) -> str | None:
+    for module, names in loaded:
+        for name, value in list(names.items()):
+            if value is thing and isinstance(name, str):
+                return f"{module}:{name}"
+    return None
+
+
+def _closure_of(cell: object, wrapper: object) -> list[Held]:
+    """The functions whose closure holds ``cell``, each by the name a module holds its maker
+    under. The wrapper's own cell is Break's, and a cell no function owns is a running call's."""
+    found = []
+    for closure in gc.get_referrers(cell):
+        if not isinstance(closure, tuple):
+            continue
+        for owner in gc.get_referrers(closure):
+            if (isinstance(owner, FunctionType) and owner.__closure__ is closure
+                    and owner is not wrapper and _made(_AT_LOAD, owner) is None):
+                name = owner.__qualname__.split(".<locals>")[0]
+                found.append(Held(kind="closure", where=f"{owner.__module__}:{name}"))
+    return found
+
+
+def _held_elsewhere(fn: object, wrapper: object, loaded: list[tuple[str, dict[Any, Any]]],
+                    mine: tuple[object, ...]) -> tuple[Held, ...] | None:
+    """What still holds ``fn`` once every place is replaced, from Python's own list of what
+    refers to it; ``None`` where there is no such list to ask. ``mine`` is what this module
+    itself holds it in while it works."""
+    referrers = getattr(gc, "get_referrers", None)
+    if referrers is None:
+        return None
+    modules = {id(names) for _, names in loaded}
+    ours = {id(thing) for thing in mine} | {id(_names_of(wrapper))}
+    found: list[Held] = []
+    for holder in referrers(fn):
+        if (id(holder) in ours or id(holder) in modules or isinstance(holder, FrameType)
+                or inspect.isgenerator(holder) or inspect.iscoroutine(holder)
+                or inspect.isasyncgen(holder)):
+            # a call that is running holds what it was handed, and holds it only until it ends
+            continue
+        if isinstance(holder, CellType):
+            found += _closure_of(holder, wrapper)
+        elif isinstance(holder, functools.partial):
+            found.append(Held(kind="partial", where=_named_by_a_module(holder, loaded)))
+        elif isinstance(holder, tuple | list | set | frozenset):
+            found.append(Held(kind="container", where=_named_by_a_module(holder, loaded)))
+        elif isinstance(holder, dict):
+            where = _named_by_a_module(holder, loaded)
+            owned = where is None and any(
+                isinstance(owner, type) or _names_of(owner) is holder
+                for owner in referrers(holder) if not isinstance(owner, FrameType))
+            found.append(Held(kind="object", where=None) if owned
+                         else Held(kind="container", where=where))
+        else:
+            found.append(Held(kind="object", where=None))
+    return tuple(sorted(set(found), key=lambda held: (held.kind, held.where or "")))
+
+
+def _placed(tool: object, at: object) -> tuple[Any, Any]:
+    """One line's function, found where its ``at`` says and held to what Break wraps, with the
+    wrapper an earlier load put there for the same tool, or ``None``; or the refusal of the
+    first thing wrong with the line."""
+    if not isinstance(tool, str) or not tool:
+        raise TypeError(f"a tool is wrapped under its name, not {_shown(tool)}")
+    module_name, colon, name = at.partition(":") if isinstance(at, str) else ("", "", "")
+    if (not colon or not name.isidentifier()
+            or not all(part.isidentifier() for part in module_name.split("."))):
+        raise ToolRefused(f"the tool {tool} is to be wrapped at {_shown(at)}, which is not an "
+                          "import path written module:name", tool=tool)
+    where = (f"set  at  on {tool}'s line in [tools] in break.toml to where the function is, as "
+             "module:name")
+    try:
+        module = importlib.import_module(module_name)
+    except KeyboardInterrupt:
+        raise
+    except BaseException as wrong:
+        said = " ".join(str(wrong).split()) or type(wrong).__name__
+        raise ToolRefused(f"the tool {tool} is to be wrapped at {at}, and {module_name} could "
+                          f"not be imported ({said}): {where}", tool=tool) from wrong
+    names = _names_of(module) or {}
+    if name not in names:
+        near = min((held for held in names if isinstance(held, str)
+                    and not held.startswith("__") and _edits(name, held) <= 2),
+                   key=lambda held: _edits(name, held), default=None)
+        nearest = "" if near is None else f"; it has {near}"
+        raise ToolRefused(f"the tool {tool} is to be wrapped at {at}, and {module_name} has no "
+                          f"{name}{nearest}: {where}", tool=tool)
+    found = names[name]
+    wrapped_as = _made(_BY_WRAP, found)
+    if wrapped_as is not None and wrapped_as != tool:
+        raise ToolRefused(f"the tool {tool} is to be wrapped at {at}, which your code already "
+                          f"wraps as {wrapped_as}: use the name {wrapped_as} in [tools], or "
+                          "remove the wrap line", tool=tool)
+    if wrapped_as is not None or tool in _WRAP_NAMES:
+        raise ToolRefused(f"the tool {tool} has a wrap line in your code and  at  in "
+                          f"break.toml; one of the two reaches it: remove  at  from {tool}'s "
+                          "line in [tools] in break.toml, or remove the wrap line", tool=tool)
+    loaded_as = _made(_AT_LOAD, found)
+    if loaded_as == tool:
+        return found.__wrapped__, found
+    if loaded_as is not None:
+        raise ToolRefused(f"the tools {loaded_as} and {tool} are both to be wrapped at one "
+                          f"function, {at}; one function is one tool: remove one of the two "
+                          "lines from [tools] in break.toml", tool=tool)
+    if not callable(found):
+        raise ToolRefused(f"the tool {tool} is to be wrapped at {at}, which is "
+                          f"{_a(type(found).__name__)}, not something that can be called: name "
+                          "the function itself; for a tool that is an object, use a wrap line in "
+                          "your code", tool=tool)
+    if isinstance(found, type):
+        raise ToolRefused(f"the tool {tool} is to be wrapped at {at}, which is a class; Break "
+                          "wraps a function: name a function, or use a wrap line in your code",
+                          tool=tool)
+    if _is_async(found):
+        raise ToolRefused(f"the tool {tool}, at {at}, is async, and Break calls a tool and "
+                          "reads what it returns: async tools are not in this version; name a "
+                          "function that is not async", tool=tool)
+    return found, None
+
+
+def _lines(places: Mapping[str, str]) -> list[tuple[str, str, Any, Any]]:
+    """Each line of ``places`` checked, as the tool, its ``at``, its function and the wrapper
+    an earlier load made for it or ``None``; or the first refusal, before anything is replaced."""
+    lines: list[tuple[str, str, Any, Any]] = []
+    for tool, at in places.items():
+        fn, wrapper = _placed(tool, at)
+        for other, first, held, _ in lines:
+            if held is fn:
+                also = "" if first == at else f", which {at} also names"
+                raise ToolRefused(f"the tools {other} and {tool} are both to be wrapped at one "
+                                  f"function, {first}{also}; one function is one tool: remove "
+                                  "one of the two lines from [tools] in break.toml", tool=tool)
+        lines.append((tool, at, fn, wrapper))
+    return lines
+
+
+def _replaced(tool: str, fn: Any, wrapper: Any, spots: list[_Spot]
+              ) -> tuple[Any, tuple[str, ...]]:
+    """Put the tool's one wrapper at every place that holds its function, and hand back the
+    wrapper and those places in text order. A place that holds the wrapper already is done."""
+    holds = [(spot, _at(spot)) for spot in spots]
+    if wrapper is None:
+        wrapper = next((held for _, held in holds if _made(_AT_LOAD, held) == tool
+                        and held.__wrapped__ is fn), None)
+    if wrapper is None:
+        wrapper = _wrapper(tool, fn)
+        _AT_LOAD[wrapper] = tool
+    places = []
+    for spot, held in holds:
+        if held is fn:
+            _put(spot, wrapper)
+        if held is fn or held is wrapper:
+            places.append(spot[0])
+    return wrapper, tuple(sorted(places))
+
+
+def wrap_at_load(places: Mapping[str, str]) -> tuple[Reached, ...]:
+    """Wrap each tool where ``places`` says it is, and say how each is now reached.
+
+    ``places`` maps a tool's name to its ``at``, an import path ``module:name`` naming the
+    function by any module that holds it, in order. Each module is imported and each function
+    found and checked before anything is replaced; then, for each tool, the wrapper ``wrap``
+    makes is put in every loaded module but Break's own under every name that holds the
+    function, and at every value of a dict and item of a list that a module holds under a name.
+    What is the function is told by identity. One level is gone into, and a key is never
+    replaced. Nothing is put back: the replacement lasts as long as the process.
+
+    Refused with ``ToolRefused`` naming the tool, and nothing replaced: a module that cannot be
+    imported or does not hold the name; something that cannot be called; a class; an async
+    tool, by the check ``wrap`` makes; two tools at one function; a tool a ``wrap`` line has
+    also run for; and a place that holds what ``wrap`` made under another name. A place that
+    already holds the wrapper made here for the same tool is done, and nothing is replaced
+    twice."""
+    if not isinstance(places, Mapping):
+        raise TypeError(f"the places are a mapping of each tool's name to where it is, not "
+                        f"{type(places).__name__}")
+    lines = _lines(places)
+    if not lines:
+        return ()
+    loaded = _loaded()
+    spots = _spots(loaded)
+    made = [(tool, at, fn, *_replaced(tool, fn, wrapper, spots))
+            for tool, at, fn, wrapper in lines]
+    mine = (lines, made, *lines, *made)
+    reached = []
+    for tool, at, fn, wrapper, replaced in made:
+        reached.append(Reached(tool=tool, how="at load", at=at, places=replaced,
+                               held_elsewhere=_held_elsewhere(fn, wrapper, loaded, mine)))
+    return tuple(reached)
+
+
+def _wrap_has_run(tool: str) -> bool:
+    """Whether a ``wrap`` line under the name ``tool`` has run in this process."""
+    return tool in _WRAP_NAMES
