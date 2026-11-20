@@ -87,7 +87,7 @@ def test_the_names_are_there_and_reached_and_held_are_frozen() -> None:
         with pytest.raises(dataclasses.FrozenInstanceError):
             setattr(thing, field, "changed")
     made = hunt.RolloutTarget(lambda cfg, seed: None, tools=[])
-    assert isinstance(getattr(made, "reached"), tuple)
+    assert isinstance(made.reached, tuple)
     assert "at" in {f.name for f in dataclasses.fields(settings.ToolLine)}
 
 

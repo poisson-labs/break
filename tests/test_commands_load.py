@@ -500,7 +500,7 @@ def test_init_says_where_each_name_it_found_is(init_found: dict[str, Any]) -> No
     lines += [line for line in strip(init_found["ran"].out).splitlines() if "next:" not in line]
     for tool in ("lookup_order", "issue_refund"):
         said = [line for line in lines if re.search(rf"\b{tool}\b", line) and "my_app.agents" in line]
-        assert len(said) >= 1, (tool, text)
+        assert len(said) >= 1, (tool, lines)
 
 
 def test_init_changes_no_file_of_the_user_s_module(init_found: dict[str, Any]) -> None:
