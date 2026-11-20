@@ -22,6 +22,7 @@ import shlex
 import sys
 import tomllib
 from collections.abc import Iterator
+from pathlib import Path
 from types import ModuleType
 from typing import Any
 
@@ -76,6 +77,20 @@ def test_reading_imports_nothing_so_an_at_whose_module_is_nowhere_is_read() -> N
     held = settings().loads(spec_settings(tools))
     assert held.tools[0].at == "no_such_package_for_at.tools:lookup_order"
     assert not [name for name in sys.modules if name.startswith("no_such_package_for_at")]
+
+
+def test_reading_does_not_import_a_module_that_is_there(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Plan BK4.6, spec §12.3: a module that could be imported, and that the `at` and the stand-in both name, is still
+    not imported by reading the file, nor by `dump`, nor by the command `init` would print."""
+    name = f"at_probe_{tmp_path.name.replace('-', '_')}"
+    (tmp_path / f"{name}.py").write_text("def lookup_order(query):\n    return query\n", encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    tools = {"lookup_order": {"class": "write", "stand_in": f"{name}:lookup_order", "at": f"{name}:lookup_order"}}
+    held = settings().loads(spec_settings(tools))
+    settings().dump(held)
+    settings().equivalent_init_command(held, prog="poisson-break")
+    assert held.tools[0].at == f"{name}:lookup_order"
+    assert name not in sys.modules
 
 
 def test_the_tool_s_name_need_not_be_the_function_s() -> None:
