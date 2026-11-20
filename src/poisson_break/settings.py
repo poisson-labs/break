@@ -132,7 +132,7 @@ _BUILT = tuple(strategy for strategy in _STRATEGIES if strategy not in _NOT_BUIL
 _NO_WAY_IN = "needs a way in this version does not have"
 
 _CLASSES = ("read", "write", "off")
-_LINE_KEYS = ("class", "repeatable", "stand_in")
+_LINE_KEYS = ("class", "repeatable", "stand_in", "at")
 _EXPECTATIONS = ("reply_contains", "calls", "never_calls")
 
 # What the settings file prints for the two lists that are on unless turned off. A fault added
@@ -204,13 +204,15 @@ class TargetTable:
 @dataclass(frozen=True)
 class ToolLine:
     """One line of ``[tools]``: a tool's name, its class (``read``, ``write`` or ``off``),
-    whether the test environment absorbs a repeat of it, and the stand-in called in its place,
-    as an import path."""
+    whether the test environment absorbs a repeat of it, the stand-in called in its place, as
+    an import path, and ``at``, where the tool's function is, as ``module:name``, for Break to
+    wrap it when it loads the agent; ``None`` where the user's own code wraps it."""
 
     name: str
     tool_class: str
     repeatable: bool
     stand_in: str | None
+    at: str | None = None
 
 
 @dataclass(frozen=True)
@@ -515,13 +517,15 @@ def _line_text(name: str, value: str) -> str:
 
 def _tool_text(tool: ToolLine) -> str:
     """A tool's line: the class as a word where that says it all, a table where it does not."""
-    if not tool.repeatable and tool.stand_in is None:
+    if not tool.repeatable and tool.stand_in is None and tool.at is None:
         return _quoted(tool.tool_class)
     fields = [f"class = {_quoted(tool.tool_class)}"]
     if tool.repeatable:
         fields.append("repeatable = true")
     if tool.stand_in is not None:
         fields.append(f"stand_in = {_quoted(tool.stand_in)}")
+    if tool.at is not None:
+        fields.append(f"at = {_quoted(tool.at)}")
     return "{ " + ", ".join(fields) + " }"
 
 
@@ -1065,8 +1069,8 @@ class _Check:
                 if key not in _LINE_KEYS:
                     stem = _dotted(("tools", name))
                     raise self.unknown(("tools", name, key),
-                                       "part of a tool's line, which holds class, repeatable "
-                                       "and stand_in",
+                                       "part of a tool's line, which holds class, repeatable, "
+                                       "stand_in and at",
                                        [(part, f"{stem}.{part}") for part in _LINE_KEYS], ())
 
     # --- the tables ---
@@ -1119,6 +1123,21 @@ class _Check:
                 raise self.refuse((*path, "stand_in"),
                                   "names a stand-in for a tool that is off, which Break never "
                                   "touches: class it read or write, or take the stand-in out")
+        place = fields.get("at")
+        if "at" in fields:
+            module, colon, inside = place.partition(":") if isinstance(place, str) else ("", "", "")
+            if not isinstance(place, str) or not _is_import_path(place):
+                raise self.refuse((*path, "at"),
+                                  f"is {_shown(place)}, not an import path written module:name")
+            if "." in inside:
+                raise self.refuse((*path, "at"),
+                                  f"is {_shown(place)}, a name inside {inside.rpartition('.')[0]}; "
+                                  "this version wraps a function a module holds by name: for a "
+                                  "method, use a wrap line in your code")
+            if tool_class == "off":
+                raise self.refuse((*path, "at"),
+                                  "names a place to wrap a tool that is off, which Break never "
+                                  "touches: class it read or write, or take the place out")
         if tool_class == "write" and not repeatable and stand_in is None:
             raise self.refuse(path, "is a write tool, and its line does not say how it is "
                                     "made safe to repeat: "
@@ -1126,7 +1145,7 @@ class _Check:
                                     "the test environment absorbs repeats, or a stand_in to "
                                     "call in its place")
         return ToolLine(name=name, tool_class=tool_class, repeatable=repeatable,
-                        stand_in=stand_in)
+                        stand_in=stand_in, at=place)
 
     def fails(self) -> FailsTable:
         checks = self.words("fails", "checks", CHECKS, "a check", CHECKS)
