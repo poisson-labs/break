@@ -12,14 +12,9 @@ files you can copy and edit, and the commands that take them to a hunt.
 ```python
 from poisson_prove import Episode
 
-from poisson_break.apply import wrap
 
-
-def _lookup_order(order: str) -> str:
+def lookup_order(order: str) -> str:
     ...   # your tool, as it is
-
-
-lookup_order = wrap("lookup_order", _lookup_order)
 
 
 def refund_agent(cfg, seed):
@@ -27,7 +22,7 @@ def refund_agent(cfg, seed):
     return Episode(outcome="resolved", t=1.0, horizon=1.0, meta={"reply": reply})
 ```
 
-Two things make a function a rollout target.
+The agent's code holds no line from Break. Two things make a function a rollout target.
 
 **It takes a case and a seed and returns an `Episode`.** `cfg` is one case from your case file,
 as a mapping: its `input`, and any other key you put on the line. `seed` is the run's seed; an
@@ -43,20 +38,60 @@ agent that draws random numbers should draw them from it, so that a run can be r
 run could go. Break's verdicts do not use them, and an agent with no such measure passes
 `t=1.0, horizon=1.0`.
 
-**Each tool is wrapped once.** `wrap(name, function)` returns the tool with a hook in it. Outside
-a run the wrapped tool is the tool itself, so the line can stay in your code. Inside a run,
-each call goes through Break, which either passes it on or puts a fault in its place. A fault
-arrives where the tool's own failure would: an `error` is an exception raised from the call,
-and a `timeout` is a `TimeoutError`. Wrap a tool where it is defined, at the top of a module,
-so that `init` can find it by importing that module.
+**Break needs to reach each tool.** A tool Break reaches has a hook in it. Outside a run the tool
+is itself. Inside a run, each call goes through Break, which either passes it on or puts a fault
+in its place. A fault arrives where the tool's own failure would: an `error` is an exception
+raised from the call, and a `timeout` is a `TimeoutError`. There are two ways to put the hook in,
+and a tool takes one of them.
 
-An `async def` tool is refused; wrap a function that is not async.
+*`at` in `break.toml`.* The tool's line in `[tools]` says where its function is, as
+`module:name`, and Break puts the hook in when it loads your agent. The `at` setting needs
+Poisson Break 0.2.0 or later. Version 0.1.x uses a `wrap` line for each tool.
+
+```toml
+[tools]
+lookup_order = { class = "read", at = "my_app.tools:lookup_order" }
+```
+
+Break replaces that function in every loaded module that holds it under a name, and in every
+dict and list at the top of a module that holds it. So a tool defined in one file and imported
+into another needs one `at`, and so does a tool your agent looks up in a dict of tools. `at`
+names a function a module holds by name; the tool's name in `[tools]` need not be the
+function's. A function you have not named as a tool is called as it is: Break does not look for
+tools on its own.
+
+*A `wrap` line in your code.* `wrap(name, function)` returns the tool with the same hook in it:
+
+```python
+from poisson_break.apply import wrap
+
+lookup_order = wrap("lookup_order", lookup_order)   # where the tool is defined
+```
+
+Write it where the tool is defined, at the top of a module, so that `init` can find it by
+importing that module, and everything that takes hold of the tool afterwards takes the wrapped
+one. The line can stay in your code.
+
+| | `at` in `break.toml` | a `wrap` line |
+|---|---|---|
+| What you write | one key on the tool's line; no line in your code | one line in your code where the tool is defined |
+| A module's own name for the function, in any loaded module | reached | reached |
+| A dict or a list at the top of a module that holds it | reached | reached |
+| A closure, a `functools.partial`, a tuple or a set that took it before Break loaded the agent | not reached; `doctor` names it | reached |
+| An attribute of an object or a class, or a framework's tool object built from it | not reached; `doctor` names it | reached |
+| A method, or a tool that is a class | refused; use a `wrap` line | reached |
+
+`doctor` says how each tool is reached, and names anything it finds holding a tool that Break
+could not replace. An `async def` tool is refused either way.
 
 ## The settings
 
-`init` asks where the agent is, where the cases are and, for each tool it finds, whether
-calling it changes anything, and writes `break.toml`; every other setting takes its default,
-and `init` lists what it chose. A flag answers its own question, and `--yes` takes the default
+`init` asks where the agent is, where the cases are and, for each tool, whether calling it
+changes anything, and writes `break.toml`; every other setting takes its default, and `init`
+lists what it chose. Where your code wraps its tools, `init` finds them by importing the agent's
+module. Where it wraps none, `init` asks which tools the agent calls, by name: a name the
+agent's module holds gets its `at` there, and for any other name `init` asks where the function
+is. A flag answers its own question, and `--yes` takes the default
 for every question left, so `init --entry my_app.agents:refund_agent --yes` asks nothing. These
 are the lines that describe the target:
 
@@ -67,10 +102,13 @@ entry = "my_app.agents:refund_agent"   # module:name, importable from the folder
 cases = "cases.jsonl"
 
 [tools]
-lookup_order = "read"
-issue_refund = { class = "write", stand_in = "my_app.fakes:issue_refund" }
+lookup_order = { class = "read", at = "my_app.tools:lookup_order" }
+issue_refund = { class = "write", stand_in = "my_app.fakes:issue_refund", at = "my_app.tools:issue_refund" }
 send_email = "off"
 ```
+
+A line with no `at` is a tool your own code wraps. An `off` line takes no `at`, since Break
+never touches that tool.
 
 The command puts the folder it runs in first on the import path, so a module beside
 `break.toml` is found.
@@ -166,9 +204,17 @@ asking, and stores nothing. In the example's folder it prints:
 ```text
 note: Break calls your tools for real: run it against a test environment, never against anything that matters
 ready  refund_desk:refund_desk loads, with 2 tools and 6 cases
-  tools  lookup_order, issue_refund
+  tools    lookup_order, issue_refund
+  reached  lookup_order  by a wrap line in your code
+           issue_refund  by a wrap line in your code
 next: poisson-break hunt
 ```
+
+The `reached` row has a line for every tool that is not `off`: `wrapped at load`, with the
+modules Break replaced it in, `by a wrap line in your code`, or `not seen`. A tool that is not
+seen has no `at` and no `wrap` line that ran while the agent loaded, and gets a `note:`; so
+does a tool wrapped at load that a closure, a partial, a tuple or an object also holds, since a
+call through one of those does not pass through Break.
 
 ## What rollout cannot do
 
@@ -185,8 +231,8 @@ function, such as one behind an HTTP service, also needs a way in this version d
 ## A whole agent to start from
 
 This is a whole agent you can copy and edit: a bookshop desk with one tool that reads the stock
-and one that holds a copy, each wrapped once. It has no model, so it needs no key. Make a folder
-for it:
+and one that holds a copy. It has no model, so it needs no key, and no line from Break. Make a
+folder for it:
 
 ```sh
 mkdir shop
@@ -202,21 +248,15 @@ import re
 
 from poisson_prove import Episode
 
-from poisson_break.apply import wrap
-
 STOCK = {"dune": 3, "emma": 0, "ulysses": 1}
 
 
-def _check_stock(title):
+def check_stock(title):
     return STOCK.get(title)
 
 
-def _hold_copy(title):
+def hold_copy(title):
     return f"hold-{title}"
-
-
-check_stock = wrap("check_stock", _check_stock)
-hold_copy = wrap("hold_copy", _hold_copy)
 
 
 def shop(cfg, seed):
@@ -243,14 +283,16 @@ and hunt:
 
 ```sh
 poisson-break init --entry shop:shop --cases cases.jsonl \
-    --tool 'check_stock = "read"' \
-    --tool 'hold_copy = { class = "write", repeatable = true }' --yes
+    --tool 'check_stock = { class = "read", at = "shop:check_stock" }' \
+    --tool 'hold_copy = { class = "write", repeatable = true, at = "shop:hold_copy" }' --yes
 poisson-break doctor
 poisson-break hunt --yes
 ```
 
 `check_stock` is classed `read`, since looking at the stock changes nothing. `hold_copy` changes
 something, and `repeatable = true` says your test environment absorbs a hold made twice; the
-other lines a tool can have are under [Tool classes](#tool-classes). To make it your own agent,
-put your tools in place of the two here, keep one `wrap` line for each, and have `shop` call your
-agent and hand back its reply in the `Episode`.
+other lines a tool can have are under [Tool classes](#tool-classes). Each `at` says where the
+tool is, as `module:name`, and `doctor` shows both tools `wrapped at load`. To make it your own
+agent, put your tools in place of the two here, give each its line with its `at`, and have `shop`
+call your agent and hand back its reply in the `Episode`. Run with no `--tool`, `init` asks for
+the tools' names and writes each `at` itself.

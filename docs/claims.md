@@ -85,8 +85,11 @@ hunt and what your tools do. Run Break against a test environment.
 
 ## What this version cannot test
 
-- It cannot test an agent it cannot call as a Python function with wrapped tools. Adapters for
-  agent frameworks and for MCP servers are not in this version.
+- It cannot test an agent it cannot call as a Python function, or a tool it cannot reach: one
+  neither named in `break.toml` nor wrapped in your code. Adapters for agent frameworks and for
+  MCP servers are not in this version.
+- A function you have not named as a tool is called as it is. Break does not look for tools on
+  its own.
 - It cannot change the conversation or the model's own calls. Those changes are named in the
   catalogue and need the adapters.
 - It refuses `async def` tools.

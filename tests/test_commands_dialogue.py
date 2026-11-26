@@ -547,6 +547,19 @@ IN_BODY_WORDS = ["--kind", "rollout", "--entry", "in_body:agent", "--cases", "ca
                  "--tool", 'lookup_order = "read"', "--tool", 'send_mail = { class = "write", repeatable = true }']
 
 
+def placing_none(answer: Any) -> Any:
+    """Ruling 9 of the wrapping at load spec (spec §12.5): a name typed that the entry's module does not hold is asked
+    one more question, where that function is, as `module:name`. Answered empty, the tool's line has no place, as it
+    did before the ruling; every other question goes to `answer`."""
+    def answering_where(asked: Asked) -> str:
+        q = asked.question
+        if (not asked.yes_no and "module:name" in q and not q.startswith(AGENT) and "stand-in" not in q):
+            return ""
+        return str(answer(asked))
+
+    return answering_where
+
+
 def in_body(folder: Path) -> tuple[Any, dict[str, str]]:
     proj = empty(folder)
     (proj.folder / "in_body.py").write_text(IN_BODY, encoding="utf-8")
@@ -558,8 +571,8 @@ def no_tool_found(tmp_path_factory: pytest.TempPathFactory) -> dict[str, tuple[A
     held = {}
     for rendering in ("plain", "pretty"):
         proj, env = in_body(tmp_path_factory.mktemp(f"in-body-{rendering}"))
-        ran, asked = converse(proj, ["init"], answering(IN_BODY_CLASSES, entry="in_body:agent",
-                                                        names="lookup_order, send_mail"),
+        ran, asked = converse(proj, ["init"], placing_none(answering(IN_BODY_CLASSES, entry="in_body:agent",
+                                                                     names="lookup_order, send_mail")),
                               pretty=rendering == "pretty", **env)
         held[rendering] = (proj, ran, asked)
     return held
@@ -569,14 +582,17 @@ def no_tool_found(tmp_path_factory: pytest.TempPathFactory) -> dict[str, tuple[A
 def test_with_no_tool_found_the_names_are_asked_then_each_tool_s_questions(
         no_tool_found: dict[str, tuple[Any, Any, list[Asked]]], rendering: str) -> None:
     """A target that wraps its tools inside its own body: one text prompt, empty by default, answered with two names;
-    then each name's questions, in the order given; the file is what the same flags write."""
+    the module holds neither, so each is asked where it is (ruling 9 of the wrapping at load spec), answered with
+    nothing; then each name's questions, in the order given; the file is what the same flags write."""
     proj, ran, asked = no_tool_found[rendering]
     assert ran.exit == CODES["done"], (ran, asked)
     names = asked[2]
     assert names.question.startswith(NAMES) and not names.yes_no and names.bracket == "[]", names.text
     assert names.answer == "lookup_order, send_mail"
-    assert asked[3].question.startswith("Does calling lookup_order")
-    assert asked[4].question.startswith("Does calling send_mail")
+    assert "lookup_order" in asked[3].question and "module:name" in asked[3].question and asked[3].answer == ""
+    assert "send_mail" in asked[4].question and "module:name" in asked[4].question and asked[4].answer == ""
+    assert asked[5].question.startswith("Does calling lookup_order")
+    assert asked[6].question.startswith("Does calling send_mail")
     assert not any(a.is_menu for a in asked)
     assert proj.settings.read_text(encoding="utf-8") == expected(IN_BODY_WORDS)
     assert proj.runs() == []
