@@ -45,7 +45,8 @@ raised from the call, and a `timeout` is a `TimeoutError`. There are two ways to
 and a tool takes one of them.
 
 *`at` in `break.toml`.* The tool's line in `[tools]` says where its function is, as
-`module:name`, and Break puts the hook in when it loads your agent:
+`module:name`, and Break puts the hook in when it loads your agent. The `at` setting needs
+Poisson Break 0.2.0 or later. Version 0.1.x uses a `wrap` line for each tool.
 
 ```toml
 [tools]

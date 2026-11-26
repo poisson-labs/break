@@ -136,7 +136,8 @@ lands and the other does nothing to that call. Under the control the agent gets 
 object and the tool's own exception.
 
 **Wrapping at load.** A tool whose line in `[tools]` has an `at` needs no `wrap` line:
-`load_target` puts the same wrapper in when it loads the agent.
+`load_target` puts the same wrapper in when it loads the agent. The `at` setting needs
+Poisson Break 0.2.0 or later. Version 0.1.x uses a `wrap` line for each tool.
 
 ```python
 from poisson_break.apply import wrap_at_load

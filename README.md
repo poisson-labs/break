@@ -174,6 +174,9 @@ writes where each one is into `break.toml`, as `at` on the tool's line. When Bre
 agent it puts itself between the agent and each of those functions, and your code needs no line
 from Break.
 
+The `at` setting needs Poisson Break 0.2.0 or later. Version 0.1.x uses a `wrap` line for each
+tool.
+
 ```toml
 [tools]
 lookup_order = { class = "read", at = "my_app.tools:lookup_order" }
