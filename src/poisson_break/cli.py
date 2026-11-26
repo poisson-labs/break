@@ -1772,6 +1772,19 @@ def _and(words: Sequence[str]) -> str:
     return words[0] if len(words) == 1 else ", ".join(words[:-1]) + " and " + words[-1]
 
 
+def _reached_data(target: object) -> list[dict[str, Any]]:
+    """How the rollout way in reached each tool, in the shape ``hunt.json`` holds it, read from
+    the target's public ``reached``; empty for a way in of another kind."""
+    from poisson_break.hunt import RolloutTarget
+
+    if not isinstance(target, RolloutTarget):
+        return []
+    return [{"tool": one.tool, "how": one.how, "at": one.at, "places": list(one.places),
+             "held_elsewhere": None if one.held_elsewhere is None else [
+                 {"kind": held.kind, "where": held.where} for held in one.held_elsewhere]}
+            for one in target.reached]
+
+
 def _reached_rows(reached: Sequence[Mapping[str, Any]]) -> list[look.Row]:
     """The ``reached`` row of a ``ready``: a line for each tool that is not ``off``, saying how
     Break reaches it, and for a tool wrapped at load the modules it was wrapped in, the one its
@@ -1826,7 +1839,7 @@ def _reached_notes(reached: Sequence[Mapping[str, Any]]) -> list[str]:
 
 def _doctor(call: _Call) -> int:
     from poisson_break.apply import Session
-    from poisson_break.hunt import _reached_data, check_vary, run_once
+    from poisson_break.hunt import check_vary, run_once
     from poisson_break.search import load_strategy
 
     args = call.args
@@ -1865,7 +1878,7 @@ def _doctor(call: _Call) -> int:
     except _refusals() as wrong:
         return problem(_one_line(wrong), again)
     tools = [tool.name for tool in target.tools()]
-    reached = _reached_data(target) or []
+    reached = _reached_data(target)
     detail: list[look.Row | look.Line | look.Table] = [
         look.Row("tools", ", ".join(tools) or "none"), *_reached_rows(reached)]
     data: dict[str, Any] = {"settings": SETTINGS_FILE, "target": settings.target.entry,
@@ -2129,7 +2142,10 @@ class _Dialogue:
         agent's own module where that holds a function of the name, and where the user says
         otherwise. A tool with no place is one the user's own code wraps. Nothing is replaced
         here, and no file of the user's is written."""
-        held = getattr(sys.modules.get(module), "__dict__", {})
+        try:
+            held: Mapping[str, Any] = vars(sys.modules.get(module))
+        except TypeError:  # the module is not loaded, or holds no names
+            held = {}
         width = max((len(tool) for tool in tools), default=0)
         places: dict[str, str] = {}
         for tool in tools:
